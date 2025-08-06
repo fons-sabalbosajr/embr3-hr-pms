@@ -1,25 +1,52 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import AuthPage from './pages/AuthPage'; // combines Login and Signup
-import HomePage from './pages/HomePage';
-import { secureGet } from './utils/secureStorage';
+import {
+  BrowserRouter as Router,
+  Routes,
+  Route,
+  Navigate,
+  useLocation,
+} from "react-router-dom";
+import { useEffect, useState } from "react";
 
-const App = () => {
-  const isAuthenticated = !!secureGet('token');
+import AuthPage from "./pages/AuthPage/AuthPage";
+import ResetPassword from "./pages/ResetPassword/ResetPassword";
+import HomePage from "./pages/HomePage/HomePage";
+import EmailVerification from "./pages/EmailVerification";
+import { secureGet } from "../utils/secureStorage";
+
+const AppRoutes = () => {
+  const [isAuthenticated, setIsAuthenticated] = useState(!!secureGet("token"));
+  const location = useLocation();
+
+  // Refresh auth status when route changes
+  useEffect(() => {
+    const token = secureGet("token");
+    setIsAuthenticated(!!token);
+  }, [location]);
 
   return (
-    <Router>
-      <Routes>
-        {/* Unified login/signup under /auth */}
-        <Route path="/auth" element={<AuthPage />} />
-
-        {/* Protected routes */}
-        <Route
-          path="/*"
-          element={isAuthenticated ? <HomePage /> : <Navigate to="/auth" replace />}
-        />
-      </Routes>
-    </Router>
+    <Routes>
+      <Route
+        path="/auth"
+        element={
+          isAuthenticated ? <Navigate to="/" replace /> : <AuthPage />
+        }
+      />
+      <Route path="/verify/:token" element={<EmailVerification />} />
+      <Route path="/reset-password/:token" element={<ResetPassword />} />
+      <Route
+        path="/*"
+        element={
+          isAuthenticated ? <HomePage /> : <Navigate to="/auth" replace />
+        }
+      />
+    </Routes>
   );
 };
+
+const App = () => (
+  <Router>
+    <AppRoutes />
+  </Router>
+);
 
 export default App;

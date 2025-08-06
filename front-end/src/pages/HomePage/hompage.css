@@ -1,0 +1,65 @@
+/* HomePage.css */
+
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: #fff;
+  padding: 0 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.sider {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 100vh;
+  overflow-y: auto;
+  z-index: 1000;
+}
+
+.logo-container {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 16px;
+}
+
+.logo-container.collapsed {
+  justify-content: center;
+  gap: 0;
+}
+
+.logo-img {
+  width: 40px;
+  height: auto;
+}
+
+.logo-text {
+  color: #fff;
+  font-weight: bold;
+  font-size: 14px;
+}
+
+.content-wrapper {
+  background: #fff;
+  padding: 24px;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  min-height: 100%;
+}
+
+
+/* Reduce Footer spacing */
+.ant-layout-footer {
+  padding: 8px 16px; /* Reduce top/bottom padding */
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.ant-layout-content {
+  margin-bottom: 10px !important;
+}
