@@ -1,0 +1,37 @@
+.upload-employee-container {
+  padding: 24px;
+  margin: 0 auto;
+}
+
+.upload-dragger {
+  background-color: #fafafa;
+  border-radius: 8px;
+}
+
+.ant-upload-text {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.ant-upload-hint {
+  font-size: 12px;
+  color: #888;
+}
+
+.duplicate-row {
+  background-color: #fff1f0 !important;
+}
+
+/* Tighter font and spacing for the table */
+.upload-employee-container .ant-table {
+  font-size: 12px;
+}
+
+.upload-employee-container .ant-table-cell {
+  padding: 2px 4px;
+}
+
+/* Reduce space around pagination */
+.upload-employee-container .ant-table-pagination {
+  margin: 8px 0 0 0;
+}

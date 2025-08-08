@@ -1,0 +1,138 @@
+.geninfo-header {
+  margin-bottom: 16px;
+}
+
+.geninfo-header h2 {
+  font-size: 20px;
+  margin: 0;
+  color: #2b2b2b;
+}
+
+.geninfo-filters {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+  gap: 10px;
+}
+
+/* Filters left section */
+.filters-left {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* Reduced font size for filter inputs */
+.geninfo-filters input,
+.geninfo-filters .ant-select-selector {
+  font-size: 11px;
+}
+
+/* Optional: reduce font in dropdown options */
+.geninfo-filters .ant-select-dropdown {
+  font-size: 13px;
+}
+
+.geninfo-table .ant-table {
+  font-size: 12px; /* Adjust as needed (10px–14px range recommended) */
+}
+
+.geninfo-table .ant-table-thead > tr > th {
+  font-size: 12px;
+  padding: 8px;
+}
+
+.geninfo-table .ant-table-tbody > tr > td {
+  font-size: 12px;
+  padding: 8px;
+}
+
+
+.assignment-column {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+}
+
+.assignment-label {
+  padding: 2px 6px;
+  border-radius: 4px;
+  width: fit-content;
+  font-weight: 500;
+}
+
+/* Dynamic background colors by position */
+.pos-aide {
+  background-color: #fff1f0;
+  color: #cf1322;
+}
+
+.pos-assistant {
+  background-color: #f0f5ff;
+  color: #2f54eb;
+}
+
+.pos-officer {
+  background-color: #f6ffed;
+  color: #389e0d;
+}
+
+.pos-chief {
+  background-color: #e6f7ff;
+  color: #096dd9;
+}
+
+.pos-chemist {
+  background-color: #f9f0ff;
+  color: #722ed1;
+}
+
+.pos-engineer {
+  background-color: #e6fffb;
+  color: #08979c;
+}
+
+.pos-info {
+  background-color: #fff7e6;
+  color: #d48806;
+}
+
+.pos-env {
+  background-color: #f0fff0;
+  color: #237804;
+}
+
+.pos-planner {
+  background-color: #f4ffb8;
+  color: #ad8b00;
+}
+
+.pos-default {
+  background-color: #f5f5f5;
+  color: #595959;
+}
+
+/* Other labels */
+.assignment-label.section {
+  color: #8c8c8c;
+  font-size: 10px;
+}
+
+.assignment-label.division {
+  color: #262626;
+  font-size: 10px;
+}
+
+
+.assignment-label.position-color-A {
+  background-color: #d9f7be;
+  color: #389e0d;
+}
+
+.assignment-label.position-color-B {
+  background-color: #ffe58f;
+  color: #d48806;
+}

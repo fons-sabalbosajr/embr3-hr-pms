@@ -2,11 +2,16 @@ import express from "express";
 import mongoose from "mongoose";
 import cors from "cors";
 import dotenv from "dotenv";
-import http from "http"; // Needed for Socket.IO
-import { Server } from "socket.io"; // Socket.IO server
+import http from "http";
+import { Server } from "socket.io";
 
 import authRoutes from "./routes/authRoutes.js";
 import protectedRoutes from "./routes/protectedRoutes.js";
+import employeeRoutes from "./routes/employeeRoutes.js";
+import dtrRoutes from "./routes/dtrRoutes.js";
+import dtrLogRoutes from "./routes/dtrLogRoutes.js";
+
+import { setSocketInstance } from "./socket.js";
 
 dotenv.config();
 
@@ -20,32 +25,39 @@ const server = http.createServer(app);
 // 2. Attach Socket.IO
 const io = new Server(server, {
   cors: {
-    origin: process.env.CLIENT_ORIGIN, // e.g. http://10.14.77.107:5173
+    origin: process.env.CLIENT_ORIGIN,
     methods: ["GET", "POST"],
-    credentials: true
-  }
+    credentials: true,
+  },
 });
 
-// 3. Listen to socket connections
+// 3. Make the `io` instance globally available
+setSocketInstance(io);
+
+// 4. Socket.IO listeners
 io.on("connection", (socket) => {
   //console.log("Socket connected:", socket.id);
 
-  // You can emit test event
-  //socket.emit("newNotification", { message: "Welcome notification!" });
+  // socket.emit("newNotification", { message: "Welcome notification!" });
 
   socket.on("disconnect", () => {
     //console.log("Socket disconnected:", socket.id);
   });
 });
 
+// 5. Middleware
 app.use(cors({ origin: process.env.CLIENT_ORIGIN, credentials: true }));
-app.use(express.json());
+app.use(express.json({ limit: "20mb" })); // or larger if needed
+app.use(express.urlencoded({ extended: true, limit: "20mb" }));
 
-// Routes
-app.use('/api/users', authRoutes);
-app.use('/api/protected', protectedRoutes);
+// 6. Routes
+app.use("/api/users", authRoutes);
+app.use("/api/protected", protectedRoutes);
+app.use("/api/employees", employeeRoutes);
+app.use("/api/dtr", dtrRoutes);
+app.use("/api/dtrlogs", dtrLogRoutes);
 
-// 4. Connect to Mongo and start the full HTTP + WebSocket server
+// 7. Start server
 mongoose
   .connect(process.env.MONGO_URI)
   .then(() => {
