@@ -12,7 +12,7 @@ export const uploadEmployees = async (req, res) => {
 
     const normalized = employees.map((row) => ({
       empNo: row["Emp_No"]?.toString().trim() || "",
-      empId: row["Emp_ID"]?.toString().trim() || "",
+      empId: row["Emp_ID"]?.toString().trim() || "", // always use provided empId, no generation
       alternateEmpIds: row["Alternate_Emp_IDs"]
         ? row["Alternate_Emp_IDs"].split(",").map((id) => id.trim())
         : [],
@@ -33,14 +33,12 @@ export const uploadEmployees = async (req, res) => {
 
     await Employee.bulkWrite(bulkOps);
 
-    // Log upload
     const uploadLog = await UploadLog.create({
       uploadedBy: req.headers["x-uploaded-by"] || "Anonymous",
       totalRecords: normalized.length,
       fileType: "excel-or-csv",
     });
 
-    // Emit event
     const io = getSocketInstance();
     io.emit("employeeUploadSuccess", {
       message: `Uploaded ${normalized.length} employees`,
@@ -65,10 +63,38 @@ export const getEmployees = async (req, res) => {
   }
 };
 
+// Add this new controller function:
+export const checkEmpIdUnique = async (req, res) => {
+  try {
+    const { empId, excludeId } = req.query;
+    if (!empId) {
+      return res.status(400).json({ message: "empId query param is required" });
+    }
+
+    const existing = await Employee.findOne({
+      empId,
+      ...(excludeId ? { _id: { $ne: excludeId } } : {}),
+    });
+
+    res.json({ isUnique: !existing });
+  } catch (error) {
+    console.error("Error checking empId uniqueness:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+// Modify updateEmployeeById to catch duplicate key error specifically
 export const updateEmployeeById = async (req, res) => {
   try {
     const { id } = req.params;
-    const updateData = req.body;
+    let updateData = req.body;
+
+    if (typeof updateData.emails === "string") {
+      updateData.emails = updateData.emails
+        .split(",")
+        .map((email) => email.trim())
+        .filter(Boolean);
+    }
 
     const updated = await Employee.findByIdAndUpdate(id, updateData, {
       new: true,
@@ -82,6 +108,115 @@ export const updateEmployeeById = async (req, res) => {
     res.json({ success: true, data: updated });
   } catch (error) {
     console.error("Employee update failed:", error);
+
+    // Handle Mongo duplicate key error on empId
+    if (
+      error.name === "MongoServerError" &&
+      error.code === 11000 &&
+      error.keyPattern?.empId
+    ) {
+      return res
+        .status(400)
+        .json({
+          message: `Employee ID "${error.keyValue.empId}" already exists.`,
+        });
+    }
+
     res.status(500).json({ message: "Server error" });
+  }
+};
+
+export const addEmployee = async (req, res) => {
+  try {
+    let data = req.body;
+
+    if (typeof data.emails === "string") {
+      data.emails = data.emails
+        .split(",")
+        .map((email) => email.trim())
+        .filter(Boolean);
+    }
+
+    if (typeof data.alternateEmpIds === "string") {
+      data.alternateEmpIds = data.alternateEmpIds
+        .split(",")
+        .map((id) => id.trim())
+        .filter(Boolean);
+    }
+
+    // Auto-generate empNo based on empType
+    if (data.empType) {
+      const prefix = data.empType === "Regular" ? "R3-REG" : "R3-COS";
+
+      const employees = await Employee.find({ empType: data.empType }).lean();
+
+      let maxNum = 0;
+      employees.forEach((emp) => {
+        if (emp.empNo && emp.empNo.startsWith(prefix)) {
+          const match = emp.empNo.match(/\d+$/);
+          if (match) {
+            const num = parseInt(match[0], 10);
+            if (num > maxNum) maxNum = num;
+          }
+        }
+      });
+
+      const newNum = maxNum + 1;
+      data.empNo = `${prefix}${String(newNum).padStart(3, "0")}`;
+    }
+
+    // IMPORTANT: do NOT auto-generate or overwrite empId here.
+    // Use the empId as sent from frontend (HR input).
+
+    const newEmployee = await Employee.create(data);
+
+    const io = getSocketInstance();
+    io.emit("employeeAdded", {
+      message: `Added new employee: ${newEmployee.name}`,
+      employee: newEmployee,
+      timestamp: newEmployee.createdAt,
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "Employee added successfully",
+      data: newEmployee,
+    });
+  } catch (error) {
+    console.error("Error adding employee:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+export const getLatestEmpNo = async (req, res) => {
+  try {
+    const { type } = req.params;
+    const prefix = type === "Regular" ? "R3-REG" : "R3-COS";
+
+    // Get all employees of the selected type
+    const employees = await Employee.find({ empType: type }).lean();
+
+    // Extract the numeric suffix and find the max
+    let maxNum = 0;
+    employees.forEach((emp) => {
+      if (emp.empNo && emp.empNo.startsWith(prefix)) {
+        const match = emp.empNo.match(/\d+$/);
+        if (match) {
+          const num = parseInt(match[0], 10);
+          if (num > maxNum) {
+            maxNum = num;
+          }
+        }
+      }
+    });
+
+    // Generate the next number
+    const newNum = maxNum + 1;
+    const empNo = `${prefix}${String(newNum).padStart(3, "0")}`; // pad to 3 digits
+
+    res.json({ empNo });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Error fetching latest empNo" });
   }
 };

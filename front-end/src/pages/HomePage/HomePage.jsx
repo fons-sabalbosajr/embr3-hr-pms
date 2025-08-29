@@ -39,7 +39,7 @@ import UserAccess from "../../components/Settings/UserAccess/UserAccess";
 import ImportDTRModal from "../../components/DTR/ImportDTRModal";
 import DTR from "../DTR/DTR";
 import DTRLogs from "../DTR/DTRLogs";
-import DTRProcessed from "../DTR/DTRProcessed";
+import DTRProcess from "../DTR/DTRProcess";
 import DTRReports from "../DTR/DTRReports";
 
 import io from "socket.io-client";
@@ -94,7 +94,7 @@ const HomePage = () => {
       label: "Daily Time Record",
       children: [
         { key: "/dtr/logs", label: "DTR Logs" },
-        { key: "/dtr/processed", label: "Processed DTR" },
+        { key: "/dtr/process", label: "Process DTR" },
         { key: "/dtr/reports", label: "Reports" },
       ],
     },
@@ -271,7 +271,7 @@ const HomePage = () => {
               <Route path="/employeeinfo" element={<GenInfo />} />
 
               <Route path="/dtr/logs" element={<DTRLogs />} />
-              <Route path="/dtr/processed" element={<DTRProcessed />} />
+              <Route path="/dtr/process" element={<DTRProcess />} />
               <Route path="/dtr/reports" element={<DTRReports />} />
               <Route path="/salaryinfo" element={<SalaryInfo />} />
               <Route path="/benefitsinfo" element={<BenefitsInfo />} />

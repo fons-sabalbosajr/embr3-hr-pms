@@ -20,6 +20,8 @@ import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc";
 import timezone from "dayjs/plugin/timezone";
 import isBetween from "dayjs/plugin/isBetween";
+import NProgress from "nprogress";
+import "nprogress/nprogress.css";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -89,30 +91,50 @@ const DTRLogs = () => {
   const [loading, setLoading] = useState(false);
   const [dtrData, setDtrData] = useState([]);
   const [employeeFilter, setEmployeeFilter] = useState("");
-
-  // Filters
   const [stateFilter, setStateFilter] = useState(null);
   const [cutOffDateRange, setCutOffDateRange] = useState([null, null]);
-
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
-
-  // Single day date filter for column
   const [dateFilter, setDateFilter] = useState(null);
+  const [recordNameFilter, setRecordNameFilter] = useState(null);
+  const [recordNameOptions, setRecordNameOptions] = useState([]);
+
+  const [acNoFilter, setAcNoFilter] = useState("");
 
   useEffect(() => {
     const fetchDTRData = async () => {
       try {
         setLoading(true);
-        const res = await axiosInstance.get("/dtrlogs/merged");
-        if (res.data.success) {
-          setDtrData(res.data.data);
+
+        const [logsRes, recordsRes] = await Promise.all([
+          axiosInstance.get("/dtrlogs/merged", {
+            params: {
+              recordName: recordNameFilter || undefined,
+              acNo: acNoFilter || undefined,
+            },
+          }),
+          axiosInstance.get("/dtrdatas"),
+        ]);
+
+        if (logsRes.data.success) {
+          setDtrData(logsRes.data.data);
         } else {
           message.error("Failed to load DTR logs");
         }
+
+        if (recordsRes.data.success) {
+          setRecordNameOptions(
+            recordsRes.data.data.map((r) => ({
+              label: r.DTR_Record_Name,
+              value: r.DTR_Record_Name,
+            }))
+          );
+        } else {
+          message.error("Failed to load DTR Record Names");
+        }
       } catch (error) {
-        console.error("Failed to fetch DTR logs:", error);
-        message.error("Error loading DTR logs");
+        console.error("Failed to fetch DTR logs or record names:", error);
+        message.error("Error loading data");
       } finally {
         setLoading(false);
       }
@@ -130,6 +152,7 @@ const DTRLogs = () => {
   const filteredRawData = useMemo(() => {
     let filtered = dtrData;
 
+    // Existing filters...
     if (cutOffDateRange && cutOffDateRange[0] && cutOffDateRange[1]) {
       const [start, end] = cutOffDateRange;
       const startDate = start.startOf("day");
@@ -139,7 +162,6 @@ const DTRLogs = () => {
         if (!log.time) return false;
         const logDate = dayjs(log.time).tz(userTimeZone);
         if (!logDate.isValid()) return false;
-
         return logDate.isBetween(startDate, endDate, null, "[]");
       });
     }
@@ -153,7 +175,6 @@ const DTRLogs = () => {
         if (!log.time) return false;
         const logDate = dayjs(log.time).tz(userTimeZone);
         if (!logDate.isValid()) return false;
-
         return (
           logDate.year() === dateFilter.year() &&
           logDate.month() === dateFilter.month() &&
@@ -162,8 +183,30 @@ const DTRLogs = () => {
       });
     }
 
+    // New: Filter by DTR_Record_Name
+    if (recordNameFilter) {
+      filtered = filtered.filter(
+        (log) => log.DTR_Record_Name === recordNameFilter
+      );
+    }
+
+    // New: Filter by Biometrics Code
+    if (acNoFilter.trim()) {
+      const keyword = acNoFilter.trim().toLowerCase();
+      filtered = filtered.filter((log) =>
+        log.acNo?.toLowerCase().includes(keyword)
+      );
+    }
+
     return filtered;
-  }, [dtrData, cutOffDateRange, stateFilter, dateFilter]);
+  }, [
+    dtrData,
+    cutOffDateRange,
+    stateFilter,
+    dateFilter,
+    recordNameFilter,
+    acNoFilter,
+  ]);
 
   const groupedData = useMemo(
     () => groupDTRLogs(filteredRawData),
@@ -204,8 +247,15 @@ const DTRLogs = () => {
     setCurrentPage(1);
   }, [filteredData]);
 
+  useEffect(() => {
+    if (loading) {
+      NProgress.start();
+    } else {
+      NProgress.done();
+    }
+  }, [loading]);
+
   const SMALL_FONT_STYLE = { fontSize: "12px" };
-  const NORMAL_FONT_STYLE = { fontSize: "14px" }; // or whatever default you want
 
   const columns = [
     {
@@ -295,36 +345,99 @@ const DTRLogs = () => {
       dataIndex: "acNos",
       key: "acNos",
       align: "center",
-      width: 250, // keep width fixed
-      onCell: () => ({
-        style: {
-          whiteSpace: "normal",
-          wordBreak: "break-word",
-          padding: "8px", // optional, improve readability
-          maxWidth: 200,
-          fontSize: "12px", // smaller font for better fit
-        },
-      }),
-      render: (acNos, record) => {
-        if (!acNos.length) return "-";
+      width: 200,
+      filterDropdown: ({
+        setSelectedKeys,
+        selectedKeys,
+        confirm,
+        clearFilters,
+      }) => {
+        const [searchText, setSearchText] = useState(selectedKeys[0] || "");
 
-        return acNos.map((acNo, idx) => {
-          const isUnknown = record.unknownAcNos?.includes(acNo);
-          return (
-            <span
-              key={acNo}
-              style={{
-                color: isUnknown ? "red" : "inherit",
-                fontWeight: isUnknown ? "bold" : "normal",
-                marginRight: idx < acNos.length - 1 ? 8 : 0,
-                display: "inline-block", // keep each code separate
-              }}
-            >
-              {acNo}
-              {idx < acNos.length - 1 ? "," : ""}
-            </span>
-          );
-        });
+        const onInputChange = (e) => {
+          setSearchText(e.target.value);
+          setSelectedKeys(e.target.value ? [e.target.value] : []);
+        };
+
+        const onConfirm = () => {
+          confirm();
+          setAcNoFilter(searchText);
+        };
+
+        const onClear = () => {
+          clearFilters();
+          setSearchText("");
+          setAcNoFilter("");
+        };
+
+        return (
+          <div style={{ padding: 8 }}>
+            <Input
+              placeholder="Search AC-No"
+              value={searchText}
+              onChange={onInputChange}
+              onPressEnter={onConfirm}
+              style={{ marginBottom: 8, display: "block" }}
+              autoFocus
+              allowClear
+            />
+            <Space>
+              <Button
+                type="primary"
+                onClick={onConfirm}
+                size="small"
+                style={{ width: 90 }}
+              >
+                Search
+              </Button>
+              <Button onClick={onClear} size="small" style={{ width: 90 }}>
+                Reset
+              </Button>
+            </Space>
+          </div>
+        );
+      },
+      filteredValue: acNoFilter ? [acNoFilter] : null,
+      onFilter: () => true,
+      render: (acNos, record) => {
+        if (!acNos || acNos.length === 0) return "-";
+
+        return (
+          <Space wrap>
+            {acNos.map((code, index) => {
+              // Find the corresponding employee name by index
+              const employeeName =
+                record.employees?.[index] || "Unknown Employee";
+
+              if (employeeName === "Unknown Employee") {
+                return (
+                  <Tooltip
+                    key={index}
+                    title="Unknown Employee — please register this AC-No"
+                  >
+                    <Tag
+                      color="red"
+                      style={{ cursor: "default", whiteSpace: "nowrap" }}
+                    >
+                      {code}
+                    </Tag>
+                  </Tooltip>
+                );
+              }
+
+              return (
+                <Tooltip key={index} title={employeeName}>
+                  <Tag
+                    color={stringToColor(employeeName)}
+                    style={{ cursor: "default", whiteSpace: "nowrap" }}
+                  >
+                    {code}
+                  </Tag>
+                </Tooltip>
+              );
+            })}
+          </Space>
+        );
       },
     },
     {
@@ -431,77 +544,87 @@ const DTRLogs = () => {
 
   return (
     <>
-      {/* Title & Generate DTR button */}
       <Row justify="space-between" align="middle" style={{ marginBottom: 16 }}>
         <Col>
           <Title level={4}>Daily Time Record Logs</Title>
         </Col>
-        <Col>
-          <Button type="primary" onClick={handleGenerateDTR}>
-            Generate DTR
-          </Button>
-        </Col>
       </Row>
 
-      {/* Filters row with pagination right aligned */}
-      <Row justify="space-between" align="middle" style={{ marginBottom: 16 }}>
-        <Col xs={24} sm={16} md={18} lg={18}>
-          <Row gutter={[16, 16]}>
-            <Col xs={24} sm={12} md={8} lg={6}>
-              {/* State filter */}
-              <Space
-                direction="vertical"
-                style={{ width: "100%", marginBottom: 0 }}
-              >
-                <label>
-                  <b>Filter by State</b>
-                </label>
-                <Select
-                  allowClear
-                  placeholder="Select State"
-                  value={stateFilter}
-                  onChange={setStateFilter}
-                  options={uniqueStates.map((state) => ({
-                    label: state,
-                    value: state,
-                  }))}
-                  style={{ width: "100%" }}
-                />
-              </Space>
-            </Col>
-            <Col xs={24} sm={12} md={16} lg={12}>
-              {/* Cut Off Date Range */}
-              <Space
-                direction="vertical"
-                style={{ width: "100%", marginBottom: 0 }}
-              >
-                <label>
-                  <b>Cut Off Date Range</b>
-                </label>
-                <RangePicker
-                  value={cutOffDateRange}
-                  onChange={(dates) => setCutOffDateRange(dates)}
-                  allowEmpty={[true, true]}
-                  format="MM/DD/YYYY"
-                />
-              </Space>
-            </Col>
-          </Row>
+      <Row
+        gutter={[16, 16]}
+        align="middle"
+        style={{
+          marginBottom: 16,
+          flexWrap: "nowrap", // prevents wrapping
+        }}
+      >
+        {/* Filters Group */}
+        <Col
+          flex="auto"
+          style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}
+        >
+          {/* Filter by Record Name */}
+          <Space direction="vertical" style={{ fontSize: "12px" }}>
+            <label style={{ fontSize: "12px" }}>
+              <b>Select Biometrics Cut Off</b>
+            </label>
+            <Select
+              size="small"
+              value={recordNameFilter}
+              onChange={(value) => setRecordNameFilter(value)}
+              placeholder="Select DTR Record Name"
+              allowClear
+              style={{ minWidth: "180px" }}
+            >
+              {(recordNameOptions || []).map((option) => (
+                <Select.Option key={option.value} value={option.value}>
+                  {option.label}
+                </Select.Option>
+              ))}
+            </Select>
+          </Space>
+
+          {/* Filter by State */}
+          <Space direction="vertical" style={{ fontSize: "12px" }}>
+            <label style={{ fontSize: "12px" }}>
+              <b>Filter by Action (In/Out)</b>
+            </label>
+            <Select
+              size="small"
+              allowClear
+              placeholder="Select State"
+              value={stateFilter}
+              onChange={setStateFilter}
+              options={uniqueStates.map((state) => ({
+                label: state,
+                value: state,
+              }))}
+              style={{ minWidth: "150px" }}
+            />
+          </Space>
+
+          {/* Cut Off Date Range */}
+          <Space direction="vertical" style={{ fontSize: "12px" }}>
+            <label style={{ fontSize: "12px" }}>
+              <b>Cut Off Date Range</b>
+            </label>
+            <RangePicker
+              size="small"
+              value={cutOffDateRange}
+              onChange={(dates) => setCutOffDateRange(dates)}
+              allowEmpty={[true, true]}
+              format="MM/DD/YYYY"
+            />
+          </Space>
         </Col>
 
+        {/* Pagination Right-Aligned */}
         <Col
-          xs={24}
-          sm={8}
-          md={6}
-          lg={6}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "flex-end",
-            height: "100%",
-          }}
+          flex="none"
+          style={{ display: "flex", justifyContent: "flex-end" }}
         >
           <Pagination
+            size="small"
             simple
             current={currentPage}
             pageSize={pageSize}
@@ -512,24 +635,34 @@ const DTRLogs = () => {
               setCurrentPage(page);
               setPageSize(size);
             }}
-            style={{ display: "inline-block" }}
-            size="small"
+            style={{ marginTop: "18px" }}
           />
         </Col>
       </Row>
 
-      <Spin spinning={loading}>
-        <Table
-          columns={columns}
-          dataSource={pagedData}
-          rowKey={(record) => `${record.time}-${record.state}`}
-          pagination={false}
-          bordered
-          size="small"
-          scroll={{ x: "max-content" }} // Allows horizontal scroll if content overflows
-          style={{ tableLayout: "fixed" }} // Fixes column widths
-        />
-      </Spin>
+      <Table
+        columns={columns}
+        size="small"
+        loading={{
+          spinning: loading,
+          tip: "Loading DTR data...",
+        }}
+        dataSource={
+          recordNameFilter
+            ? filteredData.slice(
+                (currentPage - 1) * pageSize,
+                currentPage * pageSize
+              ) || []
+            : []
+        }
+        pagination={false} // <-- disable Table's built-in pagination
+        rowKey={(record) => record.no}
+        locale={{
+          emptyText: !recordNameFilter
+            ? "Please select a DTR Record Name from the dropdown above."
+            : "No DTR logs found for the selected record.",
+        }}
+      />
     </>
   );
 };

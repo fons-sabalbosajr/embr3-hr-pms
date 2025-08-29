@@ -10,6 +10,7 @@ import protectedRoutes from "./routes/protectedRoutes.js";
 import employeeRoutes from "./routes/employeeRoutes.js";
 import dtrRoutes from "./routes/dtrRoutes.js";
 import dtrLogRoutes from "./routes/dtrLogRoutes.js";
+import dtrDataRoutes from "./routes/dtrDataRoutes.js";
 
 import { setSocketInstance } from "./socket.js";
 
@@ -56,6 +57,7 @@ app.use("/api/protected", protectedRoutes);
 app.use("/api/employees", employeeRoutes);
 app.use("/api/dtr", dtrRoutes);
 app.use("/api/dtrlogs", dtrLogRoutes);
+app.use("/api/dtrdatas", dtrDataRoutes);
 
 // 7. Start server
 mongoose

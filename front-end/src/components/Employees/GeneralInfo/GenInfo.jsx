@@ -51,6 +51,8 @@ const GenInfo = () => {
     order: "ascend",
   });
 
+  const [generatedEmpNo, setGeneratedEmpNo] = React.useState("");
+
   useEffect(() => {
     fetchEmployees();
   }, []);
@@ -168,21 +170,41 @@ const GenInfo = () => {
     })
     .sort((a, b) => {
       if (sorterInfo.columnKey === "empNo") {
-        const extractNumber = (empNo) =>
-          parseInt(empNo.replace("R3-REG", "").replace("R3-COS", ""), 10) || 0;
+        const getParts = (empNo) => {
+          const match = empNo.match(/(R3-(COS|REG))(\d+)/i);
+          return match
+            ? { prefix: match[1], num: parseInt(match[3], 10) }
+            : { prefix: "", num: 0 };
+        };
 
-        const numA = extractNumber(a.empNo);
-        const numB = extractNumber(b.empNo);
+        const aParts = getParts(a.empNo);
+        const bParts = getParts(b.empNo);
 
-        return sorterInfo.order === "ascend" ? numA - numB : numB - numA;
+        // 1️⃣ Sort by prefix: COS before REG
+        if (aParts.prefix !== bParts.prefix) {
+          if (aParts.prefix === "R3-COS") return -1;
+          if (bParts.prefix === "R3-COS") return 1;
+        }
+
+        // 2️⃣ Sort by number within prefix
+        if (aParts.num !== bParts.num) {
+          return sorterInfo.order === "ascend"
+            ? aParts.num - bParts.num
+            : bParts.num - aParts.num;
+        }
+
+        return 0;
       }
-
       return 0;
     });
 
   const uniqueEmpTypes = [
     ...new Set(employeeData.map((e) => e.empType).filter(Boolean)),
   ];
+
+  const handleEmpNoChange = (empNo) => {
+    setGeneratedEmpNo(empNo || "");
+  };
 
   const columns = [
     {
@@ -252,66 +274,91 @@ const GenInfo = () => {
         </div>
       ),
       filterDropdown: ({ confirm, clearFilters }) => (
-        <div style={{ padding: 8, width: 350 }}>
-          <div style={{ marginBottom: 8 }}>
-            <Select
-              mode="multiple"
-              allowClear
-              showSearch
-              placeholder="Filter by Position"
-              style={{ width: "100%", fontSize: "12px" }}
-              value={selectedFilters.position}
-              onChange={(value) => handleFilterChange("position", value)}
-            >
-              {uniquePositions.map((position) => (
-                <Select.Option key={position} value={position}>
-                  {position}
-                </Select.Option>
-              ))}
-            </Select>
+        <div
+          style={{
+            padding: 8,
+            width: 350,
+            maxHeight: 400,
+            display: "flex",
+            flexDirection: "column",
+          }}
+        >
+          {/* Scrollable filter content */}
+          <div style={{ flex: "1 1 auto", overflowY: "auto", marginBottom: 8 }}>
+            <div style={{ marginBottom: 8 }}>
+              <Select
+                mode="multiple"
+                allowClear
+                showSearch
+                placeholder="Filter by Position"
+                style={{ width: "100%", fontSize: "12px" }}
+                value={selectedFilters.position}
+                onChange={(value) => handleFilterChange("position", value)}
+              >
+                {uniquePositions.map((position) => (
+                  <Select.Option key={position} value={position}>
+                    {position}
+                  </Select.Option>
+                ))}
+              </Select>
+            </div>
+
+            {uniqueSections.length > 0 && (
+              <div style={{ marginBottom: 8 }}>
+                <Select
+                  mode="multiple"
+                  allowClear
+                  showSearch
+                  placeholder="Filter by Unit/Section"
+                  style={{ width: "100%", fontSize: "12px" }}
+                  value={selectedFilters.sectionOrUnit}
+                  onChange={(value) =>
+                    handleFilterChange("sectionOrUnit", value)
+                  }
+                >
+                  {uniqueSections.map((section) => (
+                    <Select.Option key={section} value={section}>
+                      {section}
+                    </Select.Option>
+                  ))}
+                </Select>
+              </div>
+            )}
+
+            {uniqueDivisions.length > 0 && (
+              <div style={{ marginBottom: 8 }}>
+                <Select
+                  mode="multiple"
+                  allowClear
+                  showSearch
+                  placeholder="Filter by Division"
+                  style={{ width: "100%", fontSize: "12px" }}
+                  value={selectedFilters.division}
+                  onChange={(value) => handleFilterChange("division", value)}
+                >
+                  {uniqueDivisions.map((division) => (
+                    <Select.Option key={division} value={division}>
+                      {division}
+                    </Select.Option>
+                  ))}
+                </Select>
+              </div>
+            )}
           </div>
 
-          {uniqueSections.length > 0 && (
-            <div style={{ marginBottom: 8 }}>
-              <Select
-                mode="multiple"
-                allowClear
-                showSearch
-                placeholder="Filter by Unit/Section"
-                style={{ width: "100%", fontSize: "12px" }}
-                value={selectedFilters.sectionOrUnit}
-                onChange={(value) => handleFilterChange("sectionOrUnit", value)}
-              >
-                {uniqueSections.map((section) => (
-                  <Select.Option key={section} value={section}>
-                    {section}
-                  </Select.Option>
-                ))}
-              </Select>
-            </div>
-          )}
-
-          {uniqueDivisions.length > 0 && (
-            <div style={{ marginBottom: 8 }}>
-              <Select
-                mode="multiple"
-                allowClear
-                showSearch
-                placeholder="Filter by Division"
-                style={{ width: "100%", fontSize: "12px" }}
-                value={selectedFilters.division}
-                onChange={(value) => handleFilterChange("division", value)}
-              >
-                {uniqueDivisions.map((division) => (
-                  <Select.Option key={division} value={division}>
-                    {division}
-                  </Select.Option>
-                ))}
-              </Select>
-            </div>
-          )}
-
-          <div style={{ display: "flex", justifyContent: "space-between" }}>
+          {/* Sticky buttons at the bottom */}
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "flex-end",
+              gap: "8px",
+              borderTop: "1px solid #f0f0f0",
+              paddingTop: 8,
+              background: "#fff",
+              position: "sticky",
+              bottom: 0,
+            }}
+          >
             <Button type="primary" onClick={confirm} size="small">
               Apply
             </Button>
@@ -335,8 +382,10 @@ const GenInfo = () => {
           </div>
         </div>
       ),
-      onFilter: () => true, // Required to enable filter icon, actual filtering is handled via dataSource or outside logic
+
+      onFilter: () => true, // Required to enable filter icon, actual filtering handled elsewhere
     },
+
     {
       title: "Actions",
       fixed: "right",
@@ -424,13 +473,36 @@ const GenInfo = () => {
           onCancel={handleCancel}
           footer={null}
           title={
-            modalType === "add"
-              ? "Add Individual Employee"
-              : "Upload Employee List"
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <span>
+                {modalType === "add"
+                  ? "Add Individual Employee"
+                  : "Upload Employee List"}
+              </span>
+              {modalType === "add" && generatedEmpNo && (
+                <Tag
+                  color={
+                    generatedEmpNo.startsWith("R3-REG") ? "green" : "orange"
+                  }
+                  style={{
+                    marginRight: "20px",
+                    bottom: "4px",
+                  }}
+                >
+                  {generatedEmpNo}
+                </Tag>
+              )}
+            </div>
           }
           destroyOnHidden
           centered
-          width={1000}
+          width={modalType === "add" ? 650 : 1000}
         >
           {modalType === "add" ? (
             <AddEmployee
@@ -438,6 +510,7 @@ const GenInfo = () => {
                 handleCancel();
                 fetchEmployees();
               }}
+              onEmpNoChange={handleEmpNoChange} // pass callback here
             />
           ) : (
             <UploadEmployee
@@ -468,6 +541,17 @@ const GenInfo = () => {
             <EditEmployeeForm
               employee={selectedEmployee}
               onClose={() => setModalVisible(false)}
+              onUpdated={(updatedEmp) => {
+                // ✅ Optimistic update
+                setEmployeeData((prev) =>
+                  prev.map((emp) =>
+                    emp._id === updatedEmp._id ? { ...emp, ...updatedEmp } : emp
+                  )
+                );
+
+                // ✅ Safe refresh in background
+                fetchEmployees();
+              }}
             />
           )}
 
