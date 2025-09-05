@@ -532,10 +532,10 @@ const GenInfo = () => {
           footer={null}
           title={
             modalMode === "edit"
-              ? `Edit Employee: ${selectedEmployee?.name}`
-              : `Generate Report for: ${selectedEmployee?.name}`
+              ? `Employee Details`
+              : `Employee Reports`
           }
-          width={600}
+          width={900}
         >
           {modalMode === "edit" && selectedEmployee && (
             <EditEmployeeForm

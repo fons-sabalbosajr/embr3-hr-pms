@@ -5,12 +5,14 @@ import dotenv from "dotenv";
 import http from "http";
 import { Server } from "socket.io";
 
+
 import authRoutes from "./routes/authRoutes.js";
 import protectedRoutes from "./routes/protectedRoutes.js";
 import employeeRoutes from "./routes/employeeRoutes.js";
 import dtrRoutes from "./routes/dtrRoutes.js";
 import dtrLogRoutes from "./routes/dtrLogRoutes.js";
 import dtrDataRoutes from "./routes/dtrDataRoutes.js";
+import trainingRoutes from "./routes/trainingRoutes.js";
 
 import { setSocketInstance } from "./socket.js";
 
@@ -58,6 +60,7 @@ app.use("/api/employees", employeeRoutes);
 app.use("/api/dtr", dtrRoutes);
 app.use("/api/dtrlogs", dtrLogRoutes);
 app.use("/api/dtrdatas", dtrDataRoutes);
+app.use("/api/trainings", trainingRoutes);
 
 // 7. Start server
 mongoose

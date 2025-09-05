@@ -110,3 +110,81 @@ export const getMergedDTRLogs = async (req, res) => {
     res.status(500).json({ success: false, message: "Server Error" });
   }
 };
+
+export const getWorkCalendarLogs = async (req, res) => {
+  try {
+    const { employeeId, startDate, endDate } = req.query;
+    const filter = {};
+
+    // 🔹 Employee resolution
+    if (employeeId) {
+      let acNos = [];
+
+      // Case 1: If employeeId is a MongoDB ObjectId → fetch employee
+      if (mongoose.Types.ObjectId.isValid(employeeId)) {
+        const emp = await Employee.findById(employeeId).lean();
+        if (emp) {
+          acNos = [
+            emp.empId.replace(/\D/g, ""), // normalize "03-946" → "3946"
+            ...(emp.alternateEmpIds || []).map(id => id.replace(/\D/g, ""))
+          ];
+        }
+      }
+
+      // Case 2: If employeeId looks like "03-946" (empId format)
+      if (!acNos.length && /\d{2,}-\d{2,}/.test(employeeId)) {
+        const emp = await Employee.findOne({ empId: employeeId }).lean();
+        if (emp) {
+          acNos = [
+            emp.empId.replace(/\D/g, ""),
+            ...(emp.alternateEmpIds || []).map(id => id.replace(/\D/g, ""))
+          ];
+        }
+      }
+
+      // Case 3: Otherwise assume it's an AC-No already ("3946")
+      if (!acNos.length) {
+        acNos = [employeeId.replace(/\D/g, "")];
+      }
+
+      filter["AC-No"] = { $in: acNos };
+    }
+
+    // 🔹 Date filtering
+    if (startDate || endDate) {
+      filter.Time = {};
+      if (startDate) filter.Time.$gte = dayjs(startDate).startOf("day").toDate();
+      if (endDate) filter.Time.$lte = dayjs(endDate).endOf("day").toDate();
+    }
+
+    // 🔹 Fetch logs
+    const logs = await DTRLog.find(filter).sort({ Time: 1 }).lean();
+
+    // 🔹 Map State → human-readable
+    const mappedLogs = logs.map((log) => {
+      let stateLabel;
+      switch (log.State) {
+        case "C/In": stateLabel = "Time In"; break;
+        case "C/Out": stateLabel = "Time Out"; break;
+        case "Out": stateLabel = "Break Out"; break;
+        case "Out Back": stateLabel = "Break In"; break;
+        case "Overtime In": stateLabel = "OT In"; break;
+        case "Overtime Out": stateLabel = "OT Out"; break;
+        default: stateLabel = log.State;
+      }
+
+      return {
+        id: log._id,
+        acNo: log["AC-No"] || "-",
+        name: log.Name,
+        time: log.Time,
+        state: stateLabel,
+      };
+    });
+
+    res.json({ success: true, data: mappedLogs });
+  } catch (error) {
+    console.error("Error in getWorkCalendarLogs:", error);
+    res.status(500).json({ success: false, message: "Server Error" });
+  }
+};

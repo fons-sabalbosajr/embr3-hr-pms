@@ -1,7 +1,8 @@
 import React from "react";
-import { Modal, Table, Typography, Divider } from "antd";
+import { Modal, Table, Typography, Divider, Button, message } from "antd";
 import dayjs from "dayjs";
 import "./viewdtr.css";
+import { generateDTRPdf } from "../../../../../utils/generateDTRpdf";
 
 const { Text } = Typography;
 
@@ -9,9 +10,11 @@ const ViewDTR = ({
   visible,
   onClose,
   employee,
-  dtrDays,
+  dtrDays, // kept in props, but we don’t use it anymore
   dtrLogs,
   selectedRecord,
+  onPreviewForm48,
+  onSaveToTray,
 }) => {
   if (!employee || !selectedRecord) return null;
 
@@ -21,9 +24,12 @@ const ViewDTR = ({
     "MMMM D, YYYY"
   )}`;
 
-  const tableData = dtrDays.map((dayNum) => {
-    const dateObj = startDate.date(dayNum);
-    const dayOfWeek = dateObj.day(); // 0=Sun, 6=Sat
+  // ✅ Build rows for ALL days in cutoff range
+  const tableData = [];
+  let current = startDate.clone();
+
+  while (current.isBefore(endDate) || current.isSame(endDate, "day")) {
+    const dayOfWeek = current.day(); // 0=Sun, 6=Sat
 
     const ids = [employee.empId, ...(employee.alternateEmpIds || [])].filter(
       Boolean
@@ -40,36 +46,25 @@ const ViewDTR = ({
       return null;
     };
 
-    const dayLog = getDayLog(dateObj);
-    const hasTimeInOut = dayLog?.["Time In"] && dayLog?.["Time Out"];
+    const dayLog = getDayLog(current);
 
-    // For weekend, we merge all Time / Break / Status cells into one
-    if (dayOfWeek === 6 || dayOfWeek === 0) {
-      return {
-        key: dayNum,
-        date: dateObj.format("MM/DD/YYYY"),
-        weekendLabel: dayOfWeek === 6 ? "Saturday" : "Sunday",
-        isWeekend: true,
-        timeIn: "", // will be merged
-        breakOut: "",
-        breakIn: "",
-        timeOut: "",
-        status: "",
-      };
-    }
-
-    return {
-      key: dayNum,
-      date: dateObj.format("MM/DD/YYYY"),
+    tableData.push({
+      key: current.format("YYYY-MM-DD"),
+      date: current.format("MM/DD/YYYY"),
       timeIn: dayLog?.["Time In"] || "",
-      breakOut: hasTimeInOut ? dayLog?.["Break Out"] || "12:00 PM" : "",
-      breakIn: hasTimeInOut ? dayLog?.["Break In"] || "1:00 PM" : "",
+      breakOut: dayLog?.["Break Out"] || "",
+      breakIn: dayLog?.["Break In"] || "",
       timeOut: dayLog?.["Time Out"] || "",
-      status: "", // you can compute dynamically
-      isWeekend: false,
-    };
-  });
+      status: "",
+      // ✅ Only mark weekend if no logs found
+      isWeekend: (dayOfWeek === 6 || dayOfWeek === 0) && !dayLog,
+      weekendLabel: dayOfWeek === 6 ? "Saturday" : "Sunday",
+    });
 
+    current = current.add(1, "day");
+  }
+
+  // ✅ Columns: only merge if weekend AND no logs
   const columns = [
     {
       title: "Date",
@@ -84,7 +79,7 @@ const ViewDTR = ({
           title: "Time In",
           dataIndex: "timeIn",
           key: "timeIn",
-          width: 100,
+          width: 80,
           render: (text, record) =>
             record.isWeekend
               ? {
@@ -100,7 +95,7 @@ const ViewDTR = ({
           title: "Break Out",
           dataIndex: "breakOut",
           key: "breakOut",
-          width: 100,
+          width: 80,
           render: (_, record) =>
             record.isWeekend
               ? { children: null, props: { colSpan: 0 } }
@@ -115,7 +110,7 @@ const ViewDTR = ({
           title: "Break In",
           dataIndex: "breakIn",
           key: "breakIn",
-          width: 100,
+          width: 80,
           render: (_, record) =>
             record.isWeekend
               ? { children: null, props: { colSpan: 0 } }
@@ -125,7 +120,7 @@ const ViewDTR = ({
           title: "Time Out",
           dataIndex: "timeOut",
           key: "timeOut",
-          width: 100,
+          width: 80,
           render: (_, record) =>
             record.isWeekend
               ? { children: null, props: { colSpan: 0 } }
@@ -134,26 +129,33 @@ const ViewDTR = ({
       ],
     },
     {
-      title: "Work",
-      children: [
-        {
-          title: "Status",
-          dataIndex: "status",
-          key: "status",
-          width: 120,
-          render: (_, record) =>
-            record.isWeekend
-              ? { children: null, props: { colSpan: 0 } }
-              : record.status,
-        },
-      ],
+      title: "Work Status",
+      dataIndex: "status",
+      key: "status",
+      align: "center",
+      width: 120,
+      render: (_, record) =>
+        record.isWeekend
+          ? { children: null, props: { colSpan: 0 } }
+          : record.status,
     },
   ];
+
+  const handlePreviewForm48 = () => {
+    generateDTRPdf({ employee, dtrDays, dtrLogs, selectedRecord });
+  };
+
+  const handleSaveToTray = () => {
+    if (onSaveToTray) {
+      onSaveToTray(employee, selectedRecord);
+      message.success("DTR has been added to the Printer Tray!");
+    }
+  };
 
   return (
     <Modal
       title={null}
-      visible={visible}
+      open={visible}
       onCancel={onClose}
       footer={null}
       width={750}
@@ -168,9 +170,9 @@ const ViewDTR = ({
       >
         {/* First line: Full Name left, Emp. ID right */}
         <div style={{ display: "flex", justifyContent: "space-between" }}>
-          <Text strong>DTR Full Name: {employee.name}</Text>
+          <Text strong>Employee Name: {employee.name}</Text>
           <Text style={{ textAlign: "left", marginRight: 30 }}>
-            Employee ID: {employee.empId}
+            Employee ID: <Text strong>{employee.empId}</Text>
           </Text>
         </div>
 
@@ -192,8 +194,16 @@ const ViewDTR = ({
 
         {/* Fourth line: DTR Date Range */}
         <div>
-          <Text underline>DTR Date Range: {dateRangeStr}</Text>
+          <Text underline>DTR Cut-Off Date: {dateRangeStr}</Text>
         </div>
+      </div>
+
+      <div
+        style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}
+      >
+        <Button type="primary" onClick={handlePreviewForm48}>
+          Preview DTR Form 48
+        </Button>
       </div>
 
       <Divider />
@@ -207,6 +217,15 @@ const ViewDTR = ({
         scroll={{ x: 650 }}
         rowClassName={(record) => (record.isWeekend ? "weekend-row" : "")}
       />
+
+      {/* Save to Print Tray Button */}
+      <div
+        style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}
+      >
+        <Button type="default" onClick={handleSaveToTray}>
+          Save to Print Tray
+        </Button>
+      </div>
     </Modal>
   );
 };
