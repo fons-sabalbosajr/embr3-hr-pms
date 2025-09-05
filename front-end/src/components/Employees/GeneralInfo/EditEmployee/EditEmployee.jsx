@@ -1,5 +1,14 @@
 import React, { useEffect, useState } from "react";
-import { Form, Input, Select, Button, message, Divider, Space } from "antd";
+import {
+  Form,
+  Input,
+  Select,
+  Button,
+  message,
+  Divider,
+  Space,
+  Tag,
+} from "antd";
 import { PlusOutlined } from "@ant-design/icons";
 import axios from "../../../../api/axiosInstance";
 
@@ -27,6 +36,8 @@ const EditEmployee = ({ employee, onClose, onUpdated }) => {
   const [divisionOptions, setDivisionOptions] = useState([]);
   const [newSection, setNewSection] = useState("");
   const [newDivision, setNewDivision] = useState("");
+  const [showSectionRemove, setShowSectionRemove] = useState(false);
+  const [showDivisionRemove, setShowDivisionRemove] = useState(false);
 
   useEffect(() => {
     // Preload dropdown options
@@ -212,36 +223,96 @@ const EditEmployee = ({ employee, onClose, onUpdated }) => {
           showSearch
           allowClear
           placeholder="Select or add Section/Unit"
-          options={sectionOptions.map((section) => ({
-            value: section,
-            label: section,
-          }))}
+          options={sectionOptions
+            .slice()
+            .sort((a, b) => a.localeCompare(b))
+            .map((section) => ({ value: section, label: section }))}
           popupRender={(menu) => (
             <>
               {menu}
+
+              {/* Add + Manage Row */}
               <Divider style={{ margin: "8px 0" }} />
-              <Space style={{ padding: "0 8px 4px" }}>
+              <div style={{ display: "flex", gap: 4, padding: "0 8px 4px" }}>
                 <Input
                   placeholder="Add new Section/Unit"
                   value={newSection}
                   onChange={(e) => setNewSection(e.target.value)}
                   onKeyDown={(e) => e.stopPropagation()}
+                  style={{ flex: 1 }}
                 />
                 <Button
-                  type="text"
+                  type="primary"
+                  style={{
+                    backgroundColor: "#1890ff",
+                    borderColor: "#1890ff",
+                    fontSize: 11,
+                    marginTop: 4,
+                  }}
+                  size="small"
                   icon={<PlusOutlined />}
                   onClick={() => {
                     const v = newSection.trim();
                     if (v && !sectionOptions.includes(v)) {
-                      setSectionOptions((prev) => [...prev, v]);
-                      form.setFieldsValue({ sectionOrUnit: v }); // auto-select
+                      setSectionOptions((prev) =>
+                        [...prev, v].sort((a, b) => a.localeCompare(b))
+                      );
+                      form.setFieldsValue({ sectionOrUnit: v });
                       setNewSection("");
                     }
                   }}
                 >
                   Add
                 </Button>
-              </Space>
+
+                <Button
+                  type="primary"
+                  style={{
+                    backgroundColor: "#1890ff",
+                    borderColor: "#1890ff",
+                    whiteSpace: "nowrap",
+                    fontSize: 11,
+                    marginTop: 4,
+                  }}
+                  size="small"
+                  onClick={() => setShowSectionRemove(!showSectionRemove)}
+                >
+                  {showSectionRemove ? "Hide Options" : "Manage Options"}
+                </Button>
+              </div>
+
+              {/* Remove tags section */}
+              {showSectionRemove && (
+                <div
+                  style={{
+                    padding: "4px 8px",
+                    maxHeight: 120,
+                    overflowY: "auto",
+                    marginTop: 4,
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: 4,
+                  }}
+                >
+                  {sectionOptions.map((sec) => (
+                    <Tag
+                      key={sec}
+                      closable
+                      onClose={(e) => {
+                        e.preventDefault();
+                        setSectionOptions((prev) =>
+                          prev.filter((s) => s !== sec)
+                        );
+                        if (form.getFieldValue("sectionOrUnit") === sec) {
+                          form.setFieldsValue({ sectionOrUnit: undefined });
+                        }
+                      }}
+                    >
+                      {sec}
+                    </Tag>
+                  ))}
+                </div>
+              )}
             </>
           )}
         />
@@ -253,36 +324,96 @@ const EditEmployee = ({ employee, onClose, onUpdated }) => {
           showSearch
           allowClear
           placeholder="Select or add Division"
-          options={divisionOptions.map((division) => ({
-            value: division,
-            label: division,
-          }))}
+          options={divisionOptions
+            .slice()
+            .sort((a, b) => a.localeCompare(b))
+            .map((division) => ({ value: division, label: division }))}
           popupRender={(menu) => (
             <>
               {menu}
+
+              {/* Add + Manage Row */}
               <Divider style={{ margin: "8px 0" }} />
-              <Space style={{ padding: "0 8px 4px" }}>
+              <div style={{ display: "flex", gap: 4, padding: "0 8px 4px" }}>
                 <Input
                   placeholder="Add new Division"
                   value={newDivision}
                   onChange={(e) => setNewDivision(e.target.value)}
                   onKeyDown={(e) => e.stopPropagation()}
+                  style={{ flex: 1 }}
                 />
                 <Button
-                  type="text"
+                  type="primary"
+                  style={{
+                    backgroundColor: "#1890ff",
+                    borderColor: "#1890ff",
+                    marginTop: 4,
+                    fontSize: 11,
+                  }}
+                  size="small"
                   icon={<PlusOutlined />}
                   onClick={() => {
                     const v = newDivision.trim();
                     if (v && !divisionOptions.includes(v)) {
-                      setDivisionOptions((prev) => [...prev, v]);
-                      form.setFieldsValue({ division: v }); // auto-select
+                      setDivisionOptions((prev) =>
+                        [...prev, v].sort((a, b) => a.localeCompare(b))
+                      );
+                      form.setFieldsValue({ division: v });
                       setNewDivision("");
                     }
                   }}
                 >
                   Add
                 </Button>
-              </Space>
+
+                <Button
+                  type="primary"
+                  style={{
+                    backgroundColor: "#1890ff",
+                    borderColor: "#1890ff",
+                    whiteSpace: "nowrap",
+                    marginTop: 4,
+                    fontSize: 11,
+                  }}
+                  size="small"
+                  onClick={() => setShowDivisionRemove(!showDivisionRemove)}
+                >
+                  {showDivisionRemove ? "Hide Options" : "Manage Options"}
+                </Button>
+              </div>
+
+              {/* Remove tags section */}
+              {showDivisionRemove && (
+                <div
+                  style={{
+                    padding: "4px 8px",
+                    maxHeight: 120,
+                    overflowY: "auto",
+                    marginTop: 4,
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: 4,
+                  }}
+                >
+                  {divisionOptions.map((div) => (
+                    <Tag
+                      key={div}
+                      closable
+                      onClose={(e) => {
+                        e.preventDefault();
+                        setDivisionOptions((prev) =>
+                          prev.filter((d) => d !== div)
+                        );
+                        if (form.getFieldValue("division") === div) {
+                          form.setFieldsValue({ division: undefined });
+                        }
+                      }}
+                    >
+                      {div}
+                    </Tag>
+                  ))}
+                </div>
+              )}
             </>
           )}
         />

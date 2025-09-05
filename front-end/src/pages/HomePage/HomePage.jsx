@@ -32,7 +32,7 @@ import emblogo from "../../assets/emblogo.svg";
 import Dashboard from "../../components/Dashboard/Dashboard";
 import GenInfo from "../../components/Employees/GeneralInfo/GenInfo";
 import BenefitsInfo from "../../components/Employees/BenefitsInfo/BenefitsInfo";
-import SalaryInfo from "../../components/Employees/SalaryInfo/SalaryInfo";
+import Trainings from "../../components/Employees/Trainings/Trainings";
 import AccountSettings from "../../components/Settings/AccountSettings/AccountsSettings";
 import Backup from "../../components/Settings/Backup/Backup";
 import UserAccess from "../../components/Settings/UserAccess/UserAccess";
@@ -84,7 +84,7 @@ const HomePage = () => {
       label: "Employees",
       children: [
         { key: "/employeeinfo", label: "General Info" },
-        { key: "/salaryinfo", label: "Salary Info" },
+        { key: "/trainings", label: "Trainings" },
         { key: "/benefitsinfo", label: "Benefits & Leaves" },
       ],
     },
@@ -273,7 +273,7 @@ const HomePage = () => {
               <Route path="/dtr/logs" element={<DTRLogs />} />
               <Route path="/dtr/process" element={<DTRProcess />} />
               <Route path="/dtr/reports" element={<DTRReports />} />
-              <Route path="/salaryinfo" element={<SalaryInfo />} />
+              <Route path="/trainings" element={<Trainings />} />
               <Route path="/benefitsinfo" element={<BenefitsInfo />} />
               <Route path="/settings/account" element={<AccountSettings />} />
               <Route path="/settings/access" element={<UserAccess />} />

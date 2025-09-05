@@ -21,6 +21,7 @@ import utc from "dayjs/plugin/utc";
 import timezone from "dayjs/plugin/timezone";
 import "./dtr.css";
 import ViewDTR from "./components/ViewDTR/ViewDTR";
+import { generateDTRPdf } from "../../../utils/generateDTRpdf";
 
 const { Title } = Typography;
 const { Search } = Input;
@@ -86,6 +87,7 @@ const DTRProcess = () => {
   const containerRef = useRef(null);
   const [viewDTRVisible, setViewDTRVisible] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
+  const [printerTray, setPrinterTray] = useState([]);
 
   const fetchEmployees = async () => {
     try {
@@ -340,7 +342,25 @@ const DTRProcess = () => {
     } else {
       let curr = start.clone();
       while (curr.isSameOrBefore(end, "day")) {
-        dtrDays.push(curr.date());
+        const dayNum = curr.date();
+        const dateKey = curr.format("YYYY-MM-DD");
+
+        // Check if any employee has a log for this date
+        const hasLog = employees.some((emp) => {
+          const ids = [emp.empId, ...(emp.alternateEmpIds || [])].filter(
+            Boolean
+          );
+          return ids.some((id) => {
+            const empKey = id.replace(/\D/g, "").slice(-4);
+            const logs = dtrLogs[empKey]?.[dateKey];
+            return logs && Object.values(logs).some((v) => v);
+          });
+        });
+
+        if (hasLog) {
+          dtrDays.push(dayNum);
+        }
+
         curr = curr.add(1, "day");
       }
     }
@@ -504,8 +524,29 @@ const DTRProcess = () => {
   };
 
   const handleAddToPrinterTray = (employee) => {
-    console.log("Add to printer tray:", employee);
-    // TODO: implement add to tray logic
+    setPrinterTray((prev) => {
+      // Avoid duplicates by empId and selectedRecord
+      const exists = prev.some(
+        (item) =>
+          item.employee.empId === employee.empId &&
+          item.selectedRecord.DTR_Record_Name === selectedRecord.DTR_Record_Name
+      );
+      if (exists) return prev;
+      return [
+        ...prev,
+        {
+          employee,
+          dtrDays,
+          dtrLogs,
+          selectedRecord,
+        },
+      ];
+    });
+  };
+
+  const handleClearPrinterTray = () => {
+    setPrinterTray([]);
+    message.success("Printer Tray cleared.");
   };
 
   const printMenu = (employee) => (
@@ -659,6 +700,66 @@ const DTRProcess = () => {
     .sort((a, b) => a.localeCompare(b))
     .map((type) => ({ label: type, value: type }));
 
+  // View single DTR (opens in new tab)
+  const handleViewDTRPdf = (item) => {
+    generateDTRPdf(item); // default behavior: view in new tab
+  };
+
+  // Download single DTR
+  const handleDownloadDTR = async (item) => {
+    const pdfBlob = await generateDTRPdf({ ...item, download: true });
+    const cutOff = `${dayjs(item.selectedRecord.DTR_Cut_Off.start).format(
+      "MMMM DD, YYYY"
+    )}-${dayjs(item.selectedRecord.DTR_Cut_Off.end).format("MMMM DD, YYYY")}`;
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(pdfBlob);
+    link.download = `DTR_${item.employee.name}_${cutOff}.pdf`;
+    link.click();
+  };
+
+  // Download all DTRs in printerTray
+  const handleDownloadAllDTRs = async () => {
+    if (printerTray.length === 0) {
+      message.warning("Printer tray is empty");
+      return;
+    }
+
+    for (let item of printerTray) {
+      await handleDownloadDTR(item); // reuse single download
+    }
+
+    message.success("All DTRs downloaded");
+  };
+
+  // Print all DTRs in printerTray
+  const handlePrintAllDTRs = async () => {
+    if (printerTray.length === 0) {
+      message.warning("Printer tray is empty");
+      return;
+    }
+
+    for (let item of printerTray) {
+      const { employee, dtrDays, dtrLogs, selectedRecord } = item;
+      const pdfBlob = await generateDTRPdf({
+        employee,
+        dtrDays,
+        dtrLogs,
+        selectedRecord,
+        download: true,
+      });
+
+      const pdfUrl = URL.createObjectURL(pdfBlob);
+      const iframe = document.createElement("iframe");
+      iframe.style.display = "none";
+      iframe.src = pdfUrl;
+      document.body.appendChild(iframe);
+      iframe.contentWindow.focus();
+      iframe.contentWindow.print();
+    }
+
+    message.success("All DTRs sent to printer");
+  };
+
   return (
     <div ref={containerRef} style={{ position: "relative" }}>
       <Space
@@ -772,19 +873,62 @@ const DTRProcess = () => {
         width={350}
         onClose={() => setDrawerVisible(false)}
         open={drawerVisible}
-        getContainer={false} // Render inside parent container
+        getContainer={false}
         style={{
           position: "absolute",
           top: 0,
           right: 0,
           height: "100%",
-          boxShadow: "-3px 0 10px 3px rgba(0, 0, 0, 0.12)", // softer, larger, lighter shadow
-          borderRadius: "12px", // more rounded corners
+          boxShadow: "-3px 0 10px 3px rgba(0, 0, 0, 0.12)",
+          borderRadius: "12px",
           zIndex: 1000,
         }}
       >
-        {/* Drawer content */}
-        <p>Put controls or info here</p>
+        {printerTray.length === 0 ? (
+          <p>No DTRs added to tray.</p>
+        ) : (
+          <>
+            {printerTray.map((item, idx) => (
+              <div
+                key={item.employee.empId + item.selectedRecord.DTR_Record_Name}
+                style={{
+                  marginBottom: 16,
+                  borderBottom: "1px solid #eee",
+                  paddingBottom: 8,
+                }}
+              >
+                <strong>{item.employee.name}</strong>
+                <div style={{ fontSize: 12, color: "#888" }}>
+                  {item.employee.empNo} | {item.employee.empType}
+                </div>
+                <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
+                  <Button size="small" onClick={() => handleViewDTRPdf(item)}>
+                    View
+                  </Button>
+                  <Button
+                    size="small"
+                    type="primary"
+                    onClick={() => handlePrintSelected(item.employee)}
+                  >
+                    Print
+                  </Button>
+                  <Button size="small" onClick={() => handleDownloadDTR(item)}>
+                    Download
+                  </Button>
+                </div>
+              </div>
+            ))}
+            <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
+              <Button type="primary" onClick={handlePrintAllDTRs}>
+                Print All
+              </Button>
+              <Button onClick={handleDownloadAllDTRs}>Download All</Button>
+              <Button danger onClick={handleClearPrinterTray}>
+                Clear Tray
+              </Button>
+            </div>
+          </>
+        )}
       </Drawer>
 
       {selectedEmployee && (
@@ -795,6 +939,8 @@ const DTRProcess = () => {
           dtrDays={dtrDays}
           dtrLogs={dtrLogs}
           selectedRecord={selectedRecord}
+          onSaveToTray={handleAddToPrinterTray}
+          onPreviewForm48={handlePrintSelected}
         />
       )}
     </div>
