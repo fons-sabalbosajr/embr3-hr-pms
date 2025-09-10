@@ -22,6 +22,7 @@ import {
   EyeOutlined,
   ImportOutlined,
   FieldTimeOutlined,
+  PrinterOutlined,
 } from "@ant-design/icons";
 
 import { useNavigate, Routes, Route } from "react-router-dom";
@@ -39,7 +40,7 @@ import UserAccess from "../../components/Settings/UserAccess/UserAccess";
 import ImportDTRModal from "../../components/DTR/ImportDTRModal";
 import DTR from "../DTR/DTR";
 import DTRLogs from "../DTR/DTRLogs";
-import DTRProcess from "../DTR/DTRProcess";
+import DTRProcess from "../DTR/components/DTRProcess/DTRProcess";
 import DTRReports from "../DTR/DTRReports";
 
 import io from "socket.io-client";
@@ -271,7 +272,10 @@ const HomePage = () => {
               <Route path="/employeeinfo" element={<GenInfo />} />
 
               <Route path="/dtr/logs" element={<DTRLogs />} />
-              <Route path="/dtr/process" element={<DTRProcess />} />
+              <Route
+                path="/dtr/process"
+                element={<DTRProcess currentUser={userget} />}
+              />
               <Route path="/dtr/reports" element={<DTRReports />} />
               <Route path="/trainings" element={<Trainings />} />
               <Route path="/benefitsinfo" element={<BenefitsInfo />} />

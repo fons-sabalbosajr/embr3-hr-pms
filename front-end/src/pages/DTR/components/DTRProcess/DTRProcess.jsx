@@ -1,33 +1,40 @@
 import React, { useEffect, useState, useRef } from "react";
 import {
-  Table,
   Typography,
   Spin,
   message,
-  Input,
-  Select,
   Space,
-  Popover,
   Button,
   Dropdown,
   Menu,
-  Drawer,
+  Tag,
+  Badge,
 } from "antd";
 import { EyeOutlined, PrinterOutlined, MenuOutlined } from "@ant-design/icons";
-import axios from "axios";
+import DTRFilters from "../DTRProcess/components/DTRFilters";
+import DTRTable from "../DTRProcess/components/DTRTable";
+import PrinterTrayDrawer from "../DTRProcess/components/DTRTrayDrawer";
+import ViewDTR from "../ViewDTR/ViewDTR";
+import DTRDayTiles from "../DTRProcess/components/DTRDayTiles";
+import { fetchPhilippineHolidays } from "../../../../api/holidayPH";
+import {
+  generateDTRPdf,
+  generateBatchDTRPdf,
+} from "../../../../../utils/generateDTRpdf";
+import "./dtr.css";
 import dayjs from "dayjs";
 import isSameOrBefore from "dayjs/plugin/isSameOrBefore";
+import isSameOrAfter from "dayjs/plugin/isSameOrAfter";
 import utc from "dayjs/plugin/utc";
 import timezone from "dayjs/plugin/timezone";
-import "./dtr.css";
-import ViewDTR from "./components/ViewDTR/ViewDTR";
-import { generateDTRPdf } from "../../../utils/generateDTRpdf";
+import axiosInstance from "../../../../api/axiosInstance";
+import axios from "axios";
 
 const { Title } = Typography;
-const { Search } = Input;
 
 // Extend dayjs with the plugins
 dayjs.extend(isSameOrBefore);
+dayjs.extend(isSameOrAfter);
 dayjs.extend(utc);
 dayjs.extend(timezone);
 const LOCAL_TZ = "Asia/Manila";
@@ -47,11 +54,19 @@ const divisionAcronyms = {
   "Clearance and Permitting Division": "CPD",
 };
 
+const divisionColors = {
+  "Clearance and Permitting Division": "#1f9cca", // blue
+  "Finance and Administrative Division": "#283539", // green
+  "Environmental Monitoring and Enforcement Division": "#009d8c", // orange
+  "Office of the Regional Director": "#cb330e", // pink/red
+  "Specialized Team": "#fd8004",
+};
+
 const sectionUnitAcronyms = {
   CPD: {
     "Air and Water Permitting Section": "AIR & WATER",
-    "Environment Impact Assessment Section": "EIA",
-    "Chemicals and Hazardous Waste Permitting Section": "CHWMS",
+    "Environmental Impact Assessment Section": "EIA",
+    "Chemical and Hazardous Waste Permitting Section": "CHWMS",
   },
   FAD: {
     "Budget Unit": "BUDGET",
@@ -60,6 +75,12 @@ const sectionUnitAcronyms = {
     "Personnel Unit": "PERSONNEL",
     "Property and General Services Unit": "PGSU",
     "Records Unit": "RECORDS",
+  },
+  EMED: {
+    "Ecological Solid Waste Management Section": "ESWM",
+    "Air, Water and ECC Compliance Monitoring and Enforcement Section":
+      "AWECMES",
+    "Ambient Monitoring and Technical Services Section": "AMTSS",
   },
   ORD: {
     "Environmental Education and Information Unit": "EEIU",
@@ -70,16 +91,17 @@ const sectionUnitAcronyms = {
     "Provincial Environmental Management Unit": "PEMU", // note: multiple PEMUs by location; handle if needed
   },
   Specialized: {
-    "Commision on Audit": "COA",
+    "Commission On Audit": "COA",
   },
 };
 
-const DTRProcess = () => {
+const DTRProcess = ({ currentUser }) => {
   const [employees, setEmployees] = useState([]);
   const [filteredEmployees, setFilteredEmployees] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchText, setSearchText] = useState("");
   const [empTypeFilter, setEmpTypeFilter] = useState("");
+  const [sectionOrUnitFilter, setSectionOrUnitFilter] = useState("");
   const [dtrLogs, setDtrLogs] = useState({});
   const [dtrRecords, setDtrRecords] = useState([]);
   const [selectedDtrRecord, setSelectedDtrRecord] = useState("");
@@ -88,6 +110,8 @@ const DTRProcess = () => {
   const [viewDTRVisible, setViewDTRVisible] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [printerTray, setPrinterTray] = useState([]);
+  const [holidaysPH, setHolidaysPH] = useState([]);
+  const [employeeTrainings, setEmployeeTrainings] = useState({});
 
   const fetchEmployees = async () => {
     try {
@@ -113,15 +137,7 @@ const DTRProcess = () => {
     try {
       setLoading(true);
 
-      // Extract all AC-No from employees (you may want to map empId to AC-No, adjust if needed)
-      const acNos = employees
-        .map((emp) => {
-          // Assuming emp.empId like "03-718", get last 4 digits for filtering
-          if (!emp.empId) return null;
-          const digits = emp.empId.replace(/\D/g, "");
-          return digits.slice(-4);
-        })
-        .filter(Boolean);
+      const employeeNames = employees.map((emp) => emp.name).filter(Boolean);
 
       // Fetch logs for current month (adjust dates as needed)
       const startOfMonth = dayjs().startOf("month").format("YYYY-MM-DD");
@@ -132,7 +148,7 @@ const DTRProcess = () => {
         `${import.meta.env.VITE_API_BASE_URL}/dtrlogs/merged`,
         {
           params: {
-            acNo: acNos.join(","), // assuming your API supports multiple AC-No separated by commas, else batch calls
+            names: employeeNames.join(","), // assuming your API supports multiple AC-No separated by commas, else batch calls
             startDate: startOfMonth,
             endDate: endOfMonth,
           },
@@ -149,20 +165,16 @@ const DTRProcess = () => {
       const logsByEmpDay = {};
 
       logs.forEach((log) => {
-        // Extract employee id key (using empId from matchedEmployee or fallback)
-        const empIdKey = log.employeeName
-          ? employees.find((e) => e.name === log.employeeName)?.empId ||
-            log.acNo
-          : log.acNo;
+        if (!log.empId) return; // Skip logs that couldn't be matched to an employee
 
-        if (!empIdKey) return;
+        const empKey = log.empId; // Use empId as the key
 
-        // Format date key YYYY-MM-DD based on log.time
-        const dateKey = dayjs(log.time).format("YYYY-MM-DD");
+        // Format date key
+        const dateKey = dayjs(log.time).tz(LOCAL_TZ).format("YYYY-MM-DD");
 
-        if (!logsByEmpDay[empIdKey]) logsByEmpDay[empIdKey] = {};
-        if (!logsByEmpDay[empIdKey][dateKey]) {
-          logsByEmpDay[empIdKey][dateKey] = {
+        if (!logsByEmpDay[empKey]) logsByEmpDay[empKey] = {};
+        if (!logsByEmpDay[empKey][dateKey]) {
+          logsByEmpDay[empKey][dateKey] = {
             "Time In": null,
             "Break Out": null,
             "Break In": null,
@@ -170,12 +182,11 @@ const DTRProcess = () => {
           };
         }
 
-        // Map State to label and save time
         const stateLabel = STATE_LABELS[log.state];
         if (stateLabel) {
-          logsByEmpDay[empIdKey][dateKey][stateLabel] = dayjs(log.time).format(
-            "hh:mm A"
-          );
+          logsByEmpDay[empKey][dateKey][stateLabel] = dayjs(log.time)
+            .tz(LOCAL_TZ)
+            .format("hh:mm A");
         }
       });
 
@@ -194,21 +205,14 @@ const DTRProcess = () => {
     try {
       setLoading(true);
 
-      // Extract last 4 digits from empId as AC-No for filtering
-      const acNos = employees
-        .map((emp) => {
-          if (!emp.empId) return null;
-          const acNoDigits = String(emp.acNo).replace(/\D/g, "");
-          const empKey = acNoDigits.slice(-4); // this must match empKey in renderDTRDays
-        })
-        .filter(Boolean);
+      const employeeNames = employees.map((emp) => emp.name).filter(Boolean);
 
       const res = await axios.get(
         `${import.meta.env.VITE_API_BASE_URL}/dtrlogs/merged`,
         {
           params: {
             recordName: selectedRecord.DTR_Record_Name,
-            acNo: acNos.join(","),
+            names: employeeNames.join(","),
           },
         }
       );
@@ -222,9 +226,9 @@ const DTRProcess = () => {
       const logsByEmpDay = {};
 
       res.data.data.forEach((log) => {
-        // Always use last 4 digits of AC-No for key
-        const acNoDigits = String(log.acNo).replace(/\D/g, "");
-        const empKey = acNoDigits.slice(-4);
+        if (!log.empId) return; // Skip logs that couldn't be matched to an employee
+
+        const empKey = log.empId; // Use empId as the key
 
         // Format date key YYYY-MM-DD based on log.time
         const dateKey = dayjs(log.time).tz(LOCAL_TZ).format("YYYY-MM-DD");
@@ -314,8 +318,16 @@ const DTRProcess = () => {
       data = data.filter((emp) => emp.empType === empTypeFilter);
     }
 
+    if (sectionOrUnitFilter) {
+      data = data.filter((emp) =>
+        emp.sectionOrUnit
+          ?.toLowerCase()
+          .includes(sectionOrUnitFilter.toLowerCase())
+      );
+    }
+
     setFilteredEmployees(sortEmployees(data));
-  }, [searchText, empTypeFilter, employees]);
+  }, [searchText, empTypeFilter, sectionOrUnitFilter, employees]);
 
   const selectedRecord = dtrRecords.find(
     (rec) => rec.DTR_Record_Name === selectedDtrRecord
@@ -340,28 +352,20 @@ const DTRProcess = () => {
       );
       dtrDays = [];
     } else {
-      let curr = start.clone();
-      while (curr.isSameOrBefore(end, "day")) {
-        const dayNum = curr.date();
-        const dateKey = curr.format("YYYY-MM-DD");
-
-        // Check if any employee has a log for this date
-        const hasLog = employees.some((emp) => {
-          const ids = [emp.empId, ...(emp.alternateEmpIds || [])].filter(
-            Boolean
-          );
-          return ids.some((id) => {
-            const empKey = id.replace(/\D/g, "").slice(-4);
-            const logs = dtrLogs[empKey]?.[dateKey];
-            return logs && Object.values(logs).some((v) => v);
-          });
-        });
-
-        if (hasLog) {
-          dtrDays.push(dayNum);
+      const recordName = selectedRecord.DTR_Record_Name || "";
+      if (recordName.includes("1-15")) {
+        dtrDays = Array.from({ length: 15 }, (_, i) => i + 1);
+      } else if (recordName.includes("16-")) {
+        const endOfMonth = start.endOf("month").date();
+        const numDays = endOfMonth - 16 + 1;
+        dtrDays = Array.from({ length: numDays }, (_, i) => i + 16);
+      } else {
+        // Fallback to original behavior
+        let curr = start.clone();
+        while (curr.isSameOrBefore(end, "day")) {
+          dtrDays.push(curr.date());
+          curr = curr.add(1, "day");
         }
-
-        curr = curr.add(1, "day");
       }
     }
   }
@@ -374,121 +378,72 @@ const DTRProcess = () => {
     }
   }, [selectedRecord, employees]);
 
-  const getEmployeeDayLogs = (emp, dayKey) => {
-    const ids = [emp.empId, ...(emp.alternateEmpIds || [])].filter(Boolean);
-
-    for (let id of ids) {
-      const empKey = id.replace(/\D/g, "").slice(-4);
-      if (dtrLogs[empKey] && dtrLogs[empKey][dayKey]) {
-        return dtrLogs[empKey][dayKey];
+  useEffect(() => {
+    async function getHolidays() {
+      if (
+        selectedRecord &&
+        selectedRecord.DTR_Cut_Off?.start &&
+        selectedRecord.DTR_Cut_Off?.end
+      ) {
+        const start = dayjs(selectedRecord.DTR_Cut_Off.start);
+        const end = dayjs(selectedRecord.DTR_Cut_Off.end);
+        const year = start.year();
+        const holidays = await fetchPhilippineHolidays(year);
+        // Filter holidays within cut-off
+        const filtered = holidays
+          .filter((h) => {
+            const hDate = dayjs(h.date);
+            return (
+              hDate.isSameOrAfter(start, "day") &&
+              hDate.isSameOrBefore(end, "day")
+            );
+          })
+          .map((h) => ({
+            date: h.date,
+            name: h.localName,
+            type: h.type,
+          }));
+        setHolidaysPH(filtered);
+      } else {
+        setHolidaysPH([]);
       }
     }
-    return null;
-  };
+    getHolidays();
+  }, [selectedRecord]);
+
+  useEffect(() => {
+    async function fetchTrainingsForEmployees() {
+      if (!employees.length) return;
+      const trainingsByEmp = {};
+      for (const emp of employees) {
+        try {
+          // Adjust API path if needed
+          const res = await axios.get(
+            `${import.meta.env.VITE_API_BASE_URL}/trainings/by-employee/${
+              emp.empId
+            }`
+          );
+          trainingsByEmp[emp.empId] = res.data.data || [];
+        } catch {
+          trainingsByEmp[emp.empId] = [];
+        }
+      }
+      setEmployeeTrainings(trainingsByEmp);
+    }
+    fetchTrainingsForEmployees();
+  }, [employees, selectedRecord]);
 
   const hasAnyDTRLogs = (emp, dtrDays, dtrLogs, selectedRecord) => {
-    const ids = [emp.empId, ...(emp.alternateEmpIds || [])].filter(Boolean);
+    const empKey = emp.empId;
+    if (!dtrLogs[empKey]) return false;
 
-    return ids.some((id) => {
-      const empKey = id.replace(/\D/g, "").slice(-4);
-
-      return dtrDays.some((dayNum) => {
-        const dateKey = dayjs(selectedRecord.DTR_Cut_Off.start)
-          .date(dayNum)
-          .format("YYYY-MM-DD");
-        const dayLogs =
-          dtrLogs[empKey] && dtrLogs[empKey][dateKey]
-            ? dtrLogs[empKey][dateKey]
-            : null;
-
-        return dayLogs && Object.values(dayLogs).some((v) => v);
-      });
+    return dtrDays.some((dayNum) => {
+      const dateKey = dayjs(selectedRecord.DTR_Cut_Off.start)
+        .date(dayNum)
+        .format("YYYY-MM-DD");
+      const dayLogs = dtrLogs[empKey][dateKey];
+      return dayLogs && Object.values(dayLogs).some((v) => v);
     });
-  };
-
-  const renderDTRDays = (days, emp) => {
-    return (
-      <div style={{ display: "flex", gap: 2, marginBottom: 4 }}>
-        {days.map((dayNum) => {
-          const dateObj = dayjs(selectedRecord.DTR_Cut_Off.start).date(dayNum);
-          const dateKey = dateObj.format("YYYY-MM-DD");
-
-          const dayLogs = getEmployeeDayLogs(emp, dateKey);
-          const hasLogs = dayLogs && Object.values(dayLogs).some((v) => v);
-
-          const dayOfWeek = dateObj.day();
-          const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-
-          const weekendBg = "#ffe6e6";
-          const workedWeekendStyle = {
-            border: "2px solid #fa541c",
-            backgroundColor: "#fff2e8",
-          };
-
-          const tileStyle = {
-            width: 45,
-            minHeight: 35,
-            background: isWeekend ? weekendBg : hasLogs ? "#d6f5d6" : "#f1f1f1", // red for missing
-            border: "1px solid #d9d9d9",
-            borderRadius: 4,
-            padding: 4,
-            fontSize: 10,
-            color: "#000",
-            flexShrink: 0,
-            display: "flex",
-            flexDirection: "column",
-            justifyContent: "center",
-            gap: 2,
-            textAlign: "center",
-            whiteSpace: "nowrap",
-            fontWeight: hasLogs ? "600" : "normal",
-            cursor: hasLogs ? "pointer" : "default",
-            ...(isWeekend && hasLogs ? workedWeekendStyle : {}),
-          };
-
-          const popoverContent = dayLogs ? (
-            <div style={{ fontSize: 12, lineHeight: 1.5 }}>
-              {Object.entries(dayLogs)
-                .filter(([_, time]) => time)
-                .map(([label, time]) => (
-                  <div key={label}>
-                    <strong>{label}:</strong> {time}
-                  </div>
-                ))}
-            </div>
-          ) : (
-            <div style={{ color: "#bbb", fontSize: 11 }}>No Data</div>
-          );
-
-          return (
-            <Popover
-              key={dayNum}
-              content={popoverContent}
-              trigger="hover"
-              placement="top"
-            >
-              <div style={tileStyle}>
-                <div
-                  style={{ fontWeight: "bold", fontSize: 11, marginBottom: 4 }}
-                  title={`Day ${dayNum}`}
-                >
-                  {dayNum}
-                  <div
-                    style={{
-                      fontWeight: "normal",
-                      fontSize: 10,
-                      color: "#555",
-                    }}
-                  >
-                    {dateObj.format("ddd")}
-                  </div>
-                </div>
-              </div>
-            </Popover>
-          );
-        })}
-      </div>
-    );
   };
 
   const getDTRHeaderTitle = () => {
@@ -518,9 +473,162 @@ const DTRProcess = () => {
     setViewDTRVisible(true);
   };
 
-  const handlePrintSelected = (employee) => {
-    console.log("Print selected for:", employee);
-    // TODO: implement print selected employee logic
+  //Refactored logDTRRecord
+  const logDTRRecord = async (employee, selectedRecord, currentUser) => {
+    if (!employee?.empId || !selectedRecord) return;
+
+    const cutOff = `${dayjs(selectedRecord.DTR_Cut_Off.start).format(
+      "MMMM DD, YYYY"
+    )}-${dayjs(selectedRecord.DTR_Cut_Off.end).format("MMMM DD, YYYY")}`;
+
+    const payload = {
+      empId: employee.empId,
+      docType: "DTR",
+      reference: selectedRecord.DTR_Record_Name || "DTR Record",
+      period: cutOff,
+      description: `DTR for ${cutOff}`,
+      createdBy: currentUser?.name || "HR",
+      dateIssued: new Date(),
+    };
+
+    try {
+      // 1️⃣ Fetch existing DTR docs for this employee
+      const existingRes = await axiosInstance.get(
+        `/employee-docs/by-employee/${employee.empId}`
+      );
+
+      const existingDocs = existingRes.data?.data || [];
+
+      // 2️⃣ Check if this exact DTR already exists
+      const isDuplicate = existingDocs.some(
+        (doc) =>
+          doc.docType === payload.docType &&
+          doc.reference === payload.reference &&
+          doc.period === payload.period
+      );
+
+      if (isDuplicate) {
+        // console.log(
+        //   `DTR already logged for ${employee.name} (${cutOff}). Skipping duplicate.`
+        // );
+        return; // skip creating duplicate
+      }
+
+      // 3️⃣ If not duplicate, create new document
+      //console.log("Creating new DTR doc:", payload);
+      const res = await axiosInstance.post("/employee-docs", payload);
+      //console.log("Create response:", res.data);
+
+      if (res.data?.success) {
+        //console.log(`DTR logged successfully for ${employee.name}`);
+      } else {
+        console.error("Failed to log DTR record:", res.data);
+      }
+    } catch (err) {
+      console.error(
+        "Failed to log DTR record:",
+        err.response?.data || err.message
+      );
+    }
+  };
+
+  // View single DTR (opens in new tab)
+  const handleViewDTRPdf = (item) => {
+    generateDTRPdf(item); // view in new tab
+  };
+
+  // Download single DTR
+  const handleDownloadDTR = async (item) => {
+    if (!item || !item.employee || !item.selectedRecord) return;
+
+    try {
+      // 1️⃣ Generate PDF
+      const pdfBlob = await generateDTRPdf({ ...item, download: true });
+
+      const cutOff = `${dayjs(item.selectedRecord.DTR_Cut_Off.start).format(
+        "MMMM DD, YYYY"
+      )}-${dayjs(item.selectedRecord.DTR_Cut_Off.end).format("MMMM DD, YYYY")}`;
+
+      // 2️⃣ Trigger browser download
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(pdfBlob);
+      link.download = `DTR_${item.employee.name}_${cutOff}.pdf`;
+      link.click();
+
+      // 3️⃣ Log the DTR (centralized)
+      await logDTRRecord(item.employee, item.selectedRecord, currentUser);
+    } catch (err) {
+      console.error("Error downloading/logging DTR:", err);
+      message.error("Failed to download or log DTR");
+    }
+  };
+
+  // Download all DTRs in printerTray and log each DTR
+  const handleDownloadAllDTRs = async () => {
+    if (!printerTray.length) {
+      message.warning("Printer tray is empty");
+      return;
+    }
+
+    try {
+      // 1️⃣ Generate batch PDF
+      await generateBatchDTRPdf(printerTray);
+      message.success("Batch DTR PDF downloaded.");
+
+      // 2️⃣ Log each employee's DTR after batch download
+      for (const item of printerTray) {
+        const { employee, selectedRecord } = item;
+        if (!employee || !selectedRecord) continue;
+
+        try {
+          await logDTRRecord(employee, selectedRecord, currentUser);
+        } catch (err) {
+          console.error(
+            `Failed to log DTR for ${employee.name}:`,
+            err.response?.data || err.message
+          );
+        }
+      }
+
+      message.success("All DTRs logged successfully.");
+    } catch (err) {
+      console.error("Failed to download or log batch DTRs:", err);
+      message.error("Failed to download or log batch DTRs.");
+    }
+  };
+
+  // Print selected employee DTR
+  const handlePrintSelected = async (item) => {
+    if (!item || !item.selectedRecord) return;
+
+    const { employee, dtrDays, dtrLogs, selectedRecord } = item;
+
+    try {
+      const pdfBlob = await generateDTRPdf({
+        employee,
+        dtrDays,
+        dtrLogs,
+        selectedRecord,
+        download: true,
+      });
+
+      const pdfUrl = URL.createObjectURL(pdfBlob);
+      const iframe = document.createElement("iframe");
+      iframe.style.display = "none";
+      iframe.src = pdfUrl;
+      document.body.appendChild(iframe);
+
+      iframe.onload = async () => {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+
+        // Log the DTR after printing
+        await logDTRRecord(employee, selectedRecord, currentUser);
+      };
+    } catch (err) {
+      console.error("Failed to print/log DTR:", err);
+      message.error("Failed to print DTR");
+    }
   };
 
   const handleAddToPrinterTray = (employee) => {
@@ -542,29 +650,14 @@ const DTRProcess = () => {
         },
       ];
     });
+
+    message.success(`${employee.name} DTR added to Printer Tray.`);
   };
 
   const handleClearPrinterTray = () => {
     setPrinterTray([]);
     message.success("Printer Tray cleared.");
   };
-
-  const printMenu = (employee) => (
-    <Menu>
-      <Menu.Item
-        key="printSelected"
-        onClick={() => handlePrintSelected(employee)}
-      >
-        Print Selected
-      </Menu.Item>
-      <Menu.Item
-        key="addToTray"
-        onClick={() => handleAddToPrinterTray(employee)}
-      >
-        Add to Printer Tray
-      </Menu.Item>
-    </Menu>
-  );
 
   const columnsBase = [
     {
@@ -625,7 +718,8 @@ const DTRProcess = () => {
       title: "Employee ID",
       dataIndex: "empId",
       key: "empId",
-      width: 100,
+      width: 70,
+      align: "center",
       render: (_, record) => {
         // Combine main empId + alternateEmpIds (if any)
         const ids = [record.empId, ...(record.alternateEmpIds || [])]
@@ -633,21 +727,22 @@ const DTRProcess = () => {
           .join(", ");
 
         return (
-          <div style={{ width: 100, minWidth: 100, maxWidth: 100 }}>{ids}</div>
+          <div style={{ width: 70, minWidth: 70, maxWidth: 70 }}>{ids}</div>
         );
       },
     },
     {
-      title: "AC-No",
+      title: "Biometrics No.",
       key: "acNo",
-      width: 100,
+      width: 50,
+      align: "center",
       render: (_, record) => {
         // Extract last 4 digits of empId as AC-No
         const acNo = record.empId
           ? record.empId.replace(/\D/g, "").slice(-4)
           : "";
         return (
-          <div style={{ width: 100, minWidth: 100, maxWidth: 100 }}>{acNo}</div>
+          <div style={{ width: 50, minWidth: 50, maxWidth: 50 }}>{acNo}</div>
         );
       },
     },
@@ -657,7 +752,29 @@ const DTRProcess = () => {
       width: 500,
       render: (_, record) =>
         dtrDays.length > 0 ? (
-          renderDTRDays(dtrDays, record)
+          <DTRDayTiles
+            days={dtrDays}
+            emp={record}
+            selectedRecord={selectedRecord}
+            divisionColors={divisionColors}
+            divisionAcronyms={divisionAcronyms}
+            holidaysPH={holidaysPH}
+            getEmployeeDayLogs={(emp, dateKey) => {
+              const empKey = emp.empId;
+              return dtrLogs[empKey]?.[dateKey] || null;
+            }}
+            getTrainingDetailsOnDay={(emp, dateKey) => {
+              const trainings = employeeTrainings[emp.empId] || [];
+              return trainings.find((t) =>
+                dayjs(dateKey).isBetween(
+                  dayjs(t.trainingDate[0]),
+                  dayjs(t.trainingDate[1]),
+                  null,
+                  "[]"
+                )
+              );
+            }}
+          />
         ) : (
           <span style={{ color: "#888" }}>Select DTR Record</span>
         ),
@@ -677,19 +794,18 @@ const DTRProcess = () => {
           onClick={() => handleViewDTR(record)}
           style={{ fontSize: 12 }}
         />
-        <Dropdown overlay={printMenu(record)} trigger={["click"]}>
-          <Button
-            type="default"
-            size="small"
-            icon={<PrinterOutlined />}
-            style={{ fontSize: 12 }}
-          />
-        </Dropdown>
+
+        <Button
+          type="default"
+          size="small"
+          icon={<PrinterOutlined />}
+          onClick={() => handleAddToPrinterTray(record)}
+          style={{ fontSize: 12 }}
+        />
       </Space>
     ),
   };
 
-  // Columns with or without actions based on selectedDtrRecord
   const columns = selectedDtrRecord
     ? [...columnsBase, actionsColumn]
     : columnsBase;
@@ -700,64 +816,13 @@ const DTRProcess = () => {
     .sort((a, b) => a.localeCompare(b))
     .map((type) => ({ label: type, value: type }));
 
-  // View single DTR (opens in new tab)
-  const handleViewDTRPdf = (item) => {
-    generateDTRPdf(item); // default behavior: view in new tab
-  };
-
-  // Download single DTR
-  const handleDownloadDTR = async (item) => {
-    const pdfBlob = await generateDTRPdf({ ...item, download: true });
-    const cutOff = `${dayjs(item.selectedRecord.DTR_Cut_Off.start).format(
-      "MMMM DD, YYYY"
-    )}-${dayjs(item.selectedRecord.DTR_Cut_Off.end).format("MMMM DD, YYYY")}`;
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(pdfBlob);
-    link.download = `DTR_${item.employee.name}_${cutOff}.pdf`;
-    link.click();
-  };
-
-  // Download all DTRs in printerTray
-  const handleDownloadAllDTRs = async () => {
-    if (printerTray.length === 0) {
-      message.warning("Printer tray is empty");
-      return;
-    }
-
-    for (let item of printerTray) {
-      await handleDownloadDTR(item); // reuse single download
-    }
-
-    message.success("All DTRs downloaded");
-  };
-
-  // Print all DTRs in printerTray
-  const handlePrintAllDTRs = async () => {
-    if (printerTray.length === 0) {
-      message.warning("Printer tray is empty");
-      return;
-    }
-
-    for (let item of printerTray) {
-      const { employee, dtrDays, dtrLogs, selectedRecord } = item;
-      const pdfBlob = await generateDTRPdf({
-        employee,
-        dtrDays,
-        dtrLogs,
-        selectedRecord,
-        download: true,
-      });
-
-      const pdfUrl = URL.createObjectURL(pdfBlob);
-      const iframe = document.createElement("iframe");
-      iframe.style.display = "none";
-      iframe.src = pdfUrl;
-      document.body.appendChild(iframe);
-      iframe.contentWindow.focus();
-      iframe.contentWindow.print();
-    }
-
-    message.success("All DTRs sent to printer");
+  const handlePreviewForm48 = (employee, record) => {
+    generateDTRPdf({
+      employee,
+      dtrDays,
+      dtrLogs,
+      selectedRecord: record,
+    });
   };
 
   return (
@@ -770,44 +835,31 @@ const DTRProcess = () => {
         }}
       >
         <Title level={3}>Process Daily Time Records</Title>
-        <Button
-          icon={<MenuOutlined />}
-          type="primary"
-          onClick={() => setDrawerVisible(true)}
-        >
-          Open Printer Tray
-        </Button>
+
+        <Badge count={printerTray.length} overflowCount={99}>
+          <Button
+            icon={<MenuOutlined />}
+            type="primary"
+            onClick={() => setDrawerVisible(true)}
+          >
+            Open Printer Tray
+          </Button>
+        </Badge>
       </Space>
 
-      <Space style={{ marginBottom: 16 }} wrap>
-        <Select
-          placeholder="Select a biometrics cut off"
-          style={{ width: 220 }}
-          value={selectedDtrRecord}
-          onChange={setSelectedDtrRecord}
-          options={dtrRecords.map((rec) => ({
-            label: rec.DTR_Record_Name,
-            value: rec.DTR_Record_Name,
-          }))}
-          allowClear
-        />
-        <Search
-          placeholder="Search by name, empNo, empId"
-          allowClear
-          onSearch={(value) => setSearchText(value)}
-          onChange={(e) => setSearchText(e.target.value)}
-          style={{ width: 250 }}
-        />
-        <Select
-          placeholder="Filter by Employee Type"
-          allowClear
-          options={empTypeOptions}
-          style={{ width: 200 }}
-          onChange={(value) => setEmpTypeFilter(value || "")}
-        />
-      </Space>
+      <DTRFilters
+        selectedDtrRecord={selectedDtrRecord}
+        setSelectedDtrRecord={setSelectedDtrRecord}
+        dtrRecords={dtrRecords}
+        searchText={searchText}
+        setSearchText={setSearchText}
+        empTypeFilter={empTypeFilter}
+        setEmpTypeFilter={setEmpTypeFilter}
+        empTypeOptions={empTypeOptions}
+        sectionOrUnitFilter={sectionOrUnitFilter}
+        setSectionOrUnitFilter={setSectionOrUnitFilter}
+      />
 
-      {/* Warning / filter for missing DTR */}
       {selectedDtrRecord && (
         <Space style={{ marginBottom: 16 }}>
           <Button
@@ -816,11 +868,9 @@ const DTRProcess = () => {
             danger
             onClick={() => {
               if (!selectedRecord) return;
-
               const missing = employees.filter(
                 (emp) => !hasAnyDTRLogs(emp, dtrDays, dtrLogs, selectedRecord)
               );
-
               setFilteredEmployees(missing);
               message.warning(
                 `Showing ${missing.length} employees with no DTR at all`
@@ -829,16 +879,14 @@ const DTRProcess = () => {
           >
             ⚠️ Show Missing DTR (
             {
-              // total count using alternateEmpIds
               employees.filter(
                 (emp) => !hasAnyDTRLogs(emp, dtrDays, dtrLogs, selectedRecord)
               ).length
             }
             )
           </Button>
-
           <Button
-            type="text"
+            type="primary"
             onClick={() => {
               setFilteredEmployees(sortEmployees(employees));
             }}
@@ -851,85 +899,31 @@ const DTRProcess = () => {
       {loading ? (
         <Spin size="large" />
       ) : (
-        <Table
-          rowKey="_id"
+        <DTRTable
           columns={columns}
           dataSource={filteredEmployees}
-          bordered
-          pagination={{ pageSize: 10 }}
-          className="custom-small-table"
-          scroll={{ x: 1000 }}
-          rowClassName={(record) =>
-            !hasAnyDTRLogs(record, dtrDays, dtrLogs, selectedRecord)
-              ? "missing-dtr-row"
-              : ""
-          }
+          dtrDays={dtrDays}
+          dtrLogs={dtrLogs}
+          selectedRecord={selectedRecord}
+          hasAnyDTRLogs={hasAnyDTRLogs}
+          handleViewDTR={handleViewDTR}
+          handlePrintSelected={handlePrintSelected}
+          handleAddToPrinterTray={handleAddToPrinterTray}
+          selectedDtrRecord={selectedDtrRecord}
         />
       )}
 
-      <Drawer
-        title="Print Daily Time Records"
-        placement="right"
-        width={350}
+      <PrinterTrayDrawer
+        visible={drawerVisible}
         onClose={() => setDrawerVisible(false)}
-        open={drawerVisible}
-        getContainer={false}
-        style={{
-          position: "absolute",
-          top: 0,
-          right: 0,
-          height: "100%",
-          boxShadow: "-3px 0 10px 3px rgba(0, 0, 0, 0.12)",
-          borderRadius: "12px",
-          zIndex: 1000,
-        }}
-      >
-        {printerTray.length === 0 ? (
-          <p>No DTRs added to tray.</p>
-        ) : (
-          <>
-            {printerTray.map((item, idx) => (
-              <div
-                key={item.employee.empId + item.selectedRecord.DTR_Record_Name}
-                style={{
-                  marginBottom: 16,
-                  borderBottom: "1px solid #eee",
-                  paddingBottom: 8,
-                }}
-              >
-                <strong>{item.employee.name}</strong>
-                <div style={{ fontSize: 12, color: "#888" }}>
-                  {item.employee.empNo} | {item.employee.empType}
-                </div>
-                <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
-                  <Button size="small" onClick={() => handleViewDTRPdf(item)}>
-                    View
-                  </Button>
-                  <Button
-                    size="small"
-                    type="primary"
-                    onClick={() => handlePrintSelected(item.employee)}
-                  >
-                    Print
-                  </Button>
-                  <Button size="small" onClick={() => handleDownloadDTR(item)}>
-                    Download
-                  </Button>
-                </div>
-              </div>
-            ))}
-            <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
-              <Button type="primary" onClick={handlePrintAllDTRs}>
-                Print All
-              </Button>
-              <Button onClick={handleDownloadAllDTRs}>Download All</Button>
-              <Button danger onClick={handleClearPrinterTray}>
-                Clear Tray
-              </Button>
-            </div>
-          </>
-        )}
-      </Drawer>
+        printerTray={printerTray}
+        handleViewDTR={handleViewDTR}
+        handlePrintSelected={handlePrintSelected}
+        handleDownloadDTR={handleDownloadDTR}
+        handleDownloadAllDTRs={handleDownloadAllDTRs}
+        handleClearPrinterTray={handleClearPrinterTray}
+        handlePreviewForm48={handlePreviewForm48} // <-- new
+      />
 
       {selectedEmployee && (
         <ViewDTR
@@ -939,6 +933,7 @@ const DTRProcess = () => {
           dtrDays={dtrDays}
           dtrLogs={dtrLogs}
           selectedRecord={selectedRecord}
+          holidaysPH={holidaysPH}
           onSaveToTray={handleAddToPrinterTray}
           onPreviewForm48={handlePrintSelected}
         />

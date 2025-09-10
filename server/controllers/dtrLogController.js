@@ -5,7 +5,7 @@ import dayjs from "dayjs";
 
 export const getMergedDTRLogs = async (req, res) => {
   try {
-    const { recordName, acNo, startDate, endDate } = req.query;
+    const { recordName, acNo, startDate, endDate, names } = req.query;
 
     const filter = {};
 
@@ -22,8 +22,10 @@ export const getMergedDTRLogs = async (req, res) => {
       }
     }
 
-    // Filter by AC-No list if provided (comma-separated)
-    if (acNo) {
+    if (names) {
+      const nameList = names.split(",").map((n) => n.trim());
+      filter.Name = { $in: nameList.map(name => new RegExp(name, 'i')) };
+    } else if (acNo) {
       // split and trim, then regex match each AC-No exactly or by partial digits
       const acNoList = acNo.split(",").map((a) => a.trim());
 
@@ -58,33 +60,25 @@ export const getMergedDTRLogs = async (req, res) => {
     const mergedData = logs.map((log, index) => {
       const acNoRaw = log["AC-No"] || "";
       const acNoDigits = String(acNoRaw).replace(/\D/g, "");
-      const acNoLast4 = acNoDigits.slice(-4);
 
       let matchedEmployee = null;
 
-      if (acNoLast4) {
+      const logName = log.Name?.trim().toLowerCase() || "";
+      if (logName) {
         matchedEmployee = employees.find((emp) => {
-          // Get last 4 digits of empId and alternateEmpIds
-          const allIds = [emp.empId, ...(emp.alternateEmpIds || [])].filter(
-            Boolean
-          );
-          const allIdsLast4Digits = allIds.map((id) => {
-            const digits = String(id).replace(/\D/g, "");
-            return digits.slice(-4);
-          });
-          // Compare last 4 digits of AC-No and empId
-          return allIdsLast4Digits.includes(acNoLast4);
+          const empName = emp.name?.toLowerCase() || "";
+          return empName.includes(logName) || logName.includes(empName);
         });
       }
 
-      if (!matchedEmployee) {
-        const logName = log.Name?.trim().toLowerCase() || "";
-        if (logName) {
-          matchedEmployee = employees.find((emp) => {
-            const empName = emp.name?.toLowerCase() || "";
-            return empName.includes(logName) || logName.includes(empName);
-          });
-        }
+      if (!matchedEmployee && acNoDigits) {
+        matchedEmployee = employees.find((emp) => {
+          const allIds = [emp.empId, ...(emp.alternateEmpIds || [])].filter(
+            Boolean
+          );
+          const allIdsDigits = allIds.map(id => String(id).replace(/\D/g, ""));
+          return allIdsDigits.some(idDigits => idDigits.includes(acNoDigits) || acNoDigits.includes(idDigits));
+        });
       }
 
       return {
@@ -96,6 +90,7 @@ export const getMergedDTRLogs = async (req, res) => {
         employeeName: matchedEmployee
           ? matchedEmployee.name
           : "Unknown Employee",
+        empId: matchedEmployee ? matchedEmployee.empId : null,
         newState: log["New State"],
         newStateEmployeeName: matchedEmployee
           ? matchedEmployee.name
