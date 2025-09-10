@@ -13,6 +13,7 @@ import dtrRoutes from "./routes/dtrRoutes.js";
 import dtrLogRoutes from "./routes/dtrLogRoutes.js";
 import dtrDataRoutes from "./routes/dtrDataRoutes.js";
 import trainingRoutes from "./routes/trainingRoutes.js";
+import employeeDocRoutes from "./routes/employeeDocRoutes.js";
 
 import { setSocketInstance } from "./socket.js";
 
@@ -61,6 +62,7 @@ app.use("/api/dtr", dtrRoutes);
 app.use("/api/dtrlogs", dtrLogRoutes);
 app.use("/api/dtrdatas", dtrDataRoutes);
 app.use("/api/trainings", trainingRoutes);
+app.use("/api/employee-docs", employeeDocRoutes);
 
 // 7. Start server
 mongoose

@@ -17,6 +17,7 @@
     "antd": "^5.26.7",
     "axios": "^1.11.0",
     "crypto-js": "^4.2.0",
+    "date-holidays": "^3.25.2",
     "dayjs": "^1.11.18",
     "jspdf": "^3.0.2",
     "jspdf-autotable": "^5.0.2",
