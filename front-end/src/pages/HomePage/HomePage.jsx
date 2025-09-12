@@ -9,6 +9,7 @@ import {
   Popover,
   Divider,
   Button,
+  message,
 } from "antd";
 import {
   UserOutlined,
@@ -23,25 +24,25 @@ import {
   ImportOutlined,
   FieldTimeOutlined,
   PrinterOutlined,
+  ClockCircleOutlined,
 } from "@ant-design/icons";
 
 import { useNavigate, Routes, Route } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { secureGet, secureRemove } from "../../../utils/secureStorage";
 import emblogo from "../../assets/emblogo.svg";
 
 import Dashboard from "../../components/Dashboard/Dashboard";
 import GenInfo from "../../components/Employees/GeneralInfo/GenInfo";
-import BenefitsInfo from "../../components/Employees/BenefitsInfo/BenefitsInfo";
+import BenefitsInfo from "../../components/Employees/SalaryInfo/SalaryInfo";
 import Trainings from "../../components/Employees/Trainings/Trainings";
 import AccountSettings from "../../components/Settings/AccountSettings/AccountsSettings";
 import Backup from "../../components/Settings/Backup/Backup";
 import UserAccess from "../../components/Settings/UserAccess/UserAccess";
 import ImportDTRModal from "../../components/DTR/ImportDTRModal";
-import DTR from "../DTR/DTR";
-import DTRLogs from "../DTR/DTRLogs";
+import DTRLogs from "../DTR/DTRLogs/DTRLogs";
 import DTRProcess from "../DTR/components/DTRProcess/DTRProcess";
-import DTRReports from "../DTR/DTRReports";
+import DTRReports from "../DTR/DTRReports/DTRReports";
 
 import io from "socket.io-client";
 import "./hompage.css";
@@ -56,6 +57,14 @@ const HomePage = () => {
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const userget = secureGet("user");
 
+  const handleLogout = () => {
+    message.success("Logging out..."); // Add a message before redirecting
+    secureRemove("token");
+    secureRemove("user");
+    // Use navigate for better React Router integration, but window.location.href is also fine for full page reload
+    navigate("/auth");
+  };
+
   useEffect(() => {
     const socket = io(import.meta.env.VITE_SOCKET_URL);
     socket.on("newNotification", (data) => {
@@ -64,11 +73,39 @@ const HomePage = () => {
     return () => socket.disconnect();
   }, []);
 
-  const handleLogout = () => {
-    secureRemove("token");
-    secureRemove("user");
-    window.location.href = "/auth";
-  };
+  // Idle Timeout Logic
+  const IDLE_TIMEOUT = 10 * 60 * 1000; // 10 minutes in milliseconds
+  const idleTimer = useRef(null);
+
+  const resetIdleTimer = useCallback(() => {
+    if (idleTimer.current) {
+      clearTimeout(idleTimer.current);
+    }
+    idleTimer.current = setTimeout(() => {
+      message.warning("You have been idle for too long. Logging out...");
+      handleLogout();
+    }, IDLE_TIMEOUT);
+  }, [handleLogout]); // handleLogout is a dependency
+
+  useEffect(() => {
+    // Initial setup
+    resetIdleTimer();
+
+    // Event listeners for user activity
+    window.addEventListener("mousemove", resetIdleTimer);
+    window.addEventListener("keydown", resetIdleTimer);
+    window.addEventListener("scroll", resetIdleTimer);
+    window.addEventListener("click", resetIdleTimer);
+
+    // Cleanup
+    return () => {
+      clearTimeout(idleTimer.current);
+      window.removeEventListener("mousemove", resetIdleTimer);
+      window.removeEventListener("keydown", resetIdleTimer);
+      window.removeEventListener("scroll", resetIdleTimer);
+      window.removeEventListener("click", resetIdleTimer);
+    };
+  }, [resetIdleTimer]);
 
   const handleViewProfile = () => {};
   const handleSuggestFeature = () => {};
@@ -86,12 +123,12 @@ const HomePage = () => {
       children: [
         { key: "/employeeinfo", label: "General Info" },
         { key: "/trainings", label: "Trainings" },
-        { key: "/benefitsinfo", label: "Benefits & Leaves" },
+        { key: "/benefitsinfo", label: "Salary Info" },
       ],
     },
     {
       key: "dtr",
-      icon: <ImportOutlined />,
+      icon: <FieldTimeOutlined />,
       label: "Daily Time Record",
       children: [
         { key: "/dtr/logs", label: "DTR Logs" },

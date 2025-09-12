@@ -1,0 +1,21 @@
+.salaryinfo-header {
+  margin-bottom: 20px;
+}
+
+.salaryinfo-filters {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.salaryinfo-table {
+  overflow-x: auto;
+}
+
+/* Optional: Adjust table cell padding for better readability */
+.ant-table-cell {
+  padding: 10px 8px !important;
+}

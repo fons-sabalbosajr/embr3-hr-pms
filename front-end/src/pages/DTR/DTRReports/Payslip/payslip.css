@@ -1,0 +1,38 @@
+.payslip-modal-content .cutoff-card {
+  font-size: 12px;
+  padding: 6px;
+  margin-bottom: 8px;
+}
+
+.payslip-modal-content .cutoff-card .ant-card-head-title {
+  font-size: 13px;
+  padding: 4px 0;
+}
+
+.payslip-modal-content .grand-total-card {
+  background-color: #fafafa;
+  border: 1px solid #d9d9d9;
+}
+
+.payslip-modal-content .ant-input,
+.payslip-modal-content .ant-input-number {
+  font-size: 12px;
+  padding: 2px 6px;
+  height: 32px;
+}
+
+.payslip-modal-content .ant-picker-range {
+  font-size: 12px;
+  padding: 2px 8px;
+  height: 24px;
+}
+
+.payslip-modal-content .ant-picker-range .ant-picker-input > input {
+  font-size: 12px;
+}
+
+
+.payslip-summary{
+    margin-top: 15px;
+}
+

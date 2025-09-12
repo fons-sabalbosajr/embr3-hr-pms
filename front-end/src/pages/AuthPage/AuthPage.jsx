@@ -50,7 +50,7 @@ const AuthPage = () => {
     try {
       setLoading(true);
       const { confirmPassword, ...userData } = values;
-      const res = await axios.post("/api/users/signup", userData);
+      const res = await axios.post("/users/signup", userData);
 
       Swal.fire({
         title: "Signup Successful!",
@@ -95,190 +95,202 @@ const AuthPage = () => {
           EMBR3 Payroll Management System
         </Title>
 
-        <Tabs activeKey={tab} onChange={(key) => setTab(key)} centered>
-          <Tabs.TabPane tab="Login" key="login">
-            <Form layout="vertical" onFinish={onLogin} className="login-form">
-              <Form.Item
-                name="username"
-                label="Username"
-                rules={[{ required: true }]}
-              >
-                <Input placeholder="Enter username" />
-              </Form.Item>
+        <Tabs
+          activeKey={tab}
+          onChange={(key) => setTab(key)}
+          centered
+          items={[
+            {
+              label: 'Login',
+              key: 'login',
+              children: (
+                <Form layout="vertical" onFinish={onLogin} className="login-form">
+                  <Form.Item
+                    name="username"
+                    label="Username"
+                    rules={[{ required: true }]}
+                  >
+                    <Input placeholder="Enter username" />
+                  </Form.Item>
 
-              <Form.Item
-                name="password"
-                label="Password"
-                rules={[{ required: true }]}
-              >
-                <Input.Password placeholder="Enter password" />
-              </Form.Item>
+                  <Form.Item
+                    name="password"
+                    label="Password"
+                    rules={[{ required: true }]}
+                  >
+                    <Input.Password placeholder="Enter password" />
+                  </Form.Item>
 
-              <Form.Item>
-                <Button
-                  type="primary"
-                  htmlType="submit"
-                  block
-                  loading={loading}
-                  className="login-button"
-                >
-                  Log in
-                </Button>
-              </Form.Item>
+                  <Form.Item>
+                    <Button
+                      type="primary"
+                      htmlType="submit"
+                      block
+                      loading={loading}
+                      className="login-button"
+                    >
+                      Log in
+                    </Button>
+                  </Form.Item>
 
-              {/* ✅ Center the Forgot Password */}
-              <Form.Item style={{ textAlign: "center", marginBottom: 0 }}>
-                <Button
-                  type="link"
-                  onClick={async () => {
-                    const { value: email } = await Swal.fire({
-                      title: "Forgot Password",
-                      input: "email",
-                      inputLabel: "Enter your registered email",
-                      inputPlaceholder: "you@example.com",
-                      confirmButtonText: "Send Reset Link",
-                      showCancelButton: true,
-                      inputValidator: (value) => {
-                        if (!value) return "Email is required";
-                      },
-                    });
-
-                    if (email) {
-                      try {
-                        // Show loading spinner
-                        Swal.fire({
-                          title: "Sending Reset Link...",
-                          allowOutsideClick: false,
-                          allowEscapeKey: false,
-                          didOpen: () => {
-                            Swal.showLoading();
+                  {/* ✅ Center the Forgot Password */}
+                  <Form.Item style={{ textAlign: "center", marginBottom: 0 }}>
+                    <Button
+                      type="link"
+                      onClick={async () => {
+                        const { value: email } = await Swal.fire({
+                          title: "Forgot Password",
+                          input: "email",
+                          inputLabel: "Enter your registered email",
+                          inputPlaceholder: "you@example.com",
+                          confirmButtonText: "Send Reset Link",
+                          showCancelButton: true,
+                          inputValidator: (value) => {
+                            if (!value) return "Email is required";
                           },
                         });
 
-                        await axios.post("/users/forgot-password", { email });
+                        if (email) {
+                          try {
+                            // Show loading spinner
+                            Swal.fire({
+                              title: "Sending Reset Link...",
+                              allowOutsideClick: false,
+                              allowEscapeKey: false,
+                              didOpen: () => {
+                                Swal.showLoading();
+                              },
+                            });
 
-                        Swal.fire({
-                          icon: "success",
-                          title: "Reset Link Sent",
-                          text: "Check your email for the reset instructions.",
-                        });
-                      } catch (err) {
-                        Swal.fire({
-                          icon: "error",
-                          title: "Failed",
-                          text:
-                            err.response?.data?.message ||
-                            "Something went wrong. Try again later.",
-                        });
-                      }
-                    }
-                  }}
+                            await axios.post("/users/forgot-password", { email });
+
+                            Swal.fire({
+                              icon: "success",
+                              title: "Reset Link Sent",
+                              text: "Check your email for the reset instructions.",
+                            });
+                          } catch (err) {
+                            Swal.fire({
+                              icon: "error",
+                              title: "Failed",
+                              text:
+                                err.response?.data?.message ||
+                                "Something went wrong. Try again later.",
+                            });
+                          }
+                        }
+                      }}
+                    >
+                      Forgot Password?
+                    </Button>
+                  </Form.Item>
+                </Form>
+              ),
+            },
+            {
+              label: 'Sign Up',
+              key: 'signup',
+              children: (
+                <Form
+                  form={form}
+                  layout="vertical"
+                  onFinish={onSignup}
+                  className="signup-form"
                 >
-                  Forgot Password?
-                </Button>
-              </Form.Item>
-            </Form>
-          </Tabs.TabPane>
+                  <Form.Item name="name" label="Name" rules={[{ required: true }]}>
+                    <Input />
+                  </Form.Item>
 
-          <Tabs.TabPane tab="Sign Up" key="signup">
-            <Form
-              form={form}
-              layout="vertical"
-              onFinish={onSignup}
-              className="signup-form"
-            >
-              <Form.Item name="name" label="Name" rules={[{ required: true }]}>
-                <Input />
-              </Form.Item>
+                  <Form.Item
+                    name="username"
+                    label="Username"
+                    rules={[{ required: true }]}
+                  >
+                    <Input />
+                  </Form.Item>
 
-              <Form.Item
-                name="username"
-                label="Username"
-                rules={[{ required: true }]}
-              >
-                <Input />
-              </Form.Item>
+                  <Form.Item
+                    name="designation"
+                    label="Designation"
+                    rules={[{ required: true }]}
+                  >
+                    <Input />
+                  </Form.Item>
+                  <Form.Item
+                    name="position"
+                    label="Position"
+                    rules={[{ required: true }]}
+                  >
+                    <Input />
+                  </Form.Item>
+                  <Form.Item
+                    name="email"
+                    label="Email"
+                    rules={[{ required: true, type: "email" }]}
+                  >
+                    <Input />
+                  </Form.Item>
+                  <Form.Item
+                    name="password"
+                    label="Password"
+                    rules={[{ required: true, min: 6 }]}
+                  >
+                    <Input.Password />
+                  </Form.Item>
+                  <Form.Item
+                    name="confirmPassword"
+                    label="Confirm Password"
+                    dependencies={["password"]}
+                    rules={[
+                      { required: true, message: "Please confirm your password" },
+                      ({ getFieldValue }) => ({
+                        validator(_, value) {
+                          return !value || getFieldValue("password") === value
+                            ? Promise.resolve()
+                            : Promise.reject("Passwords do not match");
+                        },
+                      }),
+                    ]}
+                  >
+                    <Input.Password />
+                  </Form.Item>
 
-              <Form.Item
-                name="designation"
-                label="Designation"
-                rules={[{ required: true }]}
-              >
-                <Input />
-              </Form.Item>
-              <Form.Item
-                name="position"
-                label="Position"
-                rules={[{ required: true }]}
-              >
-                <Input />
-              </Form.Item>
-              <Form.Item
-                name="email"
-                label="Email"
-                rules={[{ required: true, type: "email" }]}
-              >
-                <Input />
-              </Form.Item>
-              <Form.Item
-                name="password"
-                label="Password"
-                rules={[{ required: true, min: 6 }]}
-              >
-                <Input.Password />
-              </Form.Item>
-              <Form.Item
-                name="confirmPassword"
-                label="Confirm Password"
-                dependencies={["password"]}
-                rules={[
-                  { required: true, message: "Please confirm your password" },
-                  ({ getFieldValue }) => ({
-                    validator(_, value) {
-                      return !value || getFieldValue("password") === value
-                        ? Promise.resolve()
-                        : Promise.reject("Passwords do not match");
-                    },
-                  }),
-                ]}
-              >
-                <Input.Password />
-              </Form.Item>
+                  <Form.Item>
+                    <Button
+                      type="primary"
+                      htmlType="submit"
+                      block
+                      loading={loading}
+                      className="signup-button"
+                    >
+                      Register
+                    </Button>
+                  </Form.Item>
 
-              <Form.Item>
-                <Button
-                  type="primary"
-                  htmlType="submit"
-                  block
-                  loading={loading}
-                  className="signup-button"
-                >
-                  Register
-                </Button>
-              </Form.Item>
-
-              {/* ✅ Resend Email centered */}
-              <div style={{ textAlign: "center" }}>
-                <Text type="secondary">Didn’t receive verification?</Text>{" "}
-                <Button
-                  type="link"
-                  onClick={() => {
-                    const email = document.querySelector(
-                      'input[name="email"]'
-                    ).value;
-                    if (email) {
-                      handleResend(email);
-                    } else {
-                      message.warning("Enter email first");
-                    }
-                  }}
-                >
-                  Resend Email
-                </Button>
-              </div>
-            </Form>
-          </Tabs.TabPane>
-        </Tabs>
+                  {/* ✅ Resend Email centered */}
+                  <div style={{ textAlign: "center" }}>
+                    <Text type="secondary">Didn’t receive verification?</Text>{" "}
+                    <Button
+                      type="link"
+                      onClick={() => {
+                        const email = document.querySelector(
+                          'input[name="email"]'
+                        ).value;
+                        if (email) {
+                          handleResend(email);
+                        } else {
+                          message.warning("Enter email first");
+                        }
+                      }}
+                    >
+                      Resend Email
+                    </Button>
+                  </div>
+                </Form>
+              ),
+            },
+          ]}
+        />
       </Card>
     </div>
   );
