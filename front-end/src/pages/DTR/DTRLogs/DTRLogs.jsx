@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from "react";
-import axiosInstance from "../../api/axiosInstance";
+import axiosInstance from "../../../api/axiosInstance";
 import {
   Table,
   Tag,
