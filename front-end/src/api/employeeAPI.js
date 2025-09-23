@@ -1,7 +1,12 @@
-import axios from 'axios';
+import axiosInstance from './axiosInstance';
 
 export const uploadEmployees = async (employeeData) => {
-  return await axios.post('/api/employees/upload-employees', {
+  return await axiosInstance.post('/employees/upload-employees', {
     employees: employeeData,
   });
 };
+
+export const getEmployees = async () => {
+  return await axiosInstance.get('/employees');
+};
+

@@ -1,0 +1,172 @@
+.dashboard-container {
+  min-height: calc(100vh - 64px); /* Adjust based on header height */
+}
+
+.dashboard-title {
+  font-size: 28px;
+  margin-bottom: 20px;
+  color: #333;
+  font-weight: 500;
+}
+
+.dashboard-card {
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.09);
+  transition: all 0.3s ease;
+  height: 100%; /* Ensure cards in a row have equal height */
+  overflow: hidden; /* Ensures content doesn't spill out on hover effects */
+}
+
+.dashboard-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  transform: translateY(-3px); /* Subtle lift effect */
+}
+
+.dashboard-loading,
+.dashboard-error {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  min-height: 200px;
+  font-size: 18px;
+  color: #555;
+}
+
+.dashboard-loading p {
+  margin-top: 15px;
+}
+
+.ant-statistic-content-value {
+  font-size: 28px !important;
+}
+
+.ant-list-item-meta-avatar {
+  font-size: 24px;
+  color: #1890ff;
+}
+
+/* Additional styles for better layout and responsiveness */
+.ant-row.ant-row-no-padding {
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
+
+.ant-col.ant-col-no-padding {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+.ant-card-head-title {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.ant-table-thead > tr > th {
+  background-color: #e6f7ff;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+/* Custom styles for statistic cards */
+.dashboard-card .ant-card-body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dashboard-card .ant-statistic {
+  flex-grow: 1;
+}
+
+.dashboard-card .ant-statistic-icon {
+  font-size: 40px;
+  margin-left: 15px;
+  opacity: 0.7;
+}
+
+.dashboard-card-total-employees .ant-statistic-content-value {
+  color: #1890ff;
+}
+
+.dashboard-card-regular-employees .ant-statistic-content-value {
+  color: #52c41a;
+}
+
+.dashboard-card-cos-employees .ant-statistic-content-value {
+  color: #faad14;
+}
+
+.dashboard-card-present-employees .ant-statistic-content-value {
+  color: #eb2f96;
+}
+
+.dashboard-search-container {
+  display: flex;
+  justify-content: flex-start;
+  margin-bottom: 15px;
+}
+/* Ensure Attendance Card stacks content vertically */
+
+.dashboard-card.dashboard-card-vertical .ant-card-body {
+  display: block !important; /* override default flex layout */
+}
+
+.dashboard-table-search {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.table-header-with-icon {
+  display: flex;
+  align-items: center;
+}
+
+.table-header-icon {
+  margin-right: 8px;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .dashboard-title {
+    font-size: 24px;
+  }
+
+  .ant-statistic-content-value {
+    font-size: 24px !important;
+  }
+
+  .dashboard-card .ant-statistic-icon {
+    font-size: 32px;
+  }
+}
+
+@media (max-width: 576px) {
+  .dashboard-container {
+    padding: 10px;
+  }
+
+  .dashboard-title {
+    font-size: 20px;
+  }
+
+  .ant-statistic-content-value {
+    font-size: 20px !important;
+  }
+
+  .ant-card-head-title {
+    font-size: 16px;
+  }
+
+  .dashboard-card .ant-card-body {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .dashboard-card .ant-statistic-icon {
+    margin-left: 0;
+    margin-top: 10px;
+  }
+}

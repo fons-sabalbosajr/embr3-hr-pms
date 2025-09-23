@@ -3,6 +3,7 @@ import { Tabs } from "antd";
 import WorkCalendar from "./Tabs/WorkCalendar";
 import Trainings from "./Tabs/Trainings";
 import OtherDetails from "./Tabs/OtherDetails";
+import BiometricsData from "./Tabs/BiometricsData";
 
 const GenerateReport = ({ employee }) => {
   const items = [
@@ -20,6 +21,11 @@ const GenerateReport = ({ employee }) => {
       key: "3",
       label: "Other Details",
       children: <OtherDetails employee={employee} />,
+    },
+    {
+      key: "4",
+      label: "Biometrics Data",
+      children: <BiometricsData employee={employee} />,
     },
   ];
 

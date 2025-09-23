@@ -31,6 +31,10 @@ const userSchema = new mongoose.Schema(
       type: Date,
       required: false,
     },
+
+    // User Preferences
+    showSalaryAmounts: { type: Boolean, default: true },
+    canManipulateBiometrics: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

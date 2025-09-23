@@ -62,6 +62,7 @@ const EditableCell = ({
 
 const ImportDTRModal = ({ open, onClose, currentUser }) => {
   const [data, setData] = useState([]);
+  const [filteredData, setFilteredData] = useState([]); // NEW for search
   const [columns, setColumns] = useState([]);
   const [fileUploaded, setFileUploaded] = useState(false);
   const [form] = Form.useForm();
@@ -69,7 +70,7 @@ const ImportDTRModal = ({ open, onClose, currentUser }) => {
   const [editingKey, setEditingKey] = useState("");
   const [submitModalVisible, setSubmitModalVisible] = useState(false);
   const [submitForm] = Form.useForm();
-  const [hasSubmitted, setHasSubmitted] = useState(false); // NEW
+  const [hasSubmitted, setHasSubmitted] = useState(false);
 
   const isEditing = (record) => record.key === editingKey;
 
@@ -86,6 +87,7 @@ const ImportDTRModal = ({ open, onClose, currentUser }) => {
       if (index > -1) {
         newData.splice(index, 1, { ...newData[index], ...row });
         setData(newData);
+        setFilteredData(newData);
         setEditingKey("");
       }
     } catch (err) {
@@ -117,9 +119,10 @@ const ImportDTRModal = ({ open, onClose, currentUser }) => {
 
       const rawHeaders = jsonData[0].map(normalizeHeader);
 
+      // FIX: consistent normalization
       const headerIndexMap = {};
       requiredHeaders.forEach((h) => {
-        const normalized = h.toLowerCase().replace(/[.\s]+$/, "");
+        const normalized = normalizeHeader(h);
         headerIndexMap[h] = rawHeaders.indexOf(normalized);
       });
 
@@ -147,7 +150,9 @@ const ImportDTRModal = ({ open, onClose, currentUser }) => {
               const jsDate = new Date(value);
               if (!isNaN(jsDate)) isoDate = jsDate.toISOString();
             }
-            obj[h] = isoDate ? dayjs(isoDate).format("MM/DD/YYYY hh:mm A") : "";
+            obj[h] = isoDate
+              ? dayjs(isoDate).format("MM/DD/YYYY hh:mm A")
+              : value.toString(); // fallback to raw string
             obj["TimeISO"] = isoDate || "";
           } else {
             obj[h] = value;
@@ -158,14 +163,19 @@ const ImportDTRModal = ({ open, onClose, currentUser }) => {
 
       // Deduplicate
       const seen = new Set();
-      body = body.filter((row) => {
-        const key = `${row.Name}__${row.TimeISO}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
+      body = body
+        .filter((row) =>
+          requiredHeaders.some((h) => row[h] !== undefined && row[h] !== "")
+        )
+        .filter((row) => {
+          const key = `${row.Name}__${row.TimeISO}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
 
       setData(body);
+      setFilteredData(body); // sync with searchable data
       setColumns(
         requiredHeaders.map((header) => ({
           title: header,
@@ -174,11 +184,11 @@ const ImportDTRModal = ({ open, onClose, currentUser }) => {
         }))
       );
       setFileUploaded(true);
-      setHasSubmitted(false); // Reset submission flag on new upload
+      setHasSubmitted(false);
     };
 
     reader.readAsArrayBuffer(file);
-    return false; // prevent auto upload
+    return false;
   };
 
   const openSubmitModal = () => {
@@ -200,7 +210,7 @@ const ImportDTRModal = ({ open, onClose, currentUser }) => {
   };
 
   const handleSubmitModalOk = async () => {
-    if (hasSubmitted) return; // prevent double submit
+    if (hasSubmitted) return;
     try {
       const values = await submitForm.validateFields();
 
@@ -225,17 +235,18 @@ const ImportDTRModal = ({ open, onClose, currentUser }) => {
         cutOffEnd: values.cutOffRange[1].endOf("day").toISOString(),
         userId: currentUser._id,
         uploadedBy: currentUser.name,
-        rows: uploadRows,
+        logs: uploadRows,
       };
 
       setUploading(true);
-      setHasSubmitted(true); // mark submitted
+      setHasSubmitted(true);
 
       const res = await axios.post("/dtr/upload", payload);
       if (res.status === 200) {
         message.success("DTR Data imported successfully.");
         setFileUploaded(false);
         setData([]);
+        setFilteredData([]);
         setColumns([]);
         setSubmitModalVisible(false);
         onClose();
@@ -258,6 +269,7 @@ const ImportDTRModal = ({ open, onClose, currentUser }) => {
 
   const handleReupload = () => {
     setData([]);
+    setFilteredData([]);
     setFileUploaded(false);
     setEditingKey("");
     setHasSubmitted(false);
@@ -310,20 +322,41 @@ const ImportDTRModal = ({ open, onClose, currentUser }) => {
 
         {fileUploaded && (
           <Form form={form} component={false}>
-            <Button
-              onClick={handleReupload}
-              style={{ marginBottom: 16 }}
-              disabled={uploading}
+            {/* Search + Re-upload bar */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                marginBottom: 16,
+              }}
             >
-              Re-upload Excel File
-            </Button>
+              <Input.Search
+                placeholder="Search by Name"
+                allowClear
+                onSearch={(value) => {
+                  if (!value) {
+                    setFilteredData(data);
+                  } else {
+                    setFilteredData(
+                      data.filter((row) =>
+                        row.Name?.toLowerCase().includes(value.toLowerCase())
+                      )
+                    );
+                  }
+                }}
+                style={{ width: 250 }}
+              />
+              <Button onClick={handleReupload} disabled={uploading}>
+                Re-upload Excel File
+              </Button>
+            </div>
 
             <Table
               components={{
                 body: { cell: EditableCell },
               }}
               bordered
-              dataSource={data}
+              dataSource={filteredData}
               size="small"
               columns={[
                 ...mergedColumns,

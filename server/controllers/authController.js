@@ -124,6 +124,8 @@ export const login = async (req, res) => {
         name: user.name,
         username: user.username,
         email: user.email,
+        showSalaryAmounts: user.showSalaryAmounts,
+        canManipulateBiometrics: user.canManipulateBiometrics,
       },
     });
   } catch (err) {
@@ -224,5 +226,92 @@ export const resetPassword = async (req, res) => {
   } catch (err) {
     console.error("[ResetPassword Error]", err);
     res.status(500).json({ message: "Failed to reset password." });
+  }
+};
+
+export const getUserById = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id).select('-password'); // Exclude password
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    res.json(user);
+  } catch (error) {
+    console.error('Error fetching user by ID:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+export const updateUserProfile = async (req, res) => {
+  try {
+    const { name, username } = req.body;
+    const userId = req.user.id;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    user.name = name || user.name;
+    user.username = username || user.username;
+
+    const updatedUser = await user.save();
+
+    res.json({
+      _id: updatedUser._id,
+      name: updatedUser.name,
+      username: updatedUser.username,
+      email: updatedUser.email,
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Error updating profile", error });
+  }
+};
+
+export const changePassword = async (req, res) => {
+  try {
+    const { oldPassword, newPassword } = req.body;
+    const userId = req.user.id;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const isMatch = await bcrypt.compare(oldPassword, user.password);
+    if (!isMatch) {
+      return res.status(400).json({ message: "Incorrect old password" });
+    }
+
+    user.password = await bcrypt.hash(newPassword, 10);
+    await user.save();
+
+    res.json({ message: "Password changed successfully" });
+  } catch (error) {
+    res.status(500).json({ message: "Error changing password", error });
+  }
+};
+
+export const updateUserPreferences = async (req, res) => {
+  try {
+    const { showSalaryAmounts, canManipulateBiometrics } = req.body;
+    const userId = req.user.id;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (showSalaryAmounts !== undefined) {
+      user.showSalaryAmounts = showSalaryAmounts;
+    }
+    if (canManipulateBiometrics !== undefined) {
+      user.canManipulateBiometrics = canManipulateBiometrics;
+    }
+
+    const updatedUser = await user.save();
+    res.json(updatedUser.toObject());
+  } catch (error) {
+    res.status(500).json({ message: "Error updating preferences", error });
   }
 };
