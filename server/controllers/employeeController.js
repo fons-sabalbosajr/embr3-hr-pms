@@ -1,6 +1,15 @@
 import Employee from "../models/Employee.js";
 import UploadLog from "../models/UploadLog.js";
+import DTRLog from "../models/DTRLog.js"; // Import DTRLog model
 import { getSocketInstance } from "../socket.js";
+import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc.js";
+import timezone from "dayjs/plugin/timezone.js";
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
+
+const LOCAL_TZ = "Asia/Manila";
 
 export const uploadEmployees = async (req, res) => {
   try {
@@ -56,13 +65,155 @@ export const uploadEmployees = async (req, res) => {
 
 export const getEmployees = async (req, res) => {
   try {
-    const employees = await Employee.find().sort({ createdAt: -1 });
-    res.status(200).json(employees);
+    const employees = await Employee.find().sort({ createdAt: -1 }).lean();
+
+    const now = dayjs().tz(LOCAL_TZ);
+    let startOfCutoff, endOfCutoff;
+
+    if (now.date() <= 15) {
+      // Previous cut-off was 16th to end of last month
+      const lastMonth = now.subtract(1, 'month');
+      startOfCutoff = lastMonth.date(16).startOf('day').toDate();
+      endOfCutoff = lastMonth.endOf('month').toDate();
+    } else {
+      // Previous cut-off was 1st to 15th of this month
+      startOfCutoff = now.date(1).startOf('day').toDate();
+      endOfCutoff = now.date(15).endOf('day').toDate();
+    }
+
+    const timeFilter = { Time: { $gte: startOfCutoff, $lte: endOfCutoff } };
+
+    let matchedCount = 0;
+    let noMatchCount = 0;
+
+    const employeesWithAttendance = await Promise.all(
+      employees.map(async (employee) => {
+        // 🔹 Candidate IDs (normalized)
+        const candidateIds = [];
+        if (employee.empId) {
+          candidateIds.push(
+            employee.empId.replace(/\D/g, "").replace(/^0+/, "")
+          );
+        }
+        if (employee.alternateEmpIds?.length > 0) {
+          employee.alternateEmpIds.forEach((altId) => {
+            if (altId) {
+              candidateIds.push(altId.replace(/\D/g, "").replace(/^0+/, ""));
+            }
+          });
+        }
+        const cleanCandidates = candidateIds.filter(Boolean);
+
+        // 🔹 Attendance structure
+        let attendance = {
+          date: null,
+          timeIn: null,
+          breakOut: null,
+          breakIn: null,
+          timeOut: null,
+          acNo: null,
+        };
+
+        let latestLog = null;
+
+        // 1️⃣ Try AC-No match
+        if (cleanCandidates.length > 0) {
+          latestLog = await DTRLog.findOne({
+            normalizedAcNo: { $in: cleanCandidates },
+            ...timeFilter,
+          })
+            .sort({ Time: -1 })
+            .lean();
+        }
+
+        // 2️⃣ If no AC-No match → try name match
+        if (!latestLog && employee.normalizedName) {
+          latestLog = await DTRLog.findOne({
+            normalizedName: employee.normalizedName,
+            ...timeFilter,
+          })
+            .sort({ Time: -1 })
+            .lean();
+        }
+
+        // 3️⃣ If match found → build attendance
+        if (latestLog) {
+          matchedCount++;
+
+          const latestDate = dayjs(latestLog.Time).tz(LOCAL_TZ);
+          const startOfDay = latestDate.startOf("day").toDate();
+          const endOfDay = latestDate.endOf("day").toDate();
+
+          const dailyLogsQuery = {
+            Time: { $gte: startOfDay, $lte: endOfDay },
+          };
+
+          if (latestLog.normalizedAcNo) {
+            dailyLogsQuery.normalizedAcNo = latestLog.normalizedAcNo;
+          } else if (employee.normalizedName) {
+            dailyLogsQuery.normalizedName = employee.normalizedName;
+          }
+
+          const dailyLogs = await DTRLog.find(dailyLogsQuery)
+            .sort({ Time: 1 })
+            .lean();
+
+          attendance.date = latestDate.format("MM/DD/YYYY");
+          if (dailyLogs.length > 0) {
+            attendance.acNo = dailyLogs[0]["AC-No"];
+          }
+
+          const timeInLog = dailyLogs.find(log => dayjs(log.Time).tz(LOCAL_TZ).hour() < 12);
+          if (timeInLog) attendance.timeIn = dayjs(timeInLog.Time).tz(LOCAL_TZ).format("hh:mm A");
+
+          const breakOutLog = dailyLogs.find(log => {
+              const hour = dayjs(log.Time).tz(LOCAL_TZ).hour();
+              return hour >= 12 && hour < 14;
+          });
+          if (breakOutLog) attendance.breakOut = dayjs(breakOutLog.Time).tz(LOCAL_TZ).format("hh:mm A");
+
+          const breakInLog = dailyLogs.find(log => {
+              const logTime = dayjs(log.Time).tz(LOCAL_TZ);
+              const hour = logTime.hour();
+              const minute = logTime.minute();
+              return (hour > 12 || (hour === 12 && minute > 0)) && hour < 15 && logTime.format("hh:mm A") !== attendance.breakOut;
+          });
+          if (breakInLog) attendance.breakIn = dayjs(breakInLog.Time).tz(LOCAL_TZ).format("hh:mm A");
+
+          const timeOutLogs = dailyLogs.filter(log => dayjs(log.Time).tz(LOCAL_TZ).hour() >= 13);
+          if (timeOutLogs.length > 0) {
+              attendance.timeOut = dayjs(timeOutLogs[timeOutLogs.length - 1].Time).tz(LOCAL_TZ).format("hh:mm A");
+          }
+
+          // Auto-fill blank values
+          if (attendance.timeIn && !attendance.breakOut) {
+            attendance.breakOut = "12:00 PM";
+          }
+          if (attendance.timeOut && !attendance.breakIn) {
+            attendance.breakIn = "01:00 PM";
+          }
+        } else {
+          noMatchCount++;
+        }
+
+        return { ...employee, attendance };
+      })
+    );
+
+    // ✅ Totals
+    // console.log("=====================================");
+    // console.log(
+    //   `✅ Total employees with AC-No match or Name match: ${matchedCount}`
+    // );
+    // console.log(`❌ Total employees with no match: ${noMatchCount}`);
+    // console.log("=====================================");
+
+    res.status(200).json(employeesWithAttendance);
   } catch (err) {
+    console.error("Error in getEmployees:", err);
     res.status(500).json({ error: err.message });
   }
 };
-
 // Add this new controller function:
 export const checkEmpIdUnique = async (req, res) => {
   try {
@@ -115,11 +266,9 @@ export const updateEmployeeById = async (req, res) => {
       error.code === 11000 &&
       error.keyPattern?.empId
     ) {
-      return res
-        .status(400)
-        .json({
-          message: `Employee ID "${error.keyValue.empId}" already exists.`,
-        });
+      return res.status(400).json({
+        message: `Employee ID "${error.keyValue.empId}" already exists.`,
+      });
     }
 
     res.status(500).json({ message: "Server error" });

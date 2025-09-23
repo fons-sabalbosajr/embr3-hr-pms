@@ -12,6 +12,7 @@ import {
 } from "antd";
 import { MinusCircleOutlined, PlusOutlined } from "@ant-design/icons";
 import axiosInstance from "../../../../api/axiosInstance";
+import { secureGet } from "../../../../../utils/secureStorage";
 
 const { Option } = Select;
 
@@ -22,6 +23,9 @@ const AddSalaryInfo = ({ onClose }) => {
     new Set()
   );
   const [selectedSalaryType, setSelectedSalaryType] = useState(null);
+
+  const currentUser = secureGet("user");
+  const showSalaryAmounts = currentUser?.showSalaryAmounts ?? true;
 
   useEffect(() => {
     fetchEmployeesAndSalaries();
@@ -150,10 +154,13 @@ const AddSalaryInfo = ({ onClose }) => {
                 <InputNumber
                   min={0}
                   formatter={(value) =>
-                    `₱ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ",")
+                    showSalaryAmounts
+                      ? `₱ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ",")
+                      : "*****"
                   }
                   parser={(value) => value.replace(/₱\s?|(,*)/g, "")}
                   style={{ width: "100%" }}
+                  disabled={!showSalaryAmounts}
                 />
               </Form.Item>
             </Col>
@@ -162,7 +169,9 @@ const AddSalaryInfo = ({ onClose }) => {
                 <InputNumber
                   min={0}
                   formatter={(value) =>
-                    `₱ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ",")
+                    showSalaryAmounts
+                      ? `₱ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ",")
+                      : "*****"
                   }
                   parser={(value) => value.replace(/₱\s?|(,*)/g, "")}
                   style={{ width: "100%" }}
@@ -175,10 +184,13 @@ const AddSalaryInfo = ({ onClose }) => {
                 <InputNumber
                   min={0}
                   formatter={(value) =>
-                    `₱ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ",")
+                    showSalaryAmounts
+                      ? `₱ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ",")
+                      : "*****"
                   }
                   parser={(value) => value.replace(/₱\s?|(,*)/g, "")}
                   style={{ width: "100%" }}
+                  disabled={!showSalaryAmounts}
                 />
               </Form.Item>
             </Col>
@@ -194,10 +206,13 @@ const AddSalaryInfo = ({ onClose }) => {
                 <InputNumber
                   min={0}
                   formatter={(value) =>
-                    `₱ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ",")
+                    showSalaryAmounts
+                      ? `₱ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ",")
+                      : "*****"
                   }
                   parser={(value) => value.replace(/₱\s?|(,*)/g, "")}
                   style={{ width: "100%" }}
+                  disabled={!showSalaryAmounts}
                 />
               </Form.Item>
             </Col>
@@ -206,7 +221,9 @@ const AddSalaryInfo = ({ onClose }) => {
                 <InputNumber
                   min={0}
                   formatter={(value) =>
-                    `₱ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ",")
+                    showSalaryAmounts
+                      ? `₱ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ",")
+                      : "*****"
                   }
                   parser={(value) => value.replace(/₱\s?|(,*)/g, "")}
                   style={{ width: "100%" }}

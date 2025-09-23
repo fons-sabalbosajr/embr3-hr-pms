@@ -17,12 +17,12 @@ import {
   DeleteOutlined,
 } from "@ant-design/icons";
 import axiosInstance from "../../../api/axiosInstance";
+import { secureGet } from "../../../../utils/secureStorage";
 import "./salaryinfo.css";
 import AddSalaryInfo from "./AddSalaryInfo/AddSalaryInfo";
 import EditSalaryInfo from "./EditSalaryInfo/EditSalaryInfo";
 
 const { Option } = Select;
-const { TabPane } = Tabs;
 
 const SalaryInfo = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -30,15 +30,20 @@ const SalaryInfo = () => {
   const [employeeData, setEmployeeData] = useState([]);
   const [employeeSalaryData, setEmployeeSalaryData] = useState([]);
   const [combinedData, setCombinedData] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [searchKeyword, setSearchKeyword] = useState("");
   const [selectedEmployeeSalary, setSelectedEmployeeSalary] = useState(null);
   const [activeTab, setActiveTab] = useState("Regular"); // 'all', 'Regular', 'COS'
+
+  const currentUser = secureGet("user");
+  const showSalaryAmounts = currentUser?.showSalaryAmounts ?? true; // Default to true if not set
 
   useEffect(() => {
     fetchCombinedData();
   }, []);
 
   const fetchCombinedData = async () => {
+    setLoading(true);
     try {
       const [employeesRes, salariesRes] = await Promise.all([
         axiosInstance.get("/employees"),
@@ -67,6 +72,8 @@ const SalaryInfo = () => {
         message: "Error",
         description: "Failed to load employee salary data.",
       });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -158,11 +165,13 @@ const SalaryInfo = () => {
       key: "ratePerMonth",
       width: 120,
       render: (text, record) =>
-        text
-          ? `₱${text.toLocaleString()}`
-          : record.salaryInfo?.basicSalary
-          ? `₱${record.salaryInfo.basicSalary.toLocaleString()}`
-          : "N/A",
+        showSalaryAmounts
+          ? text
+            ? `₱${text.toLocaleString()}`
+            : record.salaryInfo?.basicSalary
+            ? `₱${record.salaryInfo.basicSalary.toLocaleString()}`
+            : "N/A"
+          : "*****",
     },
     {
       title: "Cut off Rate",
@@ -170,7 +179,11 @@ const SalaryInfo = () => {
       width: 120,
       render: (_, record) => {
         const rate = record.salaryInfo?.ratePerMonth || record.salaryInfo?.basicSalary;
-        return rate ? `₱${(rate / 2).toLocaleString()}` : "N/A";
+        return showSalaryAmounts
+          ? rate
+            ? `₱${(rate / 2).toLocaleString()}`
+            : "N/A"
+          : "*****";
       },
     },
     {
@@ -228,14 +241,14 @@ const SalaryInfo = () => {
       dataIndex: ["salaryInfo", "ratePerMonth"],
       key: "ratePerMonth",
       width: 120,
-      render: (text) => (text ? `₱${text.toLocaleString()}` : "N/A"),
+      render: (text) => (showSalaryAmounts ? (text ? `₱${text.toLocaleString()}` : "N/A") : "*****"),
     },
     {
       title: "Daily Rate",
       dataIndex: ["salaryInfo", "dailyRate"],
       key: "dailyRate",
       width: 120,
-      render: (text) => (text ? `₱${text.toLocaleString()}` : "N/A"),
+      render: (text) => (showSalaryAmounts ? (text ? `₱${text.toLocaleString()}` : "N/A") : "*****"),
     },
     
     {
@@ -324,30 +337,41 @@ const SalaryInfo = () => {
         defaultActiveKey="Regular"
         activeKey={activeTab}
         onChange={setActiveTab}
-      >
-        <TabPane tab="Regular Employees" key="Regular">
-          <div className="salaryinfo-table">
-            <Table
-              columns={regularColumns}
-              dataSource={getFilteredData(combinedData, "Regular")}
-              pagination={{ pageSize: 10 }}
-              rowKey="_id"
-              size="small"
-            />
-          </div>
-        </TabPane>
-        <TabPane tab="Contract of Service" key="Contract of Service">
-          <div className="salaryinfo-table">
-            <Table
-              columns={cosColumns}
-              dataSource={getFilteredData(combinedData, "Contract of Service")}
-              pagination={{ pageSize: 10 }}
-              rowKey="_id"
-              size="small"
-            />
-          </div>
-        </TabPane>
-      </Tabs>
+        items={[
+          {
+            label: "Regular Employees",
+            key: "Regular",
+            children: (
+              <div className="salaryinfo-table">
+                <Table
+                  columns={regularColumns}
+                  dataSource={getFilteredData(combinedData, "Regular")}
+                  pagination={{ pageSize: 10 }}
+                  rowKey="_id"
+                  size="small"
+                  loading={loading}
+                />
+              </div>
+            ),
+          },
+          {
+            label: "Contract of Service",
+            key: "Contract of Service",
+            children: (
+              <div className="salaryinfo-table">
+                <Table
+                  columns={cosColumns}
+                  dataSource={getFilteredData(combinedData, "Contract of Service")}
+                  pagination={{ pageSize: 10 }}
+                  rowKey="_id"
+                  size="small"
+                  loading={loading}
+                />
+              </div>
+            ),
+          },
+        ]}
+      />
     </div>
   );
 };

@@ -1,8 +1,11 @@
 import express from "express";
 import DTRData from "../models/DTRData.js";
 import DTRLog from "../models/DTRLog.js";
+import { getRecentAttendance } from "../controllers/dtrController.js";
 
 const router = express.Router();
+
+router.get("/recent-daily-attendance", getRecentAttendance);
 
 router.post("/upload", async (req, res) => {
   try {

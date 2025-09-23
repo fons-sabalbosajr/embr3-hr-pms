@@ -32,6 +32,7 @@ const GenInfo = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalType, setModalType] = useState("add"); // 'add' or 'upload'
   const [employeeData, setEmployeeData] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [designationOptions, setDesignationOptions] = useState([]);
   const [positionOptions, setPositionOptions] = useState([]);
   const [typeOptions, setTypeOptions] = useState([]);
@@ -58,6 +59,7 @@ const GenInfo = () => {
   }, []);
 
   const fetchEmployees = async () => {
+    setLoading(true);
     try {
       const res = await axiosInstance.get("/employees");
       const data = res.data;
@@ -72,6 +74,8 @@ const GenInfo = () => {
       setTypeOptions([...new Set(data.map((e) => e.type).filter(Boolean))]);
     } catch (err) {
       console.error("Failed to fetch employees", err);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -571,6 +575,7 @@ const GenInfo = () => {
           pagination={{ pageSize: 10 }}
           rowKey="empId" // or "id", depending on your schema
           size="small"
+          loading={loading}
         />
       </div>
     </div>

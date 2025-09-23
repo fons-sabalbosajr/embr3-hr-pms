@@ -2,6 +2,7 @@ import DTRLog from "../models/DTRLog.js";
 import Employee from "../models/Employee.js";
 import DTRData from "../models/DTRData.js";
 import dayjs from "dayjs";
+import mongoose from "mongoose";
 
 export const getMergedDTRLogs = async (req, res) => {
   try {

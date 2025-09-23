@@ -64,17 +64,17 @@ const divisionColors = {
 
 const sectionUnitAcronyms = {
   CPD: {
-    "Air and Water Permitting Section": "AIR & WATER",
+    "Air and Water Permitting Section": "AW",
     "Environmental Impact Assessment Section": "EIA",
     "Chemical and Hazardous Waste Permitting Section": "CHWMS",
   },
   FAD: {
-    "Budget Unit": "BUDGET",
-    "Cashier Unit": "CASHIER",
-    "Finance Section": "FINANCE",
-    "Personnel Unit": "PERSONNEL",
+    "Budget Unit": "BU",
+    "Cashier Unit": "CA",
+    "Finance Section": "FI",
+    "Personnel Unit": "PE",
     "Property and General Services Unit": "PGSU",
-    "Records Unit": "RECORDS",
+    "Records Unit": "RE",
   },
   EMED: {
     "Ecological Solid Waste Management Section": "ESWM",
@@ -84,7 +84,7 @@ const sectionUnitAcronyms = {
   },
   ORD: {
     "Environmental Education and Information Unit": "EEIU",
-    "Environmental Laboratory Unit": "LABORATORY",
+    "Environmental Laboratory Unit": "LAB",
     "Legal Services Unit": "LSU",
     "Manila Bay Unit": "MBU",
     "Planning and Information System Management Unit": "PISMU",

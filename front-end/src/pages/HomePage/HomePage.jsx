@@ -66,7 +66,13 @@ const HomePage = () => {
   };
 
   useEffect(() => {
-    const socket = io(import.meta.env.VITE_SOCKET_URL);
+    const socket = io(import.meta.env.VITE_SOCKET_URL, {
+      path: "/socket.io/",
+      withCredentials: true, // allow cookies if server sets them
+      reconnection: true, // auto reconnect
+      reconnectionAttempts: 5, // retry 5 times
+      reconnectionDelay: 1000, // 1s delay between retries
+    });
     socket.on("newNotification", (data) => {
       setNotifications((prev) => [data, ...prev]);
     });

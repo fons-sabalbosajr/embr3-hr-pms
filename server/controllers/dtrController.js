@@ -1,5 +1,8 @@
+import dayjs from "dayjs";
 import DTRData from "../models/DTRData.js";
 import DTRLog from "../models/DTRLog.js";
+import Employee from "../models/Employee.js";
+
 
 export const uploadDTR = async (req, res) => {
   try {
@@ -41,5 +44,149 @@ export const uploadDTR = async (req, res) => {
     res
       .status(500)
       .json({ message: "Failed to upload DTR", error: error.message });
+  }
+};
+
+export const getRecentAttendance = async (req, res) => {
+  try {
+    const { employeeId } = req.query;
+    const filter = {};
+
+    // Find the latest date from DTRLog collection
+    const latestLog = await DTRLog.findOne().sort({ Time: -1 }).lean();
+    if (!latestLog) {
+      return res.json({ success: true, data: [] }); // No logs, return empty
+    }
+    const latestDate = dayjs(latestLog.Time);
+
+    // Set filter to only use the latest date
+    filter.Time = {
+      $gte: latestDate.startOf("day").toDate(),
+      $lte: latestDate.endOf("day").toDate(),
+    };
+
+    // 🔹 Employee resolution (same as getWorkCalendarLogs)
+    if (employeeId) {
+      let acNos = [];
+
+      if (mongoose.Types.ObjectId.isValid(employeeId)) {
+        const emp = await Employee.findById(employeeId).lean();
+        if (emp) {
+          acNos = [
+            emp.empId.replace(/\D/g, ""),
+            ...(emp.alternateEmpIds || []).map((id) => id.replace(/\D/g, "")),
+          ];
+        }
+      }
+
+      if (!acNos.length && /\d{2,}-\d{2,}/.test(employeeId)) {
+        const emp = await Employee.findOne({ empId: employeeId }).lean();
+        if (emp) {
+          acNos = [
+            emp.empId.replace(/\D/g, ""),
+            ...(emp.alternateEmpIds || []).map((id) => id.replace(/\D/g, "")),
+          ];
+        }
+      }
+
+      if (!acNos.length) {
+        acNos = [employeeId.replace(/\D/g, "")];
+      }
+
+      filter["AC-No"] = { $in: acNos };
+    }
+
+    // 🔹 Fetch logs
+    const logs = await DTRLog.find(filter).sort({ Time: 1 }).lean();
+
+    // 🔹 Map state → human-readable
+    const mappedLogs = logs.map((log) => {
+      let stateLabel;
+      switch (log.State) {
+        case "C/In": stateLabel = "Time In"; break;
+        case "C/Out": stateLabel = "Time Out"; break;
+        case "Out": stateLabel = "Break Out"; break;
+        case "Out Back": stateLabel = "Break In"; break;
+        case "Overtime In": stateLabel = "OT In"; break;
+        case "Overtime Out": stateLabel = "OT Out"; break;
+        default: stateLabel = log.State;
+      }
+
+      return {
+        acNo: log["AC-No"] || "-",
+        name: log.Name,
+        time: log.Time,
+        state: stateLabel,
+      };
+    });
+
+    // 🔹 Enrich with Employee data and group logs
+    const employeeMap = new Map();
+    const employees = await Employee.find({}).lean();
+    for (const emp of employees) {
+      const normalizedEmpId = (emp.empId || "").replace(/-/g, "").replace(/^0+/, "");
+      if (normalizedEmpId) {
+        employeeMap.set(normalizedEmpId, emp);
+      }
+    }
+
+    const grouped = {};
+    mappedLogs.forEach((log) => {
+      // Filter out "number values" and non-matching employees
+      if (!String(log.acNo).includes('-')) {
+          return; // Skip if it doesn't look like a standard empId
+      }
+      const normalizedAcNo = String(log.acNo).replace(/-/g, "").replace(/^0+/, "");
+      const employee = employeeMap.get(normalizedAcNo);
+
+      if (employee) { // Only process logs that have a matching employee
+        const dateKey = dayjs(log.time).format("YYYY-MM-DD");
+        const key = `${log.acNo}-${dateKey}`;
+
+        if (!grouped[key]) {
+          grouped[key] = {
+            empId: employee.empId,
+            name: employee.name,
+            position: employee.position || "N/A",
+            sectionOrUnit: employee.sectionOrUnit || "N/A",
+            division: employee.division || "N/A",
+            acNo: log.acNo,
+            date: dateKey,
+            timeIn: "---",
+            breakOut: "---",
+            breakIn: "---",
+            timeOut: "---",
+            otIn: "---",
+            otOut: "---",
+          };
+        }
+
+        switch (log.state) {
+          case "Time In":
+            if (grouped[key].timeIn === "---") grouped[key].timeIn = log.time;
+            break;
+          case "Break Out":
+            if (grouped[key].breakOut === "---") grouped[key].breakOut = log.time;
+            break;
+          case "Break In":
+            grouped[key].breakIn = log.time; // last one wins
+            break;
+          case "Time Out":
+            grouped[key].timeOut = log.time; // last one wins
+            break;
+          case "OT In":
+            if (grouped[key].otIn === "---") grouped[key].otIn = log.time;
+            break;
+          case "OT Out":
+            grouped[key].otOut = log.time; // last one wins
+            break;
+        }
+      }
+    });
+
+    res.json({ success: true, data: Object.values(grouped) });
+  } catch (error) {
+    console.error("Error in getAttendance:", error);
+    res.status(500).json({ success: false, message: "Server Error" });
   }
 };
