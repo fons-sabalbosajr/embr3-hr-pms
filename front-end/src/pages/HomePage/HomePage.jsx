@@ -88,7 +88,7 @@ const HomePage = () => {
       clearTimeout(idleTimer.current);
     }
     idleTimer.current = setTimeout(() => {
-      message.warning("You have been idle for too long. Logging out...");
+      //message.warning("You have been idle for too long. Logging out...");
       handleLogout();
     }, IDLE_TIMEOUT);
   }, [handleLogout]); // handleLogout is a dependency

@@ -33,7 +33,7 @@ const AuthPage = () => {
       secureStore("token", token);
       secureStore("user", user); // ✅ Store the full user info
 
-      message.success("Login successful");
+      //message.success("Login successful");
       navigate("/");
     } catch (err) {
       message.error(err.response?.data?.message || "Login failed");
