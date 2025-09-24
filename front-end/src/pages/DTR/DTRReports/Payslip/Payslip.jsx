@@ -15,7 +15,7 @@ import {
 import { SearchOutlined } from "@ant-design/icons";
 import axiosInstance from "../../../../api/axiosInstance";
 import dayjs from "dayjs";
-import generatePaySlipPdf from "../../../../../utils/generatePaySlip.js";
+import { generatePaySlipPdf, openPayslipInNewTab } from "../../../../../utils/generatePaySlip.js";
 import { secureGet } from "../../../../../utils/secureStorage";
 import "./payslip.css";
 import GeneratePayslipModal from "./components/GeneratePayslipModal";
@@ -138,26 +138,10 @@ const Payslip = () => {
   };
 
   const handleGeneratePayslip = () => {
-    form.validateFields().then((values) => {
-      const payslipData = {
-        name: selectedEmployee.name,
-        empNo: selectedEmployee.empNo,
-        position: selectedEmployee.position,
-        cutOffStartDate: values.cutOffDateRange[0].format("YYYY-MM-DD"),
-        cutOffEndDate: values.cutOffDateRange[1].format("YYYY-MM-DD"),
-        grossIncome: {
-          rate: cutOffPay,
-          earnPeriod: earningsForPeriod,
-        },
-        deductions: deductions.map((d) => ({ item: d.type, amount: d.amount })),
-        totalDeductions: grandTotalDeductions,
-        netPay: grandNetPay,
-      };
-
-      generatePaySlipPdf(payslipData, payslipCounter);
-      setPayslipCounter((c) => c + 1);
-      handleCancel();
-    });
+    // The actual payslip generation and opening in a new tab is now handled by GeneratePayslipModal.jsx
+    // This function now only updates the counter and closes the modal.
+    setPayslipCounter((c) => c + 1);
+    handleCancel();
   };
 
   const getFilteredData = (data, tab) => {
