@@ -315,3 +315,15 @@ export const updateUserPreferences = async (req, res) => {
     res.status(500).json({ message: "Error updating preferences", error });
   }
 };
+
+export const getAllUsers = async (req, res) => {
+  try {
+    console.log('Attempting to fetch all users...');
+    const users = await User.find().select('-password'); // Exclude passwords
+    console.log(`Fetched ${users.length} users.`);
+    res.json({ success: true, data: users });
+  } catch (error) {
+    console.error('Error fetching all users:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch users' });
+  }
+};

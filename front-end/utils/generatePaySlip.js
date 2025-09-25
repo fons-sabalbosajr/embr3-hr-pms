@@ -4,6 +4,13 @@ import dayjs from "dayjs";
 import letterhead from "../src/assets/letterheademb.PNG"; // adjust path if needed
 
 const generatePdfDoc = (payslipData, payslipNumber, isFullMonthRange) => {
+  // Ensure payslipData and its nested properties are defined
+  const safePayslipData = {
+    ...payslipData,
+    grossIncome: payslipData.grossIncome || {},
+    deductions: payslipData.deductions || [],
+  };
+
   const doc = new jsPDF({
     unit: "in",
     format: [4.5, 4.5],
@@ -64,7 +71,7 @@ const generatePdfDoc = (payslipData, payslipNumber, isFullMonthRange) => {
 
   // Name
   doc.text(labels[0], leftX, leftY);
-  const nameValue = payslipData.name || "";
+  const nameValue = safePayslipData.name || "";
   doc.text(nameValue, valueStartX, leftY);
   if (nameValue) {
     doc.line(
@@ -78,7 +85,7 @@ const generatePdfDoc = (payslipData, payslipNumber, isFullMonthRange) => {
 
   // Emp ID
   doc.text(labels[1], leftX, leftY);
-  const empIdValue = payslipData.empId || "";
+  const empIdValue = safePayslipData.empId || "";
   doc.text(empIdValue, valueStartX, leftY);
   doc.line(
     valueStartX,
@@ -90,7 +97,7 @@ const generatePdfDoc = (payslipData, payslipNumber, isFullMonthRange) => {
 
   // Position
   doc.text(labels[2], leftX, leftY);
-  const positionValue = payslipData.position || "";
+  const positionValue = safePayslipData.position || "";
   doc.text(positionValue, valueStartX, leftY);
   if (positionValue) {
     doc.line(
@@ -136,12 +143,22 @@ const generatePdfDoc = (payslipData, payslipNumber, isFullMonthRange) => {
 
   // Cut Off
   doc.text(rightLabels[2], rightX, rightY);
-  const cutOffPeriod =
-    payslipData.cutOffStartDate && payslipData.cutOffEndDate
-      ? `${dayjs(payslipData.cutOffStartDate).format("MMM. D")} - ${dayjs(
-          payslipData.cutOffEndDate
-        ).format("D, YYYY")}`
-      : "";
+  let cutOffPeriod;
+  if (isFullMonthRange) {
+    const monthStart = dayjs(safePayslipData.cutOffStartDate);
+    const firstCutoffStart = monthStart.date(1);
+    const firstCutoffEnd = monthStart.date(15);
+    cutOffPeriod = `${firstCutoffStart.format("MMM. D")} - ${firstCutoffEnd.format(
+      "D, YYYY"
+    )}`;
+  } else {
+    cutOffPeriod =
+      safePayslipData.cutOffStartDate && safePayslipData.cutOffEndDate
+        ? `${dayjs(safePayslipData.cutOffStartDate).format("MMM. D")} - ${dayjs(
+            safePayslipData.cutOffEndDate
+          ).format("D, YYYY")}`
+        : "";
+  }
   doc.text(cutOffPeriod, rightValueStartX, rightY);
   if (cutOffPeriod) {
     doc.line(
@@ -169,7 +186,7 @@ const generatePdfDoc = (payslipData, payslipNumber, isFullMonthRange) => {
   };
 
   // Build body rows
-  const deductions_cutoff_1 = (payslipData.deductions || []).filter(
+  const deductions_cutoff_1 = (safePayslipData.deductions || []).filter(
     (d) => d.cutoff === 1
   );
   let totalDeductions_cutoff_1 = deductions_cutoff_1.reduce(
@@ -181,19 +198,19 @@ const generatePdfDoc = (payslipData, payslipNumber, isFullMonthRange) => {
     ["", "", "", "", ""], // row 1 blank
     [
       "Rate Per Month",
-      formatCurrency(payslipData.grossIncome.earnPeriod),
+      formatCurrency(safePayslipData.grossIncome.earnPeriod),
       "",
       "",
       "",
     ],
     [
       "Earn for the period",
-      formatCurrency(payslipData.grossIncome.rate),
+      formatCurrency(safePayslipData.grossIncome.rate),
+      ,
       "",
       "",
       "",
     ],
-    ["", "", "", "", ""],
     ["", "", "", "", ""],
     ["", "", "", "", ""],
   ];
@@ -206,9 +223,7 @@ const generatePdfDoc = (payslipData, payslipNumber, isFullMonthRange) => {
       if (bodyRows[rowIndex]) {
         let deductionName = deduction.name;
         if (deduction.name === "Absent" && deduction.days) {
-          deductionName = `Absent (${deduction.days} day${
-            deduction.days > 1 ? "s" : ""
-          })`;
+          deductionName = `Absent`;
         } else if (
           deduction.name === "Late/Undertime" &&
           deduction.value &&
@@ -217,17 +232,18 @@ const generatePdfDoc = (payslipData, payslipNumber, isFullMonthRange) => {
           deductionName = `Late/Undertime`;
         }
         bodyRows[rowIndex][2] = deductionName;
-        bodyRows[rowIndex][3] = formatCurrency(deduction.amount);
+        let displayAmount = deduction.amount;
+        bodyRows[rowIndex][3] = formatCurrency(displayAmount);
       }
     }
   });
 
   const netPay_cutoff_1 =
-    payslipData.grossIncome.rate - totalDeductions_cutoff_1;
+    safePayslipData.grossIncome.rate - totalDeductions_cutoff_1;
 
   bodyRows.push([
     "Total Income",
-    formatCurrency(payslipData.grossIncome.rate),
+    formatCurrency(safePayslipData.grossIncome.rate),
     "Total Deductions",
     formatCurrency(totalDeductions_cutoff_1),
     formatCurrency(netPay_cutoff_1),
@@ -247,7 +263,7 @@ const generatePdfDoc = (payslipData, payslipNumber, isFullMonthRange) => {
     margin: { left: 0.2, right: 0.2 },
     styles: {
       font: "times",
-      fontSize: 6,
+      fontSize: 7,
       cellPadding: 0.03,
       lineColor: 0,
       lineWidth: 0.005,
@@ -318,7 +334,6 @@ const generatePdfDoc = (payslipData, payslipNumber, isFullMonthRange) => {
     );
 
     const secondTableBodyRows = [
-      ["", "", "", "", ""], // row 1 blank
       [
         "Earn for the period",
         formatCurrency(payslipData.secondPeriodEarnedForPeriod),
@@ -326,30 +341,31 @@ const generatePdfDoc = (payslipData, payslipNumber, isFullMonthRange) => {
         "",
         "",
       ],
-      ["", "", "", "", ""],
-      ["", "", "", "", ""],
+      ["", "", "", "", ""], // Deduction 3
+      ["", "", "", "", ""], // Deduction 4
+      ["", "", "", "", ""], // Deduction 5
     ];
 
     // Populate deductions for the second cutoff, starting from row 2 (index 1)
     deductions_cutoff_2.forEach((deduction, index) => {
-      if (index < 2) {
-        // Limit to 2 deductions to fit
-        if (secondTableBodyRows[1 + index]) {
-          let deductionName = deduction.name;
-          if (deduction.name === "Absent" && deduction.days) {
-            deductionName = `Absent (${deduction.days} day${
-              deduction.days > 1 ? "s" : ""
-            })`;
-          } else if (
-            deduction.name === "Late/Undertime" &&
-            deduction.value &&
-            deduction.unit
-          ) {
-            deductionName = `Late/Undertime`;
-          }
-          secondTableBodyRows[1 + index][2] = deductionName;
-          secondTableBodyRows[1 + index][3] = formatCurrency(deduction.amount);
+      if (index < 5) {
+        // Limit to 5 deductions
+        // Directly add to the array, it's already pre-filled with empty rows
+        let deductionName = deduction.name;
+        if (deduction.name === "Absent" && deduction.days) {
+          deductionName = `Absent`;
+        } else if (
+          deduction.name === "Late/Undertime" &&
+          deduction.value &&
+          deduction.unit
+        ) {
+          deductionName = `Late/Undertime`;
+        } else if (deduction.name === "Tax") {
+          deductionName = `Tax`; // Explicitly handle Tax
         }
+        secondTableBodyRows[index][2] = deductionName;
+        let displayAmount = deduction.amount;
+        secondTableBodyRows[index][3] = formatCurrency(displayAmount);
       }
     });
 
@@ -378,7 +394,7 @@ const generatePdfDoc = (payslipData, payslipNumber, isFullMonthRange) => {
       margin: { left: 0.2, right: 0.2 },
       styles: {
         font: "times",
-        fontSize: 6,
+        fontSize: 7,
         cellPadding: 0.03,
         lineColor: 0,
         lineWidth: 0.005,
@@ -418,8 +434,8 @@ const generatePdfDoc = (payslipData, payslipNumber, isFullMonthRange) => {
 
     // Content
     const hrLabel = "Prepared by:";
-    const hrName = "Sample HR Name";
-    const hrDesignation = "HR Manager";
+    const hrName = "PRISCILLA MICHAIAH C. CORONEL";
+    const hrDesignation = "Head, Personnel Unit";
 
     // Keep left margin same as tables
     const hrBoxX = 0.2;
@@ -429,7 +445,7 @@ const generatePdfDoc = (payslipData, payslipNumber, isFullMonthRange) => {
     const hrBoxWidth =
       doc.internal.pageSize.width - margin - hrBoxX - hrRightPadding;
 
-    const hrBoxHeight = 0.5; // fixed height for HR box
+    const hrBoxHeight = 0.4; // fixed height for HR box
 
     // Draw HR Info Box with thicker border
     doc.setLineWidth(0.01);

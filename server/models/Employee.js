@@ -36,6 +36,19 @@ const employeeSchema = new mongoose.Schema(
     sectionOrUnit: { type: String },
     emails: { type: [String], default: [] },
     acNo: { type: String },
+    // Signatory fields
+    isSignatory: { type: Boolean, default: false },
+    isSignatoryActive: { type: Boolean, default: true }, // New field
+    isDefaultSignatory: { type: Boolean, default: false },
+    signatoryDesignation: { type: [String] },
+    dateOfEffectivityStart: { type: Date },
+    dateOfEffectivityEnd: { type: Date },
+    alternateSignatoryEmpId: { type: String },
+    alternateSignatoryName: { type: String }, // New field
+    alternateDateOfEffectivityStart: { type: Date }, // New field
+    alternateDateOfEffectivityEnd: { type: Date }, // New field
+    iisTransactionNo: { type: String },
+    remarks: { type: String },
   },
   { timestamps: true }
 );
