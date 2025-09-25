@@ -1,0 +1,32 @@
+
+.employee-details {
+  display: flex;
+  flex-direction: column;
+}
+
+.employee-name {
+  font-weight: 500;
+  font-size: 1em;
+}
+
+.employee-meta {
+  font-size: 0.85em;
+}
+
+.action-buttons .ant-btn {
+  margin-right: 8px;
+}
+
+.ant-table-thead > tr > th {
+    font-weight: bold !important;
+}
+
+.designation-tag {
+    width: 100%;
+    text-align: center;
+}
+
+.signatory-tag {
+    width: 100%;
+    text-align: center;
+}

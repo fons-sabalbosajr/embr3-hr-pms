@@ -16,6 +16,7 @@ import employeeDocRoutes from "./routes/employeeDocRoutes.js";
 import employeeSalaryRoutes from "./routes/employeeSalaryRoutes.js";
 import settingsRoutes from "./routes/settingsRoutes.js";
 
+
 import { setSocketInstance } from "./socket.js";
 
 dotenv.config();

@@ -9,6 +9,7 @@ const employeeDocSchema = new mongoose.Schema(
     dateIssued: { type: Date },
     description: { type: String },
     createdBy: { type: String }, // optional, HR username
+    docNo: { type: Number },
   },
   { timestamps: true }
 );

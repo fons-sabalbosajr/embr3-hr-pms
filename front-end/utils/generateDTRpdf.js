@@ -3,6 +3,7 @@ import autoTable from "jspdf-autotable";
 import dayjs from "dayjs";
 import { fetchPhilippineHolidays } from "../src/api/holidayPH";
 import axios from "axios";
+import { getSignatoryEmployees } from "../src/api/employeeAPI.js";
 
 async function fetchEmployeeTrainings(empId) {
   try {
@@ -23,6 +24,16 @@ function getTrainingOnDay(trainings, dateKey) {
     const day = dayjs(dateKey);
     return day.isSameOrAfter(start, "day") && day.isSameOrBefore(end, "day");
   });
+}
+
+function reformatName(name) {
+  if (!name || !name.includes(",")) {
+    return name;
+  }
+  const parts = name.split(",");
+  const lastName = parts[0].trim();
+  const firstNameAndMiddle = parts.slice(1).join(",").trim();
+  return `${firstNameAndMiddle} ${lastName}`;
 }
 
 export async function generateDTRPdf({
@@ -59,16 +70,24 @@ export async function generateDTRPdf({
   doc.setFontSize(9);
   doc.text("Name:", 5, 25);
   doc.setFont("Times", "bold");
-  doc.text(`${employee.name || "___________________________"}`, 20, 25);
+  doc.text(
+    `${reformatName(employee.name) || "___________________________"}`,
+    20,
+    25
+  );
 
   const start = dayjs(selectedRecord.DTR_Cut_Off.start);
   const end = dayjs(selectedRecord.DTR_Cut_Off.end);
 
   let cutOffText;
-  if (start.isSame(end, 'month')) {
-    cutOffText = `${start.format('MMMM')} ${start.date()}-${end.date()}, ${start.year()}`;
+  if (start.isSame(end, "month")) {
+    cutOffText = `${start.format(
+      "MMMM"
+    )} ${start.date()}-${end.date()}, ${start.year()}`;
   } else {
-    cutOffText = `${start.format('MMMM DD, YYYY')} - ${end.format('MMMM DD, YYYY')}`;
+    cutOffText = `${start.format("MMMM DD, YYYY")} - ${end.format(
+      "MMMM DD, YYYY"
+    )}`;
   }
 
   doc.setFont("Times", "normal");
@@ -96,6 +115,8 @@ export async function generateDTRPdf({
   const year = dayjs(selectedRecord.DTR_Cut_Off.start).year();
   const holidays = await fetchPhilippineHolidays(year);
   const trainings = await fetchEmployeeTrainings(employee.empId);
+  const signatoriesRes = await getSignatoryEmployees();
+  const signatories = signatoriesRes.data;
 
   // ---------- Build Rows for the entire calendar month ----------
   const rows = [];
@@ -114,7 +135,9 @@ export async function generateDTRPdf({
     const dayOfWeek = currentDate.day();
 
     let dayLogs = {};
-    const ids = [employee.empId, ...(employee.alternateEmpIds || [])].filter(Boolean);
+    const ids = [employee.empId, ...(employee.alternateEmpIds || [])].filter(
+      Boolean
+    );
     for (const id of ids) {
       if (dtrLogs[id] && dtrLogs[id][dateKey]) {
         dayLogs = dtrLogs[id][dateKey];
@@ -139,10 +162,11 @@ export async function generateDTRPdf({
     const isInCutOff =
       currentDate.isSameOrAfter(cutOffStart, "day") &&
       currentDate.isSameOrBefore(cutOffEnd, "day");
-    
+
     const amIn = dayLogs["Time In"] || "";
     const pmOut = dayLogs["Time Out"] || "";
-    const amOut = dayLogs["Break Out"] || (isInCutOff && amIn ? "12:00 PM" : "");
+    const amOut =
+      dayLogs["Break Out"] || (isInCutOff && amIn ? "12:00 PM" : "");
     const pmIn = dayLogs["Break In"] || (isInCutOff && pmOut ? "1:00 PM" : "");
 
     const hasLogs = !!(amIn || amOut || pmIn || pmOut);
@@ -230,7 +254,7 @@ export async function generateDTRPdf({
 
   doc.setFontSize(8);
   doc.text(
-    "I hereby certify on my honor that the above is a true and correct report of work\nperformed, record of which was made daily at the time\nand departure from office.",
+    "I hereby certify on my honor that the above is a true and correct report of work\nperformed,record of which was made daily at the time and\ndeparture from office.",
     centerX,
     certY,
     { align: "center" }
@@ -241,27 +265,43 @@ export async function generateDTRPdf({
     align: "center",
   });
   doc.setFont("Times", "bold");
-  doc.text(employee.name || "", centerX, certY + 12, { align: "center" });
+  doc.text(reformatName(employee.name) || "", centerX, certY + 12, {
+    align: "center",
+  });
   doc.setFont("Times", "normal");
   doc.text("Name of the Employee", centerX, certY + 16, { align: "center" });
 
   const supervisorY = certY + 23;
+  const signatory = signatories.find(
+    (sig) =>
+      sig.signatoryDesignation &&
+      sig.signatoryDesignation.includes(employee.sectionOrUnit)
+  );
+
+  const supervisorName = signatory ? signatory.name : "";
+
   doc.text("_______________________________", centerX, supervisorY, {
     align: "center",
   });
+
+  doc.setFont("Times", "bold");
+  doc.text(reformatName(supervisorName) || "", centerX, supervisorY, {
+    align: "center",
+  });
+  doc.setFont("Times", "normal");
+
   doc.text("Section Incharge/Supervisor", centerX, supervisorY + 4, {
     align: "center",
   });
 
   doc.setFontSize(7);
-  doc.text("EMBR3 Payroll Management System", 3, 295);
+  doc.text("EMBR3 DTR Management System", 3, 295);
   doc.text(`${dayjs().format("MM/DD/YYYY")}`, 97, 295, { align: "right" });
 
   const pdfBlob = doc.output("blob");
   if (download) return pdfBlob;
   window.open(URL.createObjectURL(pdfBlob), "_blank");
 }
-
 
 export async function generateBatchDTRPdf(printerTray) {
   if (!printerTray.length) return;
@@ -277,6 +317,9 @@ export async function generateBatchDTRPdf(printerTray) {
     unit: "mm",
     format: [docWidth, docHeight],
   });
+
+  const signatoriesRes = await getSignatoryEmployees();
+  const signatories = signatoriesRes.data;
 
   // Determine overall cut-off range for filename
   let earliestStart = dayjs(printerTray[0].selectedRecord.DTR_Cut_Off.start);
@@ -312,16 +355,24 @@ export async function generateBatchDTRPdf(printerTray) {
     doc.setFontSize(9);
     doc.text("Name:", 5, 25);
     doc.setFont("Times", "bold");
-    doc.text(`${employee.name || "___________________________"}`, 20, 25);
+    doc.text(
+      `${reformatName(employee.name) || "___________________________"}`,
+      20,
+      25
+    );
 
     const start = dayjs(selectedRecord.DTR_Cut_Off.start);
     const end = dayjs(selectedRecord.DTR_Cut_Off.end);
 
     let cutOffText;
-    if (start.isSame(end, 'month')) {
-      cutOffText = `${start.format('MMMM')} ${start.date()}-${end.date()}, ${start.year()}`;
+    if (start.isSame(end, "month")) {
+      cutOffText = `${start.format(
+        "MMMM"
+      )} ${start.date()}-${end.date()}, ${start.year()}`;
     } else {
-      cutOffText = `${start.format('MMMM DD, YYYY')} - ${end.format('MMMM DD, YYYY')}`;
+      cutOffText = `${start.format("MMMM DD, YYYY")} - ${end.format(
+        "MMMM DD, YYYY"
+      )}`;
     }
 
     doc.setFont("Times", "normal");
@@ -379,7 +430,9 @@ export async function generateBatchDTRPdf(printerTray) {
       }
 
       // Correctly find logs using full empId
-      const ids = [employee.empId, ...(employee.alternateEmpIds || [])].filter(Boolean);
+      const ids = [employee.empId, ...(employee.alternateEmpIds || [])].filter(
+        Boolean
+      );
       for (const id of ids) {
         if (dtrLogs[id] && dtrLogs[id][dateKey]) {
           dayLogs = dtrLogs[id][dateKey];
@@ -393,8 +446,10 @@ export async function generateBatchDTRPdf(printerTray) {
 
       const amIn = dayLogs["Time In"] || "";
       const pmOut = dayLogs["Time Out"] || "";
-      const amOut = dayLogs["Break Out"] || (isInCutOff && amIn ? "12:00 PM" : "");
-      const pmIn = dayLogs["Break In"] || (isInCutOff && pmOut ? "1:00 PM" : "");
+      const amOut =
+        dayLogs["Break Out"] || (isInCutOff && amIn ? "12:00 PM" : "");
+      const pmIn =
+        dayLogs["Break In"] || (isInCutOff && pmOut ? "1:00 PM" : "");
 
       const hasLogs = !!(amIn || amOut || pmIn || pmOut);
 
@@ -478,8 +533,8 @@ export async function generateBatchDTRPdf(printerTray) {
 
     doc.setFontSize(8);
     doc.text(
-      "I hereby certify on my honor that the above is a true and correct report of work\nperformed, record of which was made daily at the time\nand departure from office.",
-      centerX,
+      "I hereby certify on my honor that the above is a true and correct report of work\nperformed,record of which was made daily at the time and\ndeparture from office.",
+     centerX,
       certY,
       { align: "center" }
     );
@@ -489,20 +544,37 @@ export async function generateBatchDTRPdf(printerTray) {
       align: "center",
     });
     doc.setFont("Times", "bold");
-    doc.text(employee.name || "", centerX, certY + 12, { align: "center" });
+    doc.text(reformatName(employee.name) || "", centerX, certY + 12, {
+      align: "center",
+    });
     doc.setFont("Times", "normal");
     doc.text("Name of the Employee", centerX, certY + 16, { align: "center" });
 
     const supervisorY = certY + 23;
+    const signatory = signatories.find(
+      (sig) =>
+        sig.signatoryDesignation &&
+        sig.signatoryDesignation.includes(employee.sectionOrUnit)
+    );
+
+    const supervisorName = signatory ? signatory.name : "";
+
     doc.text("_______________________________", centerX, supervisorY, {
       align: "center",
     });
+
+    doc.setFont("Times", "bold");
+    doc.text(reformatName(supervisorName) || "", centerX, supervisorY, {
+      align: "center",
+    });
+    doc.setFont("Times", "normal");
+
     doc.text("Section Incharge/Supervisor", centerX, supervisorY + 4, {
       align: "center",
     });
 
     doc.setFontSize(7);
-    doc.text("EMBR3 Payroll Management System", 3, 295);
+    doc.text("EMBR3 DTR Management System", 3, 295);
     doc.text(`${dayjs().format("MM/DD/YYYY")}`, 97, 295, { align: "right" });
   }
 

@@ -1,5 +1,5 @@
 import express from "express";
-import  { createEmployeeDoc, getEmployeeDocs }  from "../controllers/employeeDocController.js";
+import  { createEmployeeDoc, getEmployeeDocs, getNextPayslipNumber, getAllEmployeeDocs }  from "../controllers/employeeDocController.js";
 
 const router = express.Router();
 
@@ -8,5 +8,10 @@ router.get("/by-employee/:empId", getEmployeeDocs);
 
 // POST /api/employee-docs
 router.post("/", createEmployeeDoc);
+
+// GET /api/employee-docs/next-payslip-number/:empId
+router.get("/next-payslip-number/:empId", getNextPayslipNumber);
+
+router.get("/", getAllEmployeeDocs);
 
 export default router;

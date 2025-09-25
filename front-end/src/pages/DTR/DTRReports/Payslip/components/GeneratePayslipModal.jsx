@@ -14,6 +14,7 @@ import {
   Spin,
   Dropdown,
   Menu,
+  notification,
 } from "antd";
 import {
   MinusCircleOutlined,
@@ -23,9 +24,8 @@ import {
 import dayjs from "dayjs";
 import {
   generatePaySlipPreview,
-  openPayslipInNewTab,
-  generatePaySlipPdf,
 } from "../../../../../../utils/generatePaySlip.js";
+import axiosInstance from "../../../../../api/axiosInstance.js";
 
 const { Option } = Select;
 
@@ -240,14 +240,7 @@ const DeductionRow = ({
         )}
       </div>
 
-      {/* Remove Button */}
-      <Button
-        type="primary"
-        danger
-        icon={<MinusCircleOutlined />}
-        onClick={() => remove(name)}
-        style={{ marginBottom: 24}}
-      />
+      
     </Space>
   );
 };
@@ -273,19 +266,36 @@ const GeneratePayslipModal = ({
   formDeductionsFirstCutOff,
   formDeductionsSecondCutOff,
   cutOffDateRange,
-  payslipNumber,
 }) => {
   const [pdfPreview, setPdfPreview] = useState(null);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [refreshCounter, setRefreshCounter] = useState(0);
   const [currentPayslipData, setCurrentPayslipData] = useState(null);
-  const [currentPayslipNumber, setCurrentPayslipNumber] = useState(null);
+  const [payslipNumber, setPayslipNumber] = useState(null);
 
   useEffect(() => {
-    setIsPreviewLoading(true);
-    const handler = setTimeout(() => {
+    const generatePreview = async () => {
+      setIsPreviewLoading(true);
+
       if (!isModalOpen || !selectedEmployee || !cutOffDateRange) {
         setPdfPreview(null);
+        setIsPreviewLoading(false);
+        return;
+      }
+
+      // Fetch payslip number
+      const period = `${dayjs(cutOffDateRange[0]).format("YYYY-MM-DD")} - ${dayjs(cutOffDateRange[1]).format("YYYY-MM-DD")}`;
+      let currentPayslipNo = null;
+      try {
+        const res = await axiosInstance.get(`/employee-docs/next-payslip-number/${selectedEmployee.empId}`, { params: { period } });
+        currentPayslipNo = res.data.nextPayslipNumber;
+        setPayslipNumber(currentPayslipNo);
+      } catch (err) {
+        console.error("Failed to fetch next payslip number", err);
+        notification.error({
+          message: "Error",
+          description: "Failed to fetch next payslip number.",
+        });
         setIsPreviewLoading(false);
         return;
       }
@@ -385,51 +395,47 @@ const GeneratePayslipModal = ({
         secondCutOffTotalDeductions: secondCutOffTotalDeductions,
         deductions: isFullMonthRange
           ? [
-              ...(updatedFormDeductionsFirstCutOff || []).map((d) => ({
+              ...(form.getFieldValue("deductionsFirstCutOff") || []).map((d) => ({
                 name: d.type,
                 days: d.days,
                 unit: d.unit,
                 value: d.value,
                 cutoff: 1,
-                amount:
-                  d.type === "Absent" && d.days ? d.days * dailyRate : d.amount,
+                amount: d.amount,
               })),
-              ...(updatedFormDeductionsSecondCutOff || []).map((d) => ({
+              ...(form.getFieldValue("deductionsSecondCutOff") || []).map((d) => ({
                 name: d.type,
                 days: d.days,
                 unit: d.unit,
                 value: d.value,
                 cutoff: 2,
-                amount:
-                  d.type === "Absent" && d.days ? d.days * dailyRate : d.amount,
+                amount: d.amount,
               })),
             ]
-          : (updatedFormDeductions || []).map((d) => ({
+          : (form.getFieldValue("deductions") || []).map((d) => ({
               name: d.type,
               cutoff: 1,
               days: d.days,
               unit: d.unit,
               value: d.value,
-              amount:
-                d.type === "Absent" && d.days ? d.days * dailyRate : d.amount,
+              amount: d.amount,
             })),
         totalDeductions: grandTotalDeductions,
         netPay: grandNetPay,
       };
 
-      //console.log("Payslip Data empId:", payslipData.empId);
-
       setCurrentPayslipData(payslipData);
-      setCurrentPayslipNumber(payslipNumber);
 
       const previewUri = generatePaySlipPreview(
         payslipData,
-        payslipNumber,
+        currentPayslipNo,
         isFullMonthRange
       );
       setPdfPreview(previewUri);
       setIsPreviewLoading(false);
-    }, 1000);
+    };
+
+    const handler = setTimeout(generatePreview, 1000);
 
     return () => {
       clearTimeout(handler);
@@ -447,7 +453,6 @@ const GeneratePayslipModal = ({
     formDeductionsSecondCutOff,
     cutOffDateRange,
     refreshCounter,
-    payslipNumber,
   ]);
 
   const handleRefreshPreview = () => {
@@ -455,24 +460,14 @@ const GeneratePayslipModal = ({
   };
 
   const handleGenerateAndOpen = () => {
-    if (currentPayslipData && currentPayslipNumber) {
-      openPayslipInNewTab(
-        currentPayslipData,
-        currentPayslipNumber,
-        isFullMonthRange
-      );
-      // Optionally, call the original handleGeneratePayslip if it has other side effects
-      // handleGeneratePayslip();
+    if (currentPayslipData) {
+      handleGeneratePayslip(currentPayslipData, isFullMonthRange, "view");
     }
   };
 
   const handleDownloadPayslip = () => {
-    if (currentPayslipData && currentPayslipNumber) {
-      generatePaySlipPdf(
-        currentPayslipData,
-        currentPayslipNumber,
-        isFullMonthRange
-      );
+    if (currentPayslipData) {
+      handleGeneratePayslip(currentPayslipData, isFullMonthRange, "download");
     }
   };
 
@@ -592,6 +587,7 @@ const GeneratePayslipModal = ({
                               })}`
                             : "*****"
                         }
+                        disabled
                       />
                     </Form.Item>
                   </Col>
@@ -606,6 +602,7 @@ const GeneratePayslipModal = ({
                               })}`
                             : "*****"
                         }
+                        disabled
                       />
                     </Form.Item>
                   </Col>
@@ -709,16 +706,29 @@ const GeneratePayslipModal = ({
                               </Col>
                             </Row>
                             <Form.Item>
-                              <Button
-                                type="primary"
-                                onClick={() =>
-                                  add({ type: "Other", amount: 0 })
-                                }
-                                block
-                                icon={<PlusOutlined />}
-                              >
-                                Add Deduction (1st Cut-Off)
-                              </Button>
+                              <Space>
+                                <Button
+                                  type="primary"
+                                  size="small"
+                                  onClick={() =>
+                                    add({ type: "Other", amount: 0 })
+                                  }
+                                  icon={<PlusOutlined />}
+                                >
+                                  Add Deduction (1st Cut-Off)
+                                </Button>
+                                {fields.length > 0 && (
+                                  <Button
+                                    type="default"
+                                    size="small"
+                                    danger
+                                    onClick={() => remove(fields.length - 1)}
+                                    icon={<MinusCircleOutlined />}
+                                  >
+                                    Remove
+                                  </Button>
+                                )}
+                              </Space>
                             </Form.Item>
                           </>
                         )}
@@ -791,16 +801,29 @@ const GeneratePayslipModal = ({
                               </Col>
                             </Row>
                             <Form.Item>
-                              <Button
-                                type="primary"
-                                onClick={() =>
-                                  add({ type: "Other", amount: 0 })
-                                }
-                                block
-                                icon={<PlusOutlined />}
-                              >
-                                Add Deduction (2nd Cut-Off)
-                              </Button>
+                              <Space>
+                                <Button
+                                  type="primary"
+                                  size="small"
+                                  onClick={() =>
+                                    add({ type: "Other", amount: 0 })
+                                  }
+                                  icon={<PlusOutlined />}
+                                >
+                                  Add Deduction (2nd Cut-Off)
+                                </Button>
+                                {fields.length > 0 && (
+                                  <Button
+                                    type="default"
+                                    size="small"
+                                    danger
+                                    onClick={() => remove(fields.length - 1)}
+                                    icon={<MinusCircleOutlined />}
+                                  >
+                                    Remove
+                                  </Button>
+                                )}
+                              </Space>
                             </Form.Item>
                           </>
                         )}
@@ -826,14 +849,25 @@ const GeneratePayslipModal = ({
                             />
                           ))}
                           <Form.Item>
-                            <Button
-                              type="primary"
-                              onClick={() => add({ type: "Other", amount: 0 })}
-                              block
-                              icon={<PlusOutlined />}
-                            >
-                              Add Deduction
-                            </Button>
+                            <Space>
+                              <Button
+                                type="primary"
+                                onClick={() => add({ type: "Other", amount: 0 })}
+                                icon={<PlusOutlined />}
+                              >
+                                Add Deduction
+                              </Button>
+                              {fields.length > 0 && (
+                                <Button
+                                  type="default"
+                                  danger
+                                  onClick={() => remove(fields.length - 1)}
+                                  icon={<MinusCircleOutlined />}
+                                >
+                                  Remove Last Deduction
+                                </Button>
+                              )}
+                            </Space>
                           </Form.Item>
                         </>
                       )}
@@ -864,7 +898,7 @@ const GeneratePayslipModal = ({
                     </Form.Item>
                   </Col>
                   <Col span={12}>
-                    <Form.Item label="Grand Net Pay">
+                    <Form.Item label="Grand Total Net Pay">
                       <Input
                         value={
                           showSalaryAmounts

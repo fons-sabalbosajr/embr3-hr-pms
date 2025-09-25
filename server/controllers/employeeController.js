@@ -150,8 +150,6 @@ export const getEmployees = async (req, res) => {
 
           if (latestLog.normalizedAcNo) {
             dailyLogsQuery.normalizedAcNo = latestLog.normalizedAcNo;
-          } else if (employee.normalizedName) {
-            dailyLogsQuery.normalizedName = employee.normalizedName;
           }
 
           const dailyLogs = await DTRLog.find(dailyLogsQuery)
@@ -367,5 +365,25 @@ export const getLatestEmpNo = async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Error fetching latest empNo" });
+  }
+};
+
+export const getSignatoryEmployees = async (req, res) => {
+  try {
+    const signatories = await Employee.find({ isSignatory: true }).sort({ name: 1 });
+    res.json(signatories);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const getUniqueSectionOrUnits = async (req, res) => {
+  try {
+    const uniqueSectionOrUnits = await Employee.distinct("sectionOrUnit");
+    const uniqueDivisions = await Employee.distinct("division");
+    const combined = [...new Set([...uniqueDivisions, ...uniqueSectionOrUnits])];
+    res.json(combined.filter(Boolean)); // Filter out null/empty strings
+  } catch (error) {
+    res.status(500).json({ message: error.message });
   }
 };

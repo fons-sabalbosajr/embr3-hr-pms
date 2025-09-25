@@ -49,7 +49,6 @@ const Payslip = () => {
   const [formDeductionsFirstCutOff, setFormDeductionsFirstCutOff] = useState([]);
   const [formDeductionsSecondCutOff, setFormDeductionsSecondCutOff] = useState([]);
   const [cutOffDateRange, setCutOffDateRange] = useState(null);
-  const [payslipCounter, setPayslipCounter] = useState(7);
 
   const currentUser = secureGet("user");
   const showSalaryAmounts = currentUser?.showSalaryAmounts ?? true; // Default to true if not set
@@ -88,8 +87,6 @@ const Payslip = () => {
   };
 
   const showGeneratePayslipModal = (record) => {
-    setSelectedEmployee(record);
-    setDeductions([]);
 
     const monthlyRate =
       record.salaryInfo?.ratePerMonth || record.salaryInfo?.basicSalary || 0;
@@ -120,6 +117,7 @@ const Payslip = () => {
 
     setCutOffPay(monthlyRate / 2);
     setIsModalOpen(true);
+    setSelectedEmployee(record);
   };
 
   const handleCancel = () => {
@@ -137,11 +135,39 @@ const Payslip = () => {
     setIsAddSalaryModalOpen(false);
   };
 
-  const handleGeneratePayslip = () => {
-    // The actual payslip generation and opening in a new tab is now handled by GeneratePayslipModal.jsx
-    // This function now only updates the counter and closes the modal.
-    setPayslipCounter((c) => c + 1);
-    handleCancel();
+  const handlePayslipGeneration = async (payslipData, isFullMonthRange, actionType) => {
+    try {
+      const payload = {
+        empId: payslipData.empId,
+        docType: "Payslip",
+        reference: `Payslip for ${payslipData.cutOffStartDate} to ${payslipData.cutOffEndDate}`,
+        period: `${payslipData.cutOffStartDate} - ${payslipData.cutOffEndDate}`,
+        dateIssued: dayjs().toISOString(),
+        description: `Payslip for ${payslipData.cutOffStartDate} to ${payslipData.cutOffEndDate}`,
+        createdBy: currentUser?.username || "Admin",
+      };
+
+      const response = await axiosInstance.post("/employee-docs", payload);
+      const { data: doc, isNew } = response.data;
+      const { docNo } = doc;
+
+      if (actionType === "view") {
+        openPayslipInNewTab(payslipData, docNo, isFullMonthRange);
+      } else if (actionType === "download") {
+        generatePaySlipPdf(payslipData, docNo, isFullMonthRange);
+      }
+      notification.success({
+        message: "Success",
+        description: `Payslip ${isNew ? 'generated' : 'updated'} successfully with No. ${docNo}.`,
+      });
+      handleCancel();
+    } catch (error) {
+      console.error("Failed to generate payslip:", error);
+      notification.error({
+        message: "Error",
+        description: "Failed to generate payslip. Please try again.",
+      });
+    }
   };
 
   const getFilteredData = (data, tab) => {
@@ -480,98 +506,99 @@ const Payslip = () => {
 
   return (
     <div className="payslip-container">
-      <div className="payslip-filters">
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: "1rem",
-          }}
-        >
-          <Input
-            placeholder="Search any keyword..."
-            prefix={<SearchOutlined />}
-            value={searchKeyword}
-            onChange={(e) => setSearchKeyword(e.target.value)}
-            allowClear
-            style={{ width: 350 }}
-          />
-          <Button type="primary" onClick={showAddSalaryModal}>
-            Add Salary Info
-          </Button>
-        </div>
-
-        <Modal
-          open={isAddSalaryModalOpen}
-          onCancel={handleAddSalaryCancel}
-          footer={null}
-          title="Add Employee Salary Information"
-          destroyOnHidden
-          centered
-          width={700}
-        >
-          <AddSalaryInfo
-            onClose={() => {
-              handleAddSalaryCancel();
-              fetchCombinedData();
+      <Form form={form} component={false}>
+        <div className="payslip-filters">
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: "1rem",
             }}
+          >
+            <Input
+              placeholder="Search any keyword..."
+              prefix={<SearchOutlined />}
+              value={searchKeyword}
+              onChange={(e) => setSearchKeyword(e.target.value)}
+              allowClear
+              style={{ width: 350 }}
+            />
+            <Button type="primary" onClick={showAddSalaryModal}>
+              Add Salary Info
+            </Button>
+          </div>
+
+          <Modal
+            open={isAddSalaryModalOpen}
+            onCancel={handleAddSalaryCancel}
+            footer={null}
+            title="Add Employee Salary Information"
+            destroyOnHidden
+            centered
+            width={700}
+          >
+            <AddSalaryInfo
+              onClose={() => {
+                handleAddSalaryCancel();
+                fetchCombinedData();
+              }}
+            />
+          </Modal>
+
+          <GeneratePayslipModal
+            isModalOpen={isModalOpen}
+            handleGeneratePayslip={handlePayslipGeneration}
+            handleCancel={handleCancel}
+            selectedEmployee={selectedEmployee}
+            form={form}
+            recalcPayslip={recalcPayslip}
+            showSalaryAmounts={showSalaryAmounts}
+            cutOffPay={cutOffPay}
+            isFullMonthRange={isFullMonthRange}
+            firstCutOffTotalDeductions={firstCutOffTotalDeductions}
+            firstCutOffNetPay={firstCutOffNetPay}
+            secondCutOffTotalDeductions={secondCutOffTotalDeductions}
+            secondCutOffNetPay={secondCutOffNetPay}
+            grandTotalDeductions={grandTotalDeductions}
+            grandNetPay={grandNetPay}
+            earningsForPeriod={earningsForPeriod}
+            formDeductions={formDeductions}
+            formDeductionsFirstCutOff={formDeductionsFirstCutOff}
+            formDeductionsSecondCutOff={formDeductionsSecondCutOff}
+            cutOffDateRange={cutOffDateRange}
           />
-        </Modal>
 
-        <GeneratePayslipModal
-          isModalOpen={isModalOpen}
-          handleCancel={handleCancel}
-          handleGeneratePayslip={handleGeneratePayslip}
-          selectedEmployee={selectedEmployee}
-          form={form}
-          recalcPayslip={recalcPayslip}
-          showSalaryAmounts={showSalaryAmounts}
-          cutOffPay={cutOffPay}
-          isFullMonthRange={isFullMonthRange}
-          firstCutOffTotalDeductions={firstCutOffTotalDeductions}
-          firstCutOffNetPay={firstCutOffNetPay}
-          secondCutOffTotalDeductions={secondCutOffTotalDeductions}
-          secondCutOffNetPay={secondCutOffNetPay}
-          grandTotalDeductions={grandTotalDeductions}
-          grandNetPay={grandNetPay}
-          earningsForPeriod={earningsForPeriod}
-          formDeductions={formDeductions}
-          formDeductionsFirstCutOff={formDeductionsFirstCutOff}
-          formDeductionsSecondCutOff={formDeductionsSecondCutOff}
-          cutOffDateRange={cutOffDateRange}
-          payslipNumber={payslipCounter}
-        />
-
-        <Tabs
-          activeKey={activeTab}
-          onChange={setActiveTab}
-          className="payslip-tabs"
-        >
-          <TabPane tab="Regular" key="Regular">
-            <Table
-              columns={regularColumns}
-              dataSource={getFilteredData(combinedData, "Regular")}
-              rowKey="_id"
-              scroll={{ x: "max-content" }}
-              pagination={{ pageSize: 10 }}
-              loading={!combinedData.length}
-              className="payslip-table"
-            />
-          </TabPane>
-          <TabPane tab="Contract of Service" key="Contract of Service">
-            <Table
-              columns={cosColumns}
-              dataSource={getFilteredData(combinedData, "Contract of Service")}
-              rowKey="_id"
-              scroll={{ x: "max-content" }}
-              pagination={{ pageSize: 10 }}
-              loading={!combinedData.length}
-              className="payslip-table"
-            />
-          </TabPane>
-        </Tabs>
-      </div>
+          <Tabs
+            activeKey={activeTab}
+            onChange={setActiveTab}
+            className="payslip-tabs"
+          >
+            <TabPane tab="Regular" key="Regular">
+              <Table
+                columns={regularColumns}
+                dataSource={getFilteredData(combinedData, "Regular")}
+                rowKey="_id"
+                scroll={{ x: "max-content" }}
+                pagination={{ pageSize: 10 }}
+                loading={!combinedData.length}
+                className="payslip-table"
+              />
+            </TabPane>
+            <TabPane tab="Contract of Service" key="Contract of Service">
+              <Table
+                columns={cosColumns}
+                dataSource={getFilteredData(combinedData, "Contract of Service")}
+                rowKey="_id"
+                scroll={{ x: "max-content" }}
+                pagination={{ pageSize: 10 }}
+                loading={!combinedData.length}
+                className="payslip-table"
+              />
+            </TabPane>
+          </Tabs>
+        </div>
+      </Form>
     </div>
   );
 };

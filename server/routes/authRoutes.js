@@ -10,6 +10,7 @@ import {
   changePassword,
   updateUserPreferences,
   getUserById,
+  getAllUsers,
 } from '../controllers/authController.js';
 import { verifyToken } from '../middleware/authMiddleware.js';
 
@@ -27,5 +28,6 @@ router.put('/profile', verifyToken, updateUserProfile);
 router.put('/change-password', verifyToken, changePassword);
 router.put('/preferences', verifyToken, updateUserPreferences);
 router.get('/:id', verifyToken, getUserById);
+router.get('/users', verifyToken, getAllUsers);
 
 export default router;

@@ -1,4 +1,5 @@
 import EmployeeDoc from "../models/employeeDocModel.js";
+import Employee from "../models/Employee.js";
 
 // ✅ GET all docs by employee
 export const getEmployeeDocs = async (req, res) => {
@@ -21,20 +22,54 @@ export const createEmployeeDoc = async (req, res) => {
       return res.status(400).json({ success: false, message: "empId and docType are required" });
     }
 
-    const newDoc = await EmployeeDoc.create({
-      empId,
-      docType,
-      reference,
-      period,
-      dateIssued,
-      description,
-      createdBy,
-    });
+    if (docType === "Payslip") {
+        if(!period) {
+            return res.status(400).json({ success: false, message: "period is required for Payslip" });
+        }
+        
+        const existingDoc = await EmployeeDoc.findOne({ empId, docType, period });
 
-    res.json({ success: true, data: newDoc });
+        if (existingDoc) {
+            existingDoc.set(req.body);
+            const updatedDoc = await existingDoc.save();
+            return res.json({ success: true, data: updatedDoc, isNew: false });
+        } else {
+            const payslipCount = await EmployeeDoc.countDocuments({ docType: "Payslip" });
+            const docNo = payslipCount + 1;
+            const newDoc = await EmployeeDoc.create({ ...req.body, docNo });
+            return res.json({ success: true, data: newDoc, isNew: true });
+        }
+    }
+
+    // For other docTypes, just create
+    const newDoc = await EmployeeDoc.create(req.body);
+    res.json({ success: true, data: newDoc, isNew: true });
+
   } catch (err) {
     console.error(err);
-    res.status(500).json({ success: false, message: "Failed to create document" });
+    res.status(500).json({ success: false, message: "Failed to create or update document" });
+  }
+};
+
+
+// ✅ GET next payslip number
+export const getNextPayslipNumber = async (req, res) => {
+  try {
+    const { empId } = req.params;
+    const { period } = req.query;
+
+    if (period) {
+      const existingDoc = await EmployeeDoc.findOne({ empId, docType: "Payslip", period });
+      if (existingDoc) {
+        return res.json({ success: true, nextPayslipNumber: existingDoc.docNo });
+      }
+    }
+
+    const payslipCount = await EmployeeDoc.countDocuments({ docType: "Payslip" });
+    res.json({ success: true, nextPayslipNumber: payslipCount + 1 });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: "Failed to fetch next payslip number" });
   }
 };
 
@@ -56,5 +91,27 @@ export const deleteEmployeeDoc = async (req, res) => {
     res
       .status(500)
       .json({ message: "Failed to delete document", error: err.message });
+  }
+};
+
+export const getAllEmployeeDocs = async (req, res) => {
+  try {
+    const docs = await EmployeeDoc.find().sort({ createdAt: -1 });
+    const empIds = [...new Set(docs.map((doc) => doc.empId))];
+    const employees = await Employee.find({ empId: { $in: empIds } });
+    const employeeMap = employees.reduce((acc, emp) => {
+      acc[emp.empId] = emp;
+      return acc;
+    }, {});
+
+    const populatedDocs = docs.map((doc) => ({
+      ...doc.toObject(),
+      employee: employeeMap[doc.empId],
+    }));
+
+    res.json({ success: true, data: populatedDocs });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: "Failed to fetch documents" });
   }
 };

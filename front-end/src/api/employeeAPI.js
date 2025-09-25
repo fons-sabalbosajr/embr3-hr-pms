@@ -10,3 +10,18 @@ export const getEmployees = async () => {
   return await axiosInstance.get('/employees');
 };
 
+export const getSignatoryEmployees = async () => {
+  return await axiosInstance.get('/employees/signatories');
+};
+
+export const updateEmployeeSignatory = async (id, signatoryData) => {
+  return await axiosInstance.put(`/employees/${id}`, signatoryData);
+};
+
+export const getUniqueSectionOrUnits = async () => {
+  return await axiosInstance.get('/employees/unique-sections');
+};
+
+export const getEmployeeDocs = async () => {
+  return await axiosInstance.get('/employee-docs');
+};
