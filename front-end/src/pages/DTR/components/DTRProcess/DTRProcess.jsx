@@ -112,6 +112,7 @@ const DTRProcess = ({ currentUser }) => {
   const [printerTray, setPrinterTray] = useState([]);
   const [holidaysPH, setHolidaysPH] = useState([]);
   const [employeeTrainings, setEmployeeTrainings] = useState({});
+  const [selectedRowKeys, setSelectedRowKeys] = useState([]);
 
   const fetchEmployees = async () => {
     try {
@@ -123,7 +124,6 @@ const DTRProcess = ({ currentUser }) => {
       setEmployees(sortedData);
       setFilteredEmployees(sortedData);
 
-      // After employees, fetch DTR logs for this month (or needed date range)
       await fetchDtrLogs(sortedData);
     } catch (err) {
       console.error("Failed to fetch employees:", err);
@@ -139,16 +139,14 @@ const DTRProcess = ({ currentUser }) => {
 
       const employeeNames = employees.map((emp) => emp.name).filter(Boolean);
 
-      // Fetch logs for current month (adjust dates as needed)
       const startOfMonth = dayjs().startOf("month").format("YYYY-MM-DD");
       const endOfMonth = dayjs().endOf("month").format("YYYY-MM-DD");
 
-      // Query your backend for logs by AC-No and date range (you may need to extend your API)
       const res = await axios.get(
         `${import.meta.env.VITE_API_BASE_URL}/dtrlogs/merged`,
         {
           params: {
-            names: employeeNames.join(","), // assuming your API supports multiple AC-No separated by commas, else batch calls
+            names: employeeNames.join(","),
             startDate: startOfMonth,
             endDate: endOfMonth,
           },
@@ -160,16 +158,14 @@ const DTRProcess = ({ currentUser }) => {
         return;
       }
 
-      // Process logs into structured object for fast lookup
-      const logs = res.data.data; // your merged logs array
+      const logs = res.data.data;
       const logsByEmpDay = {};
 
       logs.forEach((log) => {
-        if (!log.empId) return; // Skip logs that couldn't be matched to an employee
+        if (!log.empId) return;
 
-        const empKey = log.empId; // Use empId as the key
+        const empKey = log.empId;
 
-        // Format date key
         const dateKey = dayjs(log.time).tz(LOCAL_TZ).format("YYYY-MM-DD");
 
         if (!logsByEmpDay[empKey]) logsByEmpDay[empKey] = {};
@@ -226,11 +222,10 @@ const DTRProcess = ({ currentUser }) => {
       const logsByEmpDay = {};
 
       res.data.data.forEach((log) => {
-        if (!log.empId) return; // Skip logs that couldn't be matched to an employee
+        if (!log.empId) return;
 
-        const empKey = log.empId; // Use empId as the key
+        const empKey = log.empId;
 
-        // Format date key YYYY-MM-DD based on log.time
         const dateKey = dayjs(log.time).tz(LOCAL_TZ).format("YYYY-MM-DD");
 
         if (!logsByEmpDay[empKey]) logsByEmpDay[empKey] = {};
@@ -243,7 +238,6 @@ const DTRProcess = ({ currentUser }) => {
           };
         }
 
-        // Map State to label and save time
         const stateLabel = STATE_LABELS[log.state];
         if (stateLabel) {
           logsByEmpDay[empKey][dateKey][stateLabel] = dayjs(log.time)
@@ -272,7 +266,7 @@ const DTRProcess = ({ currentUser }) => {
         const res = await axios.get(
           `${import.meta.env.VITE_API_BASE_URL}/dtrdatas`
         );
-        setDtrRecords(res.data.data); // use .data.data based on your backend response
+        setDtrRecords(res.data.data);
       } catch (err) {
         message.error("Unable to load DTR records");
       }
@@ -333,7 +327,6 @@ const DTRProcess = ({ currentUser }) => {
     (rec) => rec.DTR_Record_Name === selectedDtrRecord
   );
 
-  // dtrDays generation updated:
   let dtrDays = [];
 
   if (
@@ -360,7 +353,6 @@ const DTRProcess = ({ currentUser }) => {
         const numDays = endOfMonth - 16 + 1;
         dtrDays = Array.from({ length: numDays }, (_, i) => i + 16);
       } else {
-        // Fallback to original behavior
         let curr = start.clone();
         while (curr.isSameOrBefore(end, "day")) {
           dtrDays.push(curr.date());
@@ -389,7 +381,6 @@ const DTRProcess = ({ currentUser }) => {
         const end = dayjs(selectedRecord.DTR_Cut_Off.end);
         const year = start.year();
         const holidays = await fetchPhilippineHolidays(year);
-        // Filter holidays within cut-off
         const filtered = holidays
           .filter((h) => {
             const hDate = dayjs(h.date);
@@ -417,7 +408,6 @@ const DTRProcess = ({ currentUser }) => {
       const trainingsByEmp = {};
       for (const emp of employees) {
         try {
-          // Adjust API path if needed
           const res = await axios.get(
             `${import.meta.env.VITE_API_BASE_URL}/trainings/by-employee/${
               emp.empId
@@ -456,11 +446,9 @@ const DTRProcess = ({ currentUser }) => {
       const end = dayjs(selectedRecord.DTR_Cut_Off.end);
 
       if (start.isValid() && end.isValid()) {
-        // Format start day and end day
-        // Also format month name from start date
-        const monthName = start.format("MMMM"); // e.g. July
-        const startDay = start.date(); // 16
-        const endDay = end.date(); // 31
+        const monthName = start.format("MMMM");
+        const startDay = start.date();
+        const endDay = end.date();
 
         return `Daily Time Record (${monthName} ${startDay}-${endDay} Cut Off)`;
       }
@@ -473,7 +461,6 @@ const DTRProcess = ({ currentUser }) => {
     setViewDTRVisible(true);
   };
 
-  //Refactored logDTRRecord
   const logDTRRecord = async (employee, selectedRecord, currentUser) => {
     if (!employee?.empId || !selectedRecord) return;
 
@@ -492,14 +479,12 @@ const DTRProcess = ({ currentUser }) => {
     };
 
     try {
-      // 1️⃣ Fetch existing DTR docs for this employee
       const existingRes = await axiosInstance.get(
         `/employee-docs/by-employee/${employee.empId}`
       );
 
       const existingDocs = existingRes.data?.data || [];
 
-      // 2️⃣ Check if this exact DTR already exists
       const isDuplicate = existingDocs.some(
         (doc) =>
           doc.docType === payload.docType &&
@@ -508,19 +493,12 @@ const DTRProcess = ({ currentUser }) => {
       );
 
       if (isDuplicate) {
-        // console.log(
-        //   `DTR already logged for ${employee.name} (${cutOff}). Skipping duplicate.`
-        // );
-        return; // skip creating duplicate
+        return;
       }
 
-      // 3️⃣ If not duplicate, create new document
-      //console.log("Creating new DTR doc:", payload);
       const res = await axiosInstance.post("/employee-docs", payload);
-      //console.log("Create response:", res.data);
 
       if (res.data?.success) {
-        //console.log(`DTR logged successfully for ${employee.name}`);
       } else {
         console.error("Failed to log DTR record:", res.data);
       }
@@ -532,30 +510,25 @@ const DTRProcess = ({ currentUser }) => {
     }
   };
 
-  // View single DTR (opens in new tab)
   const handleViewDTRPdf = (item) => {
-    generateDTRPdf(item); // view in new tab
+    generateDTRPdf(item);
   };
 
-  // Download single DTR
   const handleDownloadDTR = async (item) => {
     if (!item || !item.employee || !item.selectedRecord) return;
 
     try {
-      // 1️⃣ Generate PDF
       const pdfBlob = await generateDTRPdf({ ...item, download: true });
 
       const cutOff = `${dayjs(item.selectedRecord.DTR_Cut_Off.start).format(
         "MMMM DD, YYYY"
       )}-${dayjs(item.selectedRecord.DTR_Cut_Off.end).format("MMMM DD, YYYY")}`;
 
-      // 2️⃣ Trigger browser download
       const link = document.createElement("a");
       link.href = URL.createObjectURL(pdfBlob);
       link.download = `DTR_${item.employee.name}_${cutOff}.pdf`;
       link.click();
 
-      // 3️⃣ Log the DTR (centralized)
       await logDTRRecord(item.employee, item.selectedRecord, currentUser);
     } catch (err) {
       console.error("Error downloading/logging DTR:", err);
@@ -563,7 +536,6 @@ const DTRProcess = ({ currentUser }) => {
     }
   };
 
-  // Download all DTRs in printerTray and log each DTR
   const handleDownloadAllDTRs = async () => {
     if (!printerTray.length) {
       message.warning("Printer tray is empty");
@@ -571,11 +543,9 @@ const DTRProcess = ({ currentUser }) => {
     }
 
     try {
-      // 1️⃣ Generate batch PDF
       await generateBatchDTRPdf(printerTray);
       message.success("Batch DTR PDF downloaded.");
 
-      // 2️⃣ Log each employee's DTR after batch download
       for (const item of printerTray) {
         const { employee, selectedRecord } = item;
         if (!employee || !selectedRecord) continue;
@@ -597,7 +567,6 @@ const DTRProcess = ({ currentUser }) => {
     }
   };
 
-  // Print selected employee DTR
   const handlePrintSelected = async (item) => {
     if (!item || !item.selectedRecord) return;
 
@@ -622,7 +591,6 @@ const DTRProcess = ({ currentUser }) => {
         iframe.contentWindow.focus();
         iframe.contentWindow.print();
 
-        // Log the DTR after printing
         await logDTRRecord(employee, selectedRecord, currentUser);
       };
     } catch (err) {
@@ -633,7 +601,6 @@ const DTRProcess = ({ currentUser }) => {
 
   const handleAddToPrinterTray = (employee) => {
     setPrinterTray((prev) => {
-      // Avoid duplicates by empId and selectedRecord
       const exists = prev.some(
         (item) =>
           item.employee.empId === employee.empId &&
@@ -657,6 +624,43 @@ const DTRProcess = ({ currentUser }) => {
   const handleClearPrinterTray = () => {
     setPrinterTray([]);
     message.success("Printer Tray cleared.");
+  };
+
+  const handleAddSelectedToTray = () => {
+    const selectedEmployees = employees.filter((emp) =>
+      selectedRowKeys.includes(emp._id)
+    );
+
+    let newItemsCount = 0;
+    setPrinterTray((prev) => {
+      const newItems = [];
+      selectedEmployees.forEach((employee) => {
+        const exists = prev.some(
+          (item) =>
+            item.employee.empId === employee.empId &&
+            item.selectedRecord.DTR_Record_Name ===
+              selectedRecord.DTR_Record_Name
+        );
+        if (!exists) {
+          newItems.push({
+            employee,
+            dtrDays,
+            dtrLogs,
+            selectedRecord,
+          });
+        }
+      });
+
+      newItemsCount = newItems.length;
+      return [...prev, ...newItems];
+    });
+
+    if (newItemsCount > 0) {
+      message.success(`${newItemsCount} DTR(s) added to Printer Tray.`);
+    } else {
+      message.info("Selected DTR(s) are already in the tray.");
+    }
+    setSelectedRowKeys([]);
   };
 
   const columnsBase = [
@@ -683,11 +687,9 @@ const DTRProcess = ({ currentUser }) => {
       key: "namePosition",
       width: 250,
       render: (_, record) => {
-        // Convert Division full name to acronym
         const divisionAcronym =
           divisionAcronyms[record.division] || record.division;
 
-        // Get Section/Unit acronym based on Division
         let sectionAcronym = "";
         if (record.division && sectionUnitAcronyms[divisionAcronym]) {
           sectionAcronym =
@@ -721,28 +723,12 @@ const DTRProcess = ({ currentUser }) => {
       width: 70,
       align: "center",
       render: (_, record) => {
-        // Combine main empId + alternateEmpIds (if any)
         const ids = [record.empId, ...(record.alternateEmpIds || [])]
           .filter(Boolean)
           .join(", ");
 
         return (
           <div style={{ width: 70, minWidth: 70, maxWidth: 70 }}>{ids}</div>
-        );
-      },
-    },
-    {
-      title: "Biometrics No.",
-      key: "acNo",
-      width: 50,
-      align: "center",
-      render: (_, record) => {
-        // Extract last 4 digits of empId as AC-No
-        const acNo = record.empId
-          ? record.empId.replace(/\D/g, "").slice(-4)
-          : "";
-        return (
-          <div style={{ width: 50, minWidth: 50, maxWidth: 50 }}>{acNo}</div>
         );
       },
     },
@@ -825,6 +811,15 @@ const DTRProcess = ({ currentUser }) => {
     });
   };
 
+  const onSelectChange = (newSelectedRowKeys) => {
+    setSelectedRowKeys(newSelectedRowKeys);
+  };
+
+  const rowSelection = {
+    selectedRowKeys,
+    onChange: onSelectChange,
+  };
+
   return (
     <div ref={containerRef} style={{ position: "relative" }}>
       <Space
@@ -841,8 +836,9 @@ const DTRProcess = ({ currentUser }) => {
             icon={<MenuOutlined />}
             type="primary"
             onClick={() => setDrawerVisible(true)}
+            disabled={printerTray.length === 0}
           >
-            Open Printer Tray
+            Printer Tray
           </Button>
         </Badge>
       </Space>
@@ -877,7 +873,7 @@ const DTRProcess = ({ currentUser }) => {
               );
             }}
           >
-            ⚠️ Show Missing DTR (
+            No time records (
             {
               employees.filter(
                 (emp) => !hasAnyDTRLogs(emp, dtrDays, dtrLogs, selectedRecord)
@@ -892,6 +888,14 @@ const DTRProcess = ({ currentUser }) => {
             }}
           >
             Reset Filter
+          </Button>
+
+          <Button
+            type="primary"
+            onClick={handleAddSelectedToTray}
+            disabled={!selectedRowKeys.length}
+          >
+            Add to Tray ({selectedRowKeys.length})
           </Button>
         </Space>
       )}
@@ -910,6 +914,7 @@ const DTRProcess = ({ currentUser }) => {
           handlePrintSelected={handlePrintSelected}
           handleAddToPrinterTray={handleAddToPrinterTray}
           selectedDtrRecord={selectedDtrRecord}
+          rowSelection={selectedDtrRecord ? rowSelection : null}
         />
       )}
 
@@ -922,7 +927,7 @@ const DTRProcess = ({ currentUser }) => {
         handleDownloadDTR={handleDownloadDTR}
         handleDownloadAllDTRs={handleDownloadAllDTRs}
         handleClearPrinterTray={handleClearPrinterTray}
-        handlePreviewForm48={handlePreviewForm48} // <-- new
+        handlePreviewForm48={handlePreviewForm48}
       />
 
       {selectedEmployee && (

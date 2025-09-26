@@ -180,9 +180,11 @@ const EmployeesPerSectionTable = ({
                   ref={(el) => (cardRefs.current[index] = el)}
                   size="small"
                   title={division}
-                  headStyle={{
-                    background: "linear-gradient(to right, #e6f7ff, #ffffff)", // Light blue gradient
-                    borderBottom: "1px solid #d9d9d9",
+                  styles={{
+                    header: {
+                      background: "linear-gradient(to right, #e6f7ff, #ffffff)",
+                      borderBottom: "1px solid #d9d9d9",
+                    },
                   }}
                   style={{
                     minHeight: 200,

@@ -125,12 +125,11 @@ const SystemReport = () => {
       sorter: (a, b) =>
         (a.employee?.name || "").localeCompare(b.employee?.name || ""),
     },
-
     {
-      title: "Reference",
-      dataIndex: "reference",
-      key: "reference",
-      sorter: (a, b) => a.reference.localeCompare(b.reference),
+      title: "Description",
+      dataIndex: "description",
+      key: "description",
+      render: (text) => <div style={{ whiteSpace: "pre-wrap" }}>{text}</div>,
     },
     {
       title: "Period",
@@ -165,19 +164,16 @@ const SystemReport = () => {
       },
       sorter: (a, b) => (a.period || "").localeCompare(b.period || ""),
     },
-    {
-      title: "Description",
-      dataIndex: "description",
-      key: "description",
-      render: (text) => <div style={{ whiteSpace: "pre-wrap" }}>{text}</div>,
-    },
+
     {
       title: "Issued By / Date",
       key: "issuedByDate",
       render: (text, record) => (
         <>
           <div>{userMap[record.createdBy] || record.createdBy}</div>
-          <small style={{ color: "#999" }}>{dayjs(record.dateIssued).format("MM/DD/YYYY hh:mm A")}</small>
+          <small style={{ color: "#999" }}>
+            {dayjs(record.dateIssued).format("MM/DD/YYYY hh:mm A")}
+          </small>
         </>
       ),
       sorter: (a, b) => dayjs(a.dateIssued).unix() - dayjs(b.dateIssued).unix(),
@@ -219,24 +215,7 @@ const SystemReport = () => {
             </Option>
           ))}
         </Select>
-        <Select
-          placeholder="Select Created By"
-          style={{ width: 180 }}
-          onChange={(value) => handleFilterChange("createdBy", value)}
-          value={filters.createdBy}
-          allowClear
-        >
-          {uniqueCreatedByUsers.map((name) => (
-            <Option key={name} value={name}>
-              {name}
-            </Option>
-          ))}
-        </Select>
-        <RangePicker
-          value={filters.dateRange}
-          onChange={(dates) => handleFilterChange("dateRange", dates)}
-          style={{ width: 240 }}
-        />
+
         <Button
           onClick={() =>
             setFilters({
@@ -256,7 +235,12 @@ const SystemReport = () => {
         dataSource={reports}
         loading={loading}
         rowKey="_id"
-        pagination={{ pageSize: 10 }}
+        pagination={{
+          showTotal: (total, range) =>
+            `${range[0]}-${range[1]} of ${total} reports`,
+          showSizeChanger: true,
+          pageSizeOptions: ["10", "20", "50", "100"],
+        }}
         scroll={{ x: "max-content" }}
         size="small"
       />
