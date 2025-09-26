@@ -31,8 +31,6 @@ const AddSalaryInfo = ({ onClose }) => {
     fetchEmployeesAndSalaries();
   }, []);
 
-  
-
   const fetchEmployeesAndSalaries = async () => {
     try {
       const [employeesRes, salariesRes] = await Promise.all([
@@ -57,13 +55,29 @@ const AddSalaryInfo = ({ onClose }) => {
   };
 
   const onFinish = async (values) => {
+    // Create a mutable copy of the form values to transform before sending
+    const payload = { ...values };
+
+    // Adjust the payload based on the salary type to match backend expectations.
+    if (payload.salaryType === "Regular") {
+      // For Regular employees, the backend expects 'basicSalary' instead of 'ratePerMonth'.
+      // This is inferred from the display component (SalaryInfo.jsx) which has a fallback for basicSalary.
+      payload.basicSalary = payload.ratePerMonth;
+      delete payload.ratePerMonth;
+      delete payload.dailyRate; // Ensure dailyRate is not sent for Regular employees
+    } else if (payload.salaryType === "Contract of Service") {
+      // For CoS employees, payrollType is not applicable.
+      // The initialValue for payrollType would otherwise be sent incorrectly.
+      delete payload.payrollType;
+    }
+
     try {
-      await axiosInstance.post("/employee-salaries", values);
+      await axiosInstance.post("/employee-salaries", payload);
       notification.success({
         message: "Success",
         description: "Employee salary information added successfully!",
       });
-      onClose();
+      onClose(); // Close modal on success
     } catch (error) {
       console.error("Failed to add employee salary:", error);
       notification.error({
@@ -195,8 +209,6 @@ const AddSalaryInfo = ({ onClose }) => {
               </Form.Item>
             </Col>
           </Row>
-
-          
         </>
       ) : selectedSalaryType === "Regular" ? (
         <>

@@ -27,7 +27,7 @@ router.post('/reset-password/:token', resetPassword);
 router.put('/profile', verifyToken, updateUserProfile);
 router.put('/change-password', verifyToken, changePassword);
 router.put('/preferences', verifyToken, updateUserPreferences);
+router.get('/', verifyToken, getAllUsers);
 router.get('/:id', verifyToken, getUserById);
-router.get('/users', verifyToken, getAllUsers);
 
 export default router;

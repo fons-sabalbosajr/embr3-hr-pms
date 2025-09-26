@@ -8,6 +8,6 @@ export const login = async (credentials) => {
 };
 
 export const getAllUsers = async () => {
-  return await axiosInstance.get('/users/users');
+  return await axiosInstance.get('/users');
 };
 

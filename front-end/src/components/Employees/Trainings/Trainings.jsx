@@ -254,41 +254,33 @@ const Trainings = () => {
                 .setAlpha(0.95)
                 .toRgbString();
 
-              const menu = (
-                <Menu
-                  items={emps.map((emp) => ({
-                    key: emp.empId,
-                    label: (
-                      <div
-                        style={{
-                          padding: "2px 8px",
-                          color: "#fff",
-                          fontSize: "12px",
-                        }}
-                      >
-                        {emp.name}{" "}
-                        {emp.sectionOrUnit ? `- ${emp.sectionOrUnit}` : ""}
-                      </div>
-                    ),
-                  }))}
-                  style={{
-                    backgroundColor: dropdownBg,
-                    borderRadius: 4,
-                    maxHeight: 200,
-                    overflowY: "auto",
-                  }}
-                />
-              );
-
               return (
                 <Dropdown
                   key={division}
-                  overlay={menu}
-                  trigger={["click"]}
-                  overlayStyle={{
-                    backgroundColor: dropdownBg,
-                    borderRadius: 4,
+                  menu={{
+                    items: emps.map((emp) => ({
+                      key: emp.empId,
+                      label: (
+                        <div
+                          style={{
+                            padding: "2px 8px",
+                            color: "#fff",
+                            fontSize: "12px",
+                          }}
+                        >
+                          {emp.name}{" "}
+                          {emp.sectionOrUnit ? `- ${emp.sectionOrUnit}` : ""}
+                        </div>
+                      ),
+                    })),
+                    style: {
+                      backgroundColor: dropdownBg,
+                      borderRadius: 4,
+                      maxHeight: 200,
+                      overflowY: "auto",
+                    },
                   }}
+                  trigger={["click"]}
                 >
                   <Tag
                     style={{

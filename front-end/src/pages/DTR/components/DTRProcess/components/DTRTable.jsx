@@ -13,6 +13,7 @@ const DTRTable = ({
   handleViewDTR,
   handlePrintSelected,
   handleAddToPrinterTray,
+  rowSelection, // <-- new
 }) => {
   const printMenu = (employee) => (
     <Menu>
@@ -28,6 +29,7 @@ const DTRTable = ({
   return (
     <Table
       rowKey="_id"
+      rowSelection={rowSelection} // <-- new
       columns={columns}
       dataSource={dataSource}
       bordered
