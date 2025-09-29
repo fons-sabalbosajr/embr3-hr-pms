@@ -3,20 +3,36 @@ import autoTable from "jspdf-autotable";
 import dayjs from "dayjs";
 import letterhead from "../src/assets/letterheademb.PNG"; // adjust path if needed
 
+const positionAcronymsStr = import.meta.env.VITE_POSITION_ACRONYMS;
+let positionAcronyms = {};
+if (positionAcronymsStr) {
+  try {
+    let str = positionAcronymsStr;
+    if (str.startsWith("'") && str.endsWith("'")) {
+      str = str.slice(1, -1);
+    }
+    const jsonString = str.replace(/,(\s*[}\]])/g, "$1");
+    positionAcronyms = JSON.parse(jsonString);
+  } catch (e) {
+    console.error("Could not parse VITE_POSITION_ACRONYMS", e);
+  }
+}
+
 const generatePdfDoc = (payslipData, payslipNumber, isFullMonthRange) => {
   // Ensure payslipData and its nested properties are defined
   const safePayslipData = {
     ...payslipData,
     grossIncome: payslipData.grossIncome || {},
     deductions: payslipData.deductions || [],
+    incentives: payslipData.incentives || [],
   };
 
   const doc = new jsPDF({
     unit: "in",
-    format: [5, 6],
+    format: [5, 6], // Changed paper size to 5x6 inches
   });
 
-  const margin = 0.02; // reduced padding
+  const margin = 0.01; // reduced padding
   let y = margin;
 
   // Border
@@ -31,19 +47,19 @@ const generatePdfDoc = (payslipData, payslipNumber, isFullMonthRange) => {
   // Set Times New Roman
   doc.setFont("times", "normal");
 
-  y += 0.02; // Add top padding - Adjusted to move PAYSLIP title downwards
+  y += 0.02;
 
-  // Letterhead (adjusted top padding)
-  const imagePadding = 0.05; // reduced padding
+  // Letterhead
+  const imagePadding = 0.03; // reduced padding
   doc.addImage(
     letterhead,
     "PNG",
     margin / 2 + imagePadding,
     y,
     doc.internal.pageSize.width - margin - 2 * imagePadding,
-    0.6
+    0.7
   );
-  y += 0.8; // adjusted spacing after letterhead
+  y += 1; // adjusted spacing after letterhead
 
   // Title
   doc.setFont("times", "bold");
@@ -98,7 +114,9 @@ const generatePdfDoc = (payslipData, payslipNumber, isFullMonthRange) => {
   // Position
   doc.text(labels[2], leftX, leftY);
   const positionValue = safePayslipData.position || "";
-  doc.text(positionValue, valueStartX, leftY);
+  const upperCasePosition = positionValue.toUpperCase();
+  const positionAcronym = positionAcronyms[upperCasePosition] || positionValue;
+  doc.text(positionAcronym, valueStartX, leftY);
   if (positionValue) {
     doc.line(
       valueStartX,
@@ -148,9 +166,9 @@ const generatePdfDoc = (payslipData, payslipNumber, isFullMonthRange) => {
     const monthStart = dayjs(safePayslipData.cutOffStartDate);
     const firstCutoffStart = monthStart.date(1);
     const firstCutoffEnd = monthStart.date(15);
-    cutOffPeriod = `${firstCutoffStart.format("MMM. D")} - ${firstCutoffEnd.format(
-      "D, YYYY"
-    )}`;
+    cutOffPeriod = `${firstCutoffStart.format(
+      "MMM. D"
+    )} - ${firstCutoffEnd.format("D, YYYY")}`;
   } else {
     cutOffPeriod =
       safePayslipData.cutOffStartDate && safePayslipData.cutOffEndDate
@@ -170,7 +188,7 @@ const generatePdfDoc = (payslipData, payslipNumber, isFullMonthRange) => {
   }
 
   // Set y for the table
-  y = Math.max(leftY, rightY) + 0.1; // Reduced from 0.15
+  y = Math.max(leftY, rightY) + 0.1;
 
   // Force Times New Roman before table
   doc.setFont("times", "normal");
@@ -185,65 +203,64 @@ const generatePdfDoc = (payslipData, payslipNumber, isFullMonthRange) => {
     });
   };
 
-  // Build body rows
   const deductions_cutoff_1 = (safePayslipData.deductions || []).filter(
     (d) => d.cutoff === 1
+  );
+  const incentives_cutoff_1 = (safePayslipData.incentives || []).filter(
+    (i) => i.cutoff === 1
   );
   let totalDeductions_cutoff_1 = deductions_cutoff_1.reduce(
     (acc, d) => acc + (d.amount || 0),
     0
   );
+  let totalIncentives_cutoff_1 = incentives_cutoff_1.reduce(
+    (acc, i) => acc + (i.amount || 0),
+    0
+  );
 
-  const bodyRows = [
-    ["", "", "", "", ""], // row 1 blank
-    [
-      "Rate Per Month",
-      formatCurrency(safePayslipData.grossIncome.earnPeriod),
-      "",
-      "",
-      "",
-    ],
-    [
-      "Earn for the period",
-      formatCurrency(safePayslipData.grossIncome.rate),
-      ,
-      "",
-      "",
-      "",
-    ],
-    ["", "", "", "", ""],
-    ["", "", "", "", ""],
+  const all_income_1 = [
+    {
+      type: "Rate Per Month",
+      amount: safePayslipData.grossIncome.monthlySalary,
+    },
+    {
+      type: "Gross Amount Earned",
+      amount: safePayslipData.grossIncome.grossAmountEarned / 2,
+    },
+    ...incentives_cutoff_1,
   ];
 
-  // Populate deductions for the first cutoff, starting from the "Rate Per Month" row.
-  deductions_cutoff_1.forEach((deduction, index) => {
-    if (index < 5) {
-      // We can fit 5 deductions
-      const rowIndex = 1 + index;
-      if (bodyRows[rowIndex]) {
-        let deductionName = deduction.name;
-        if (deduction.name === "Absent" && deduction.days) {
-          deductionName = `Absent`;
-        } else if (
-          deduction.name === "Late/Undertime" &&
-          deduction.value &&
-          deduction.unit
-        ) {
-          deductionName = `Late/Undertime`;
-        }
-        bodyRows[rowIndex][2] = deductionName;
-        let displayAmount = deduction.amount;
-        bodyRows[rowIndex][3] = formatCurrency(displayAmount);
-      }
-    }
-  });
+  const numRows = Math.max(all_income_1.length, deductions_cutoff_1.length);
+  const bodyRows1 = [];
+  bodyRows1.push(["", "", "", "", ""]);
+
+  for (let i = 0; i < numRows; i++) {
+    const income = all_income_1[i];
+    const deduction = deductions_cutoff_1[i];
+
+    const row = [
+      income ? income.type : "",
+      income ? formatCurrency(income.amount) : "",
+      deduction ? deduction.type : "",
+      deduction ? formatCurrency(deduction.amount) : "",
+      "",
+    ];
+    bodyRows1.push(row);
+  }
+
+  bodyRows1.push(["", "", "", "", ""]); // Blank row before totals
 
   const netPay_cutoff_1 =
-    safePayslipData.grossIncome.rate - totalDeductions_cutoff_1;
+    safePayslipData.grossIncome.grossAmountEarned / 2 +
+    totalIncentives_cutoff_1 -
+    totalDeductions_cutoff_1;
 
-  bodyRows.push([
+  bodyRows1.push([
     "Total Income",
-    formatCurrency(safePayslipData.grossIncome.rate),
+    formatCurrency(
+      safePayslipData.grossIncome.grossAmountEarned / 2 +
+        totalIncentives_cutoff_1
+    ),
     "Total Deductions",
     formatCurrency(totalDeductions_cutoff_1),
     formatCurrency(netPay_cutoff_1),
@@ -258,7 +275,7 @@ const generatePdfDoc = (payslipData, payslipNumber, isFullMonthRange) => {
         { content: "Net Amount", styles: { halign: "center" } },
       ],
     ],
-    body: bodyRows,
+    body: bodyRows1,
     theme: "grid",
     margin: { left: 0.2, right: 0.2 },
     styles: {
@@ -279,24 +296,39 @@ const generatePdfDoc = (payslipData, payslipNumber, isFullMonthRange) => {
       valign: "middle",
     },
     columnStyles: {
-      0: { cellWidth: 1.0 }, // Gross subcolumn 1
-      1: { cellWidth: 0.8 }, // Gross subcolumn 2
-      2: { cellWidth: 1.0 }, // Deduction subcolumn 1
-      3: { cellWidth: 0.8 }, // Deduction subcolumn 2
-      4: { cellWidth: 1.0 }, // Net Amount
+      0: { cellWidth: 1.0 },
+      1: { cellWidth: 0.8, halign: "right" },
+      2: { cellWidth: 1.0 },
+      3: { cellWidth: 0.8, halign: "right" },
+      4: { cellWidth: 1.0, halign: "right" },
+    },
+    didDrawCell: (data) => {
+      if (data.section === "body") {
+        const incentive = incentives_cutoff_1.find(
+          (i) => i.type === data.cell.raw
+        );
+        if (incentive) {
+          doc.setTextColor(0, 128, 0);
+        }
+        const deduction = deductions_cutoff_1.find(
+          (d) => d.type === data.cell.raw
+        );
+        if (deduction) {
+          doc.setTextColor(255, 0, 0);
+        }
+      }
     },
     didDrawPage: function (data) {
       y = data.cursor.y;
     },
     didDrawTable: function (data) {
       const table = data.table;
-      doc.setLineWidth(0.5); // thicker outer border
+      doc.setLineWidth(0.5);
       doc.rect(table.x, table.y, table.width, table.height);
-      doc.setLineWidth(0.2); // reset back
+      doc.setLineWidth(0.2);
     },
   });
 
-  // Add second pay period if isFullMonthRange is true
   if (isFullMonthRange) {
     const monthStart = dayjs(payslipData.cutOffStartDate);
     const secondCutOffStartDate = monthStart.date(16);
@@ -307,78 +339,86 @@ const generatePdfDoc = (payslipData, payslipNumber, isFullMonthRange) => {
       "MMM D"
     )}-${secondCutOffEndDate.format("D, YYYY")}`;
 
-    // Position the second pay period below the table, aligned with the right section
-    const secondPayPeriodY = y + 0.1; // Reduced from 0.2
+    const secondPayPeriodY = y + 0.2;
 
     doc.setFont("times", "bold");
     doc.text(secondPayPeriodLabel, rightX, secondPayPeriodY);
-    doc.setFont("times", "bold"); // Changed to normal for the value
+    doc.setFont("times", "bold");
     doc.text(secondPayPeriodValue, rightValueStartX, secondPayPeriodY);
     doc.line(
       rightValueStartX,
       secondPayPeriodY + underlineOffset,
-      doc.internal.pageSize.width - margin - 0.2, // Adjusted for right padding
+      doc.internal.pageSize.width - margin - 0.2,
       secondPayPeriodY + underlineOffset
     );
 
-    // Update y position for the new table
-    y = secondPayPeriodY + 0.05; // Reduced from 0.1
+    y = secondPayPeriodY + 0.05;
 
-    // Second Table (7 rows)
     const deductions_cutoff_2 = (payslipData.deductions || []).filter(
       (d) => d.cutoff === 2
+    );
+    const incentives_cutoff_2 = (payslipData.incentives || []).filter(
+      (i) => i.cutoff === 2
     );
     let totalDeductions_cutoff_2 = deductions_cutoff_2.reduce(
       (acc, d) => acc + (d.amount || 0),
       0
     );
+    let totalIncentives_cutoff_2 = incentives_cutoff_2.reduce(
+      (acc, i) => acc + (i.amount || 0),
+      0
+    );
 
-    const secondTableBodyRows = [
-      [
-        "Earn for the period",
-        formatCurrency(payslipData.secondPeriodEarnedForPeriod),
-        "",
-        "",
-        "",
-      ],
-      ["", "", "", "", ""], // Deduction 3
-      ["", "", "", "", ""], // Deduction 4
-      ["", "", "", "", ""], // Deduction 5
+    const all_income_2 = [
+      {
+        type: "Rate Per Month",
+        amount: safePayslipData.grossIncome.monthlySalary,
+      },
+      {
+        type: "Gross Amount Earned",
+        amount: safePayslipData.grossIncome.grossAmountEarned / 2,
+      },
+      ...incentives_cutoff_2,
     ];
 
-    // Populate deductions for the second cutoff, starting from row 2 (index 1)
-    deductions_cutoff_2.forEach((deduction, index) => {
-      if (index < 5) {
-        // Limit to 5 deductions
-        // Directly add to the array, it's already pre-filled with empty rows
-        let deductionName = deduction.name;
-        if (deduction.name === "Absent" && deduction.days) {
-          deductionName = `Absent`;
-        } else if (
-          deduction.name === "Late/Undertime" &&
-          deduction.value &&
-          deduction.unit
-        ) {
-          deductionName = `Late/Undertime`;
-        } else if (deduction.name === "Tax") {
-          deductionName = `Tax`; // Explicitly handle Tax
-        }
-        secondTableBodyRows[index][2] = deductionName;
-        let displayAmount = deduction.amount;
-        secondTableBodyRows[index][3] = formatCurrency(displayAmount);
-      }
-    });
+    const numRows2 = Math.max(
+      all_income_2.length,
+      deductions_cutoff_2.length
+    );
+    const bodyRows2 = [];
+    bodyRows2.push(["", "", "", "", ""]);
+
+    for (let i = 0; i < numRows2; i++) {
+      const income = all_income_2[i];
+      const deduction = deductions_cutoff_2[i];
+
+      const row = [
+        income ? income.type : "",
+        income ? formatCurrency(income.amount) : "",
+        deduction ? deduction.type : "",
+        deduction ? formatCurrency(deduction.amount) : "",
+        "",
+      ];
+      bodyRows2.push(row);
+    }
+
+    bodyRows2.push(["", "", "", "", ""]); // Blank row before totals
 
     const netPay_cutoff_2 =
-      payslipData.secondPeriodEarnedForPeriod - totalDeductions_cutoff_2;
+      safePayslipData.grossIncome.grossAmountEarned / 2 +
+      totalIncentives_cutoff_2 -
+      totalDeductions_cutoff_2;
 
-    secondTableBodyRows.push([
+    bodyRows2.push([
       "Total Income",
-      formatCurrency(payslipData.secondPeriodEarnedForPeriod),
+      formatCurrency(
+        safePayslipData.grossIncome.grossAmountEarned / 2 +
+          totalIncentives_cutoff_2
+      ),
       "Total Deductions",
       formatCurrency(totalDeductions_cutoff_2),
       formatCurrency(netPay_cutoff_2),
-    ]); // totals row
+    ]);
 
     autoTable(doc, {
       startY: y,
@@ -389,7 +429,7 @@ const generatePdfDoc = (payslipData, payslipNumber, isFullMonthRange) => {
           { content: "Net Amount", styles: { halign: "center" } },
         ],
       ],
-      body: secondTableBodyRows,
+      body: bodyRows2,
       theme: "grid",
       margin: { left: 0.2, right: 0.2 },
       styles: {
@@ -410,77 +450,84 @@ const generatePdfDoc = (payslipData, payslipNumber, isFullMonthRange) => {
         valign: "middle",
       },
       columnStyles: {
-        0: { cellWidth: 1.0 }, // Gross subcolumn 1
-        1: { cellWidth: 0.8 }, // Gross subcolumn 2
-        2: { cellWidth: 1.0 }, // Deduction subcolumn 1
-        3: { cellWidth: 0.8 }, // Deduction subcolumn 2
-        4: { cellWidth: 1.0 }, // Net Amount
+        0: { cellWidth: 1.0 },
+        1: { cellWidth: 0.8, halign: "right" },
+        2: { cellWidth: 1.0 },
+        3: { cellWidth: 0.8, halign: "right" },
+        4: { cellWidth: 1.0, halign: "right" },
+      },
+      didDrawCell: (data) => {
+        if (data.section === "body") {
+          const incentive = incentives_cutoff_2.find(
+            (i) => i.type === data.cell.raw
+          );
+          if (incentive) {
+            doc.setTextColor(0, 128, 0);
+          }
+          const deduction = deductions_cutoff_2.find(
+            (d) => d.type === data.cell.raw
+          );
+          if (deduction) {
+            doc.setTextColor(255, 0, 0);
+          }
+        }
       },
       didDrawPage: function (data) {
         y = data.cursor.y;
       },
       didDrawTable: function (data) {
         const table = data.table;
-        doc.setLineWidth(0.5); // thicker outer border
+        doc.setLineWidth(0.5);
         doc.rect(table.x, table.y, table.width, table.height);
-        doc.setLineWidth(0.2); // reset back
+        doc.setLineWidth(0.2);
       },
     });
-
-    // HR Info Box directly below 2nd table
-    const hrBoxY = y; // start right below the table
-    doc.setFontSize(8);
-    doc.setFont("times", "normal");
-
-    // Content
-    const hrLabel = "Prepared by:";
-    const hrName = "PRISCILLA MICHAIAH C. CORONEL";
-    const hrDesignation = "Head, Personnel Unit";
-
-    // Keep left margin same as tables
-    const hrBoxX = 0.2;
-
-    // Add extra space only on the right
-    const hrRightPadding = 0.22;
-    const hrBoxWidth =
-      doc.internal.pageSize.width - margin - hrBoxX - hrRightPadding;
-
-    const hrBoxHeight = 0.4; // fixed height for HR box
-
-    // Draw HR Info Box with thicker border
-    doc.setLineWidth(0.01);
-    doc.rect(hrBoxX, hrBoxY, hrBoxWidth, hrBoxHeight);
-
-    // Inside text (aligned relative to box)
-    const centerX = hrBoxX + hrBoxWidth / 2;
-    let textY = hrBoxY + 0.18;
-
-    doc.setFont("times", "bold");
-    doc.text(hrLabel, hrBoxX + 0.1, textY);
-
-    doc.setFont("times", "normal");
-    doc.text(hrName, centerX, textY, { align: "center" });
-
-    // Underline HR Name with thinner line
-    doc.setLineWidth(0.005);
-    doc.line(
-      centerX - doc.getTextWidth(hrName) / 2,
-      textY + 0.01,
-      centerX + doc.getTextWidth(hrName) / 2,
-      textY + 0.01
-    );
-
-    textY += 0.15;
-    // HR Designation (no underline now)
-    doc.text(hrDesignation, centerX, textY, { align: "center" });
   }
 
-  y += 0.1;
+  y += 0.2;
+
+  // HR Info Box
+  const hrBoxY = y;
+  doc.setFontSize(8);
+  doc.setFont("times", "normal");
+
+  const hrLabel = "Prepared by:";
+  const hrName = "PRISCILLA MICHAIAH C. CORONEL";
+  const hrDesignation = "Head, Personnel Unit";
+
+  const hrBoxX = 0.2;
+  const hrRightPadding = 0.22;
+  const hrBoxWidth =
+    doc.internal.pageSize.width - margin - hrBoxX - hrRightPadding;
+  const hrBoxHeight = 0.4;
+
+  doc.setLineWidth(0.01);
+  doc.rect(hrBoxX, hrBoxY, hrBoxWidth, hrBoxHeight);
+
+  const centerX = hrBoxX + hrBoxWidth / 2;
+  let textY = hrBoxY + 0.18;
+
+  doc.setFont("times", "bold");
+  doc.text(hrLabel, hrBoxX + 0.1, textY);
+
+  doc.setFont("times", "normal");
+  doc.text(hrName, centerX, textY, { align: "center" });
+
+  doc.setLineWidth(0.005);
+  doc.line(
+    centerX - doc.getTextWidth(hrName) / 2,
+    textY + 0.01,
+    centerX + doc.getTextWidth(hrName) / 2,
+    textY + 0.01
+  );
+
+  textY += 0.15;
+  doc.text(hrDesignation, centerX, textY, { align: "center" });
 
   return doc;
 };
 
-export const generatePaySlipPreview = (
+export const generatePaySlipPreviewRegular = (
   payslipData,
   payslipNumber,
   isFullMonthRange
@@ -490,7 +537,7 @@ export const generatePaySlipPreview = (
   return uri + "#toolbar=0&view=Fit";
 };
 
-export const generatePaySlipPdf = (
+export const generatePaySlipPdfRegular = (
   payslipData,
   payslipNumber,
   isFullMonthRange
@@ -511,7 +558,7 @@ const dataURItoBlob = (dataURI) => {
   return blob;
 };
 
-export const openPayslipInNewTab = (
+export const openPayslipInNewTabRegular = (
   payslipData,
   payslipNumber,
   isFullMonthRange

@@ -15,6 +15,7 @@ import trainingRoutes from "./routes/trainingRoutes.js";
 import employeeDocRoutes from "./routes/employeeDocRoutes.js";
 import employeeSalaryRoutes from "./routes/employeeSalaryRoutes.js";
 import settingsRoutes from "./routes/settingsRoutes.js";
+import deductionTypeRoutes from "./routes/deductionTypeRoutes.js";
 
 
 import { setSocketInstance } from "./socket.js";
@@ -60,6 +61,7 @@ app.use("/api/trainings", trainingRoutes);
 app.use("/api/employee-docs", employeeDocRoutes);
 app.use("/api/employee-salaries", employeeSalaryRoutes);
 app.use("/api/settings", settingsRoutes);
+app.use("/api/deduction-types", deductionTypeRoutes);
 
 // Start server after DB connection
 connectDB().then(() => {

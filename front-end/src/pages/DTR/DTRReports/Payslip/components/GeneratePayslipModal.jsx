@@ -25,6 +25,9 @@ import dayjs from "dayjs";
 import {
   generatePaySlipPreview,
 } from "../../../../../../utils/generatePaySlip.js";
+import {
+  generatePaySlipPreviewRegular,
+} from "../../../../../../utils/generatePaySlipRegular.js";
 import axiosInstance from "../../../../../api/axiosInstance.js";
 
 const { Option } = Select;
@@ -37,8 +40,26 @@ const DeductionRow = ({
   form,
   selectedEmployee,
   showSalaryAmounts,
+  deductionTypes,
 }) => {
   const type = form.getFieldValue([fieldNamePrefix, name, "type"]);
+  const selectedTypeInfo = deductionTypes.find((t) => t.name === type);
+
+  let color = "black";
+  if (selectedTypeInfo) {
+    if (selectedTypeInfo.type === "incentive") {
+      color = "green";
+    } else {
+      color = "red";
+    }
+  } else if (
+    ["Absent", "Late/Undertime", "Tax", "GSIS", "PhilHealth", "Pag-IBIG"].includes(
+      type
+    )
+  ) {
+    color = "red";
+  }
+
   const rawDailyRate = form.getFieldValue("dailyRate");
   const dailyRate =
     Number(String(rawDailyRate).replace(/[^\d.-]/g, "")) ||
@@ -48,10 +69,34 @@ const DeductionRow = ({
         0) / 22
     );
 
+  const handleTypeChange = (value) => {
+    const selectedType = deductionTypes.find((t) => t.name === value);
+    if (selectedType) {
+      if (
+        selectedType.calculationType === "formula" &&
+        selectedType.name === "Year-End Bonus"
+      ) {
+        const monthlyRate =
+          selectedEmployee.salaryInfo?.ratePerMonth ||
+          selectedEmployee.salaryInfo?.basicSalary ||
+          0;
+        form.setFieldValue([fieldNamePrefix, name, "amount"], monthlyRate);
+      } else {
+        form.setFieldValue([fieldNamePrefix, name, "amount"], selectedType.amount);
+      }
+    }
+    form.submit();
+  };
+
   return (
     <Space
       key={name}
-      style={{ display: "flex", width: "100%", alignItems: "center" }}
+      style={{
+        display: "flex",
+        width: "100%",
+        alignItems: "center",
+        marginBottom: -15,
+      }}
       align="baseline"
     >
       <div style={{ display: "flex", gap: "8px", flex: 1 }}>
@@ -62,10 +107,47 @@ const DeductionRow = ({
           rules={[{ required: true, message: "Select deduction type" }]}
           style={{ width: "160px" }}
         >
-          <Select placeholder="Deduction Type" onChange={() => form.submit()}>
-            <Option value="Absent">Absent</Option>
-            <Option value="Late/Undertime">Late/Undertime</Option>
-            <Option value="Tax">Tax (3%)</Option>
+          <Select
+            key={color}
+            placeholder="Deduction Type"
+            onChange={handleTypeChange}
+            style={{ color: color }}
+          >
+            <Option value="Absent" style={{ color: "red" }}>
+              Absent
+            </Option>
+            <Option value="Late/Undertime" style={{ color: "red" }}>
+              Late/Undertime
+            </Option>
+            <Option value="Tax" style={{ color: "red" }}>
+              Tax (3%)
+            </Option>
+            {selectedEmployee.empType === "Regular" && (
+              <Option value="GSIS" style={{ color: "red" }}>
+                GSIS
+              </Option>
+            )}
+            {selectedEmployee.empType === "Regular" && (
+              <Option value="PhilHealth" style={{ color: "red" }}>
+                PhilHealth
+              </Option>
+            )}
+            {selectedEmployee.empType === "Regular" && (
+              <Option value="Pag-IBIG" style={{ color: "red" }}>
+                Pag-IBIG
+              </Option>
+            )}
+            {deductionTypes.map((deduction) => (
+              <Option
+                key={deduction._id}
+                value={deduction.name}
+                style={{
+                  color: deduction.type === "incentive" ? "green" : "red",
+                }}
+              >
+                {deduction.name}
+              </Option>
+            ))}
             <Option value="Other">Other</Option>
           </Select>
         </Form.Item>
@@ -112,7 +194,7 @@ const DeductionRow = ({
                     : "*****"
                 }
                 parser={(value) => value.replace(/₱\s?|(,*)/g, "")}
-                style={{ width: "100%" }}
+                style={{ width: "100%", color: color }}
               />
             </Form.Item>
           </>
@@ -183,7 +265,7 @@ const DeductionRow = ({
                     : "*****"
                 }
                 parser={(value) => value.replace(/₱\s?|(,*)/g, "")}
-                style={{ width: "110px" }}
+                style={{ width: "110px", color: color }}
               />
             </Form.Item>
           </>
@@ -209,13 +291,13 @@ const DeductionRow = ({
                   : "*****"
               }
               parser={(value) => value.replace(/₱\s?|(,*)/g, "")}
-              style={{ width: "100px" }}
+              style={{ width: "100px", color: color }}
             />
           </Form.Item>
         )}
 
         {/* Other Manual */}
-        {type === "Other" && (
+        {(type !== "Absent" && type !== "Late/Undertime" && type !== "Tax") && (
           <Form.Item
             {...restField}
             name={[name, "amount"]}
@@ -234,13 +316,11 @@ const DeductionRow = ({
                   : "*****"
               }
               parser={(value) => value.replace(/₱\s?|(,*)/g, "")}
-              style={{ width: "110px" }}
+              style={{ width: "110px", color: color }}
             />
           </Form.Item>
         )}
       </div>
-
-      
     </Space>
   );
 };
@@ -272,6 +352,20 @@ const GeneratePayslipModal = ({
   const [refreshCounter, setRefreshCounter] = useState(0);
   const [currentPayslipData, setCurrentPayslipData] = useState(null);
   const [payslipNumber, setPayslipNumber] = useState(null);
+  const [deductionTypes, setDeductionTypes] = useState([]);
+
+  useEffect(() => {
+    const fetchDeductionTypes = async () => {
+      try {
+        const response = await axiosInstance.get("/deduction-types");
+        setDeductionTypes(response.data);
+      } catch (error) {
+        notification.error({ message: "Failed to fetch deduction types" });
+      }
+    };
+
+    fetchDeductionTypes();
+  }, []);
 
   useEffect(() => {
     const generatePreview = async () => {
@@ -284,10 +378,15 @@ const GeneratePayslipModal = ({
       }
 
       // Fetch payslip number
-      const period = `${dayjs(cutOffDateRange[0]).format("YYYY-MM-DD")} - ${dayjs(cutOffDateRange[1]).format("YYYY-MM-DD")}`;
+      const period = `${dayjs(cutOffDateRange[0]).format(
+        "YYYY-MM-DD"
+      )} - ${dayjs(cutOffDateRange[1]).format("YYYY-MM-DD")}`;
       let currentPayslipNo = null;
       try {
-        const res = await axiosInstance.get(`/employee-docs/next-payslip-number/${selectedEmployee.empId}`, { params: { period } });
+        const res = await axiosInstance.get(
+          `/employee-docs/next-payslip-number/${selectedEmployee.empId}`,
+          { params: { period } }
+        );
         currentPayslipNo = res.data.nextPayslipNumber;
         setPayslipNumber(currentPayslipNo);
       } catch (err) {
@@ -371,67 +470,111 @@ const GeneratePayslipModal = ({
         secondPeriodEarned,
         "deductionsSecondCutOff"
       );
-      const updatedFormDeductions = updateDeductionsAndTax(
-        formDeductions,
-        cutOffPay,
-        "deductions"
-      );
 
-      const payslipData = {
-        name: selectedEmployee.name,
-        empId: selectedEmployee.empId,
-        position: selectedEmployee.position,
-        cutOffStartDate: dayjs(cutOffDateRange[0]).format("YYYY-MM-DD"),
-        cutOffEndDate: dayjs(cutOffDateRange[1]).format("YYYY-MM-DD"),
-        grossIncome: {
-          rate: cutOffPay,
-          earnPeriod: earningsForPeriod,
-        },
-        secondPeriodRatePerMonth: ratePerMonthValue,
-        secondPeriodEarnedForPeriod: secondPeriodEarned,
-        firstCutOffDeductions: updatedFormDeductionsFirstCutOff,
-        firstCutOffTotalDeductions: firstCutOffTotalDeductions,
-        secondCutOffDeductions: updatedFormDeductionsSecondCutOff,
-        secondCutOffTotalDeductions: secondCutOffTotalDeductions,
-        deductions: isFullMonthRange
+      if (selectedEmployee.empType === "Regular") {
+        const allItems = isFullMonthRange
           ? [
-              ...(form.getFieldValue("deductionsFirstCutOff") || []).map((d) => ({
-                name: d.type,
-                days: d.days,
-                unit: d.unit,
-                value: d.value,
-                cutoff: 1,
-                amount: d.amount,
-              })),
-              ...(form.getFieldValue("deductionsSecondCutOff") || []).map((d) => ({
-                name: d.type,
-                days: d.days,
-                unit: d.unit,
-                value: d.value,
-                cutoff: 2,
-                amount: d.amount,
-              })),
+              ...(form.getFieldValue("deductionsFirstCutOff") || []).map((d) => ({ ...d, cutoff: 1})),
+              ...(form.getFieldValue("deductionsSecondCutOff") || []).map((d) => ({ ...d, cutoff: 2})),
             ]
-          : (form.getFieldValue("deductions") || []).map((d) => ({
-              name: d.type,
-              cutoff: 1,
-              days: d.days,
-              unit: d.unit,
-              value: d.value,
-              amount: d.amount,
-            })),
-        totalDeductions: grandTotalDeductions,
-        netPay: grandNetPay,
-      };
+          : (form.getFieldValue("deductions") || []).map((d) => ({ ...d, cutoff: 1}));
 
-      setCurrentPayslipData(payslipData);
+        const deductions = allItems.filter(item => {
+          const type = deductionTypes.find(d => d.name === item.type);
+          return !type || type.type === 'deduction';
+        });
 
-      const previewUri = generatePaySlipPreview(
-        payslipData,
-        currentPayslipNo,
-        isFullMonthRange
-      );
-      setPdfPreview(previewUri);
+        const incentives = allItems.filter(item => {
+          const type = deductionTypes.find(d => d.name === item.type);
+          return type && type.type === 'incentive';
+        });
+
+        const payslipData = {
+          name: selectedEmployee.name,
+          empId: selectedEmployee.empId,
+          position: selectedEmployee.position,
+          cutOffStartDate: dayjs(cutOffDateRange[0]).format("YYYY-MM-DD"),
+          cutOffEndDate: dayjs(cutOffDateRange[1]).format("YYYY-MM-DD"),
+          grossIncome: {
+            monthlySalary: ratePerMonthValue,
+            grossAmountEarned: earningsForPeriod,
+          },
+          deductions,
+          incentives,
+          totalDeductions: grandTotalDeductions,
+          netPay: grandNetPay,
+        };
+
+        setCurrentPayslipData(payslipData);
+
+        const previewUri = generatePaySlipPreviewRegular(
+          payslipData,
+          currentPayslipNo,
+          isFullMonthRange
+        );
+        setPdfPreview(previewUri);
+      } else {
+        const payslipData = {
+          name: selectedEmployee.name,
+          empId: selectedEmployee.empId,
+          position: selectedEmployee.position,
+          cutOffStartDate: dayjs(cutOffDateRange[0]).format("YYYY-MM-DD"),
+          cutOffEndDate: dayjs(cutOffDateRange[1]).format("YYYY-MM-DD"),
+          grossIncome: {
+            rate: cutOffPay,
+            earnPeriod: earningsForPeriod,
+          },
+          secondPeriodRatePerMonth: ratePerMonthValue,
+          secondPeriodEarnedForPeriod: secondPeriodEarned,
+          firstCutOffDeductions: updatedFormDeductionsFirstCutOff,
+          firstCutOffTotalDeductions: firstCutOffTotalDeductions,
+          secondCutOffDeductions: updatedFormDeductionsSecondCutOff,
+          secondCutOffTotalDeductions: secondCutOffTotalDeductions,
+          deductions: isFullMonthRange
+            ? [
+                ...(form.getFieldValue("deductionsFirstCutOff") || []).map(
+                  (d) => ({
+                    name: d.type,
+                    days: d.days,
+                    unit: d.unit,
+                    value: d.value,
+                    cutoff: 1,
+                    amount: d.amount,
+                  })
+                ),
+                ...(form.getFieldValue("deductionsSecondCutOff") || []).map(
+                  (d) => ({
+                    name: d.type,
+                    days: d.days,
+                    unit: d.unit,
+                    value: d.value,
+                    cutoff: 2,
+                    amount: d.amount,
+                  })
+                ),
+              ]
+            : (form.getFieldValue("deductions") || []).map((d) => ({
+                name: d.type,
+                cutoff: 1,
+                days: d.days,
+                unit: d.unit,
+                value: d.value,
+                amount: d.amount,
+              })),
+          totalDeductions: grandTotalDeductions,
+          netPay: grandNetPay,
+        };
+
+        setCurrentPayslipData(payslipData);
+
+        const previewUri = generatePaySlipPreview(
+          payslipData,
+          currentPayslipNo,
+          isFullMonthRange
+        );
+        setPdfPreview(previewUri);
+      }
+
       setIsPreviewLoading(false);
     };
 
@@ -453,6 +596,7 @@ const GeneratePayslipModal = ({
     formDeductionsSecondCutOff,
     cutOffDateRange,
     refreshCounter,
+    deductionTypes,
   ]);
 
   const handleRefreshPreview = () => {
@@ -518,7 +662,7 @@ const GeneratePayslipModal = ({
               <Form
                 form={form}
                 layout="vertical"
-                onValuesChange={(_, allValues) => recalcPayslip(allValues)}
+                onValuesChange={(_, allValues) => recalcPayslip(allValues, deductionTypes)}
               >
                 {/* Header */}
                 <div
@@ -637,7 +781,7 @@ const GeneratePayslipModal = ({
                   </Col>
                 </Row>
                 {/* Deduction Section */}
-                <h3>Add Deductions</h3>
+                <h3>Add Deductions/Incentives</h3>
 
                 {isFullMonthRange ? (
                   <>
@@ -662,6 +806,7 @@ const GeneratePayslipModal = ({
                                 form={form}
                                 selectedEmployee={selectedEmployee}
                                 showSalaryAmounts={showSalaryAmounts}
+                                deductionTypes={deductionTypes}
                               />
                             ))}
                             <Row
@@ -715,7 +860,7 @@ const GeneratePayslipModal = ({
                                   }
                                   icon={<PlusOutlined />}
                                 >
-                                  Add Deduction (1st Cut-Off)
+                                  Add Item (1st Cut-Off)
                                 </Button>
                                 {fields.length > 0 && (
                                   <Button
@@ -744,6 +889,46 @@ const GeneratePayslipModal = ({
                       ).format("MMMM YYYY")})`}
                       size="small"
                     >
+                      <Row gutter={16}>
+                        <Col span={12}>
+                          <Form.Item label="Rate Per Month">
+                            <Input
+                              value={
+                                showSalaryAmounts
+                                  ? `₱${(
+                                      selectedEmployee.salaryInfo?.ratePerMonth ||
+                                      selectedEmployee.salaryInfo?.basicSalary ||
+                                      0
+                                    ).toLocaleString(undefined, {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                    })}`
+                                  : "*****"
+                              }
+                              readOnly
+                            />
+                          </Form.Item>
+                        </Col>
+                        <Col span={12}>
+                          <Form.Item label="Gross Amount Earned">
+                            <Input
+                              value={
+                                showSalaryAmounts
+                                  ? `₱${(
+                                      (selectedEmployee.salaryInfo?.ratePerMonth ||
+                                        selectedEmployee.salaryInfo?.basicSalary ||
+                                        0) / 2
+                                    ).toLocaleString(undefined, {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                    })}`
+                                  : "*****"
+                              }
+                              readOnly
+                            />
+                          </Form.Item>
+                        </Col>
+                      </Row>
                       <Form.List name="deductionsSecondCutOff">
                         {(fields, { add, remove }) => (
                           <>
@@ -757,6 +942,7 @@ const GeneratePayslipModal = ({
                                 form={form}
                                 selectedEmployee={selectedEmployee}
                                 showSalaryAmounts={showSalaryAmounts}
+                                deductionTypes={deductionTypes}
                               />
                             ))}
                             <Row
@@ -810,7 +996,7 @@ const GeneratePayslipModal = ({
                                   }
                                   icon={<PlusOutlined />}
                                 >
-                                  Add Deduction (2nd Cut-Off)
+                                  Add Item (2nd Cut-Off)
                                 </Button>
                                 {fields.length > 0 && (
                                   <Button
@@ -846,6 +1032,7 @@ const GeneratePayslipModal = ({
                               form={form}
                               selectedEmployee={selectedEmployee}
                               showSalaryAmounts={showSalaryAmounts}
+                              deductionTypes={deductionTypes}
                             />
                           ))}
                           <Form.Item>
@@ -855,7 +1042,7 @@ const GeneratePayslipModal = ({
                                 onClick={() => add({ type: "Other", amount: 0 })}
                                 icon={<PlusOutlined />}
                               >
-                                Add Deduction
+                                Add Item
                               </Button>
                               {fields.length > 0 && (
                                 <Button
@@ -864,7 +1051,7 @@ const GeneratePayslipModal = ({
                                   onClick={() => remove(fields.length - 1)}
                                   icon={<MinusCircleOutlined />}
                                 >
-                                  Remove Last Deduction
+                                  Remove Last Item
                                 </Button>
                               )}
                             </Space>

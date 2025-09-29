@@ -39,6 +39,7 @@ import Trainings from "../../components/Employees/Trainings/Trainings";
 import AccountSettings from "../../components/Settings/AccountSettings/AccountsSettings";
 import Backup from "../../components/Settings/Backup/Backup";
 import UserAccess from "../../components/Settings/UserAccess/UserAccess";
+import DeductionSettings from "../../components/Settings/DeductionSettings";
 import ImportDTRModal from "../../components/DTR/ImportDTRModal";
 import DTRLogs from "../DTR/DTRLogs/DTRLogs";
 import DTRProcess from "../DTR/components/DTRProcess/DTRProcess";
@@ -148,6 +149,7 @@ const HomePage = () => {
       label: "Settings",
       children: [
         { key: "/settings/account", label: "Account Settings" },
+        { key: "/settings/deductions", label: "Deduction Settings" },
         { key: "/settings/access", label: "User Access" },
         { key: "/settings/backup", label: "Backup Data" },
       ],
@@ -325,6 +327,7 @@ const HomePage = () => {
               <Route path="/settings/account" element={<AccountSettings />} />
               <Route path="/settings/access" element={<UserAccess />} />
               <Route path="/settings/backup" element={<Backup />} />
+              <Route path="/settings/deductions" element={<DeductionSettings />} />
             </Routes>
           </div>
         </Content>
