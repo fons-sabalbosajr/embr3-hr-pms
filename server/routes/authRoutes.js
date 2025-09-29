@@ -12,7 +12,7 @@ import {
   getUserById,
   getAllUsers,
 } from '../controllers/authController.js';
-import { verifyToken } from '../middleware/authMiddleware.js';
+import verifyToken from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 

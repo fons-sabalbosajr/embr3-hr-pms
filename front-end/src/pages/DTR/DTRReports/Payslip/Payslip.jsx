@@ -15,7 +15,14 @@ import {
 import { SearchOutlined } from "@ant-design/icons";
 import axiosInstance from "../../../../api/axiosInstance";
 import dayjs from "dayjs";
-import { generatePaySlipPdf, openPayslipInNewTab } from "../../../../../utils/generatePaySlip.js";
+import {
+  generatePaySlipPdf,
+  openPayslipInNewTab,
+} from "../../../../../utils/generatePaySlip.js";
+import {
+  generatePaySlipPdfRegular,
+  openPayslipInNewTabRegular,
+} from "../../../../../utils/generatePaySlipRegular.js";
 import { secureGet } from "../../../../../utils/secureStorage";
 import "./payslip.css";
 import GeneratePayslipModal from "./components/GeneratePayslipModal";
@@ -46,8 +53,12 @@ const Payslip = () => {
   const [grandNetPay, setGrandNetPay] = useState(0);
   const [earningsForPeriod, setEarningsForPeriod] = useState(0);
   const [formDeductions, setFormDeductions] = useState([]);
-  const [formDeductionsFirstCutOff, setFormDeductionsFirstCutOff] = useState([]);
-  const [formDeductionsSecondCutOff, setFormDeductionsSecondCutOff] = useState([]);
+  const [formDeductionsFirstCutOff, setFormDeductionsFirstCutOff] = useState(
+    []
+  );
+  const [formDeductionsSecondCutOff, setFormDeductionsSecondCutOff] = useState(
+    []
+  );
   const [cutOffDateRange, setCutOffDateRange] = useState(null);
 
   const currentUser = secureGet("user");
@@ -87,7 +98,6 @@ const Payslip = () => {
   };
 
   const showGeneratePayslipModal = (record) => {
-
     const monthlyRate =
       record.salaryInfo?.ratePerMonth || record.salaryInfo?.basicSalary || 0;
     const dailyRate = record.salaryInfo?.dailyRate || 0;
@@ -97,11 +107,11 @@ const Payslip = () => {
     let defaultEndDate;
 
     if (today.date() <= 15) {
-      defaultStartDate = today.startOf('month');
-      defaultEndDate = today.startOf('month').add(14, 'day');
+      defaultStartDate = today.startOf("month");
+      defaultEndDate = today.startOf("month").add(14, "day");
     } else {
-      defaultStartDate = today.startOf('month').add(15, 'day');
-      defaultEndDate = today.endOf('month');
+      defaultStartDate = today.startOf("month").add(15, "day");
+      defaultEndDate = today.endOf("month");
     }
 
     const newValues = {
@@ -113,7 +123,7 @@ const Payslip = () => {
     };
 
     form.setFieldsValue(newValues);
-    recalcPayslip(newValues);
+    recalcPayslip(newValues, []);
 
     setCutOffPay(monthlyRate / 2);
     setIsModalOpen(true);
@@ -135,7 +145,11 @@ const Payslip = () => {
     setIsAddSalaryModalOpen(false);
   };
 
-  const handlePayslipGeneration = async (payslipData, isFullMonthRange, actionType) => {
+  const handlePayslipGeneration = async (
+    payslipData,
+    isFullMonthRange,
+    actionType
+  ) => {
     try {
       const payload = {
         empId: payslipData.empId,
@@ -151,14 +165,25 @@ const Payslip = () => {
       const { data: doc, isNew } = response.data;
       const { docNo } = doc;
 
-      if (actionType === "view") {
-        openPayslipInNewTab(payslipData, docNo, isFullMonthRange);
-      } else if (actionType === "download") {
-        generatePaySlipPdf(payslipData, docNo, isFullMonthRange);
+      if (selectedEmployee.empType === "Regular") {
+        if (actionType === "view") {
+          openPayslipInNewTabRegular(payslipData, docNo, isFullMonthRange);
+        } else if (actionType === "download") {
+          generatePaySlipPdfRegular(payslipData, docNo, isFullMonthRange);
+        }
+      } else {
+        if (actionType === "view") {
+          openPayslipInNewTab(payslipData, docNo, isFullMonthRange);
+        } else if (actionType === "download") {
+          generatePaySlipPdf(payslipData, docNo, isFullMonthRange);
+        }
       }
+
       notification.success({
         message: "Success",
-        description: `Payslip ${isNew ? 'generated' : 'updated'} successfully with No. ${docNo}.`,
+        description: `Payslip ${
+          isNew ? "generated" : "updated"
+        } successfully with No. ${docNo}.`,
       });
       handleCancel();
     } catch (error) {
@@ -347,7 +372,7 @@ const Payslip = () => {
     },
   ];
 
-  const recalcPayslip = (allValues) => {
+  const recalcPayslip = (allValues, deductionTypes) => {
     const monthlyRate =
       selectedEmployee?.salaryInfo?.ratePerMonth ||
       selectedEmployee?.salaryInfo?.basicSalary ||
@@ -406,11 +431,21 @@ const Payslip = () => {
     const perMinute = perHour / 60;
 
     let totalDeductions = 0;
+    let totalIncentives = 0;
     let finalNetPay = 0;
-    let combinedDeductionsList = [];
+    let combinedItemsList = [];
 
-    const calculateDeductions = (deductionsArray, currentBasePay) => {
-      let calculatedList = deductionsArray.map((d) => {
+    const calculateItems = (itemsArray, currentBasePay) => {
+      let calculatedList = itemsArray.map((d) => {
+        const itemType = deductionTypes.find(dt => dt.name === d.type);
+        if (itemType && itemType.calculationType === 'formula') {
+            const formula = itemType.formula.toLowerCase().replace(/\s/g, '');
+            if (formula === 'monthlyrate*2' || formula === 'monthlysalary*2') {
+                return { ...d, amount: monthlyRate * 2 };
+            } else if (formula === 'monthlyrate' || formula === 'monthlysalary') {
+                return { ...d, amount: monthlyRate };
+            }
+        }
         if (d.type === "Absent") {
           if (!d.days) return { ...d, amount: 0 };
           const computed = d.days * dailyRate;
@@ -429,8 +464,18 @@ const Payslip = () => {
         return d;
       });
 
+      const deductions = calculatedList.filter(item => {
+        const type = deductionTypes.find(d => d.name === item.type);
+        return !type || type.type === 'deduction';
+      });
+
+      const incentives = calculatedList.filter(item => {
+        const type = deductionTypes.find(d => d.name === item.type);
+        return type && type.type === 'incentive';
+      });
+
       // Calculate tax after other deductions for this specific cut-off
-      let preTaxTotal = calculatedList
+      let preTaxTotal = deductions
         .filter((x) => x.type !== "Tax")
         .reduce((sum, x) => sum + (parseFloat(x.amount) || 0), 0);
 
@@ -443,23 +488,28 @@ const Payslip = () => {
         return d;
       });
 
-      const cutOffTotal = calculatedList.reduce(
+      const cutOffTotalDeductions = deductions.reduce(
         (sum, d) => sum + (parseFloat(d.amount) || 0),
         0
       );
-      return { list: calculatedList, total: cutOffTotal };
+      const cutOffTotalIncentives = incentives.reduce(
+        (sum, i) => sum + (parseFloat(i.amount) || 0),
+        0
+      );
+
+      return { list: calculatedList, totalDeductions: cutOffTotalDeductions, totalIncentives: cutOffTotalIncentives };
     };
 
     if (isFullMonth) {
-      const deductionsFirstCutOff = allValues.deductionsFirstCutOff || [];
-      const deductionsSecondCutOff = allValues.deductionsSecondCutOff || [];
+      const itemsFirstCutOff = allValues.deductionsFirstCutOff || [];
+      const itemsSecondCutOff = allValues.deductionsSecondCutOff || [];
 
-      const { list: list1, total: total1 } = calculateDeductions(
-        deductionsFirstCutOff,
+      const { list: list1, totalDeductions: totalDeductions1, totalIncentives: totalIncentives1 } = calculateItems(
+        itemsFirstCutOff,
         monthlyRate / 2
       );
-      const { list: list2, total: total2 } = calculateDeductions(
-        deductionsSecondCutOff,
+      const { list: list2, totalDeductions: totalDeductions2, totalIncentives: totalIncentives2 } = calculateItems(
+        itemsSecondCutOff,
         monthlyRate / 2
       );
 
@@ -468,19 +518,20 @@ const Payslip = () => {
         deductionsSecondCutOff: list2,
       });
 
-      setFirstCutOffTotalDeductions(total1);
-      setFirstCutOffNetPay(monthlyRate / 2 - total1);
+      setFirstCutOffTotalDeductions(totalDeductions1);
+      setFirstCutOffNetPay(monthlyRate / 2 + totalIncentives1 - totalDeductions1);
 
-      setSecondCutOffTotalDeductions(total2);
-      setSecondCutOffNetPay(monthlyRate / 2 - total2);
+      setSecondCutOffTotalDeductions(totalDeductions2);
+      setSecondCutOffNetPay(monthlyRate / 2 + totalIncentives2 - totalDeductions2);
 
-      combinedDeductionsList = [...list1, ...list2];
-      totalDeductions = total1 + total2;
-      finalNetPay = monthlyRate - totalDeductions;
+      combinedItemsList = [...list1, ...list2];
+      totalDeductions = totalDeductions1 + totalDeductions2;
+      totalIncentives = totalIncentives1 + totalIncentives2;
+      finalNetPay = monthlyRate + totalIncentives - totalDeductions;
     } else {
-      let deductionsList = allValues.deductions || [];
-      const { list: list, total: total } = calculateDeductions(
-        deductionsList,
+      let itemsList = allValues.deductions || [];
+      const { list: list, totalDeductions: total, totalIncentives: incentivesTotal } = calculateItems(
+        itemsList,
         baseCutOffPay
       );
 
@@ -492,16 +543,17 @@ const Payslip = () => {
       setSecondCutOffTotalDeductions(0);
       setSecondCutOffNetPay(0);
 
-      combinedDeductionsList = list;
+      combinedItemsList = list;
       totalDeductions = total;
-      finalNetPay = baseCutOffPay - totalDeductions;
+      totalIncentives = incentivesTotal;
+      finalNetPay = baseCutOffPay + totalIncentives - totalDeductions;
     }
 
     setGrandTotalDeductions(totalDeductions);
     setGrandNetPay(finalNetPay);
 
     setNetPay(finalNetPay);
-    setDeductions(combinedDeductionsList); // Update the main deductions state for summary display
+    setDeductions(combinedItemsList); // Update the main deductions state for summary display
   };
 
   return (
