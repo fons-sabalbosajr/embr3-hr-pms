@@ -23,7 +23,7 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.SERVER_PORT || 5000;
-const HOST = "0.0.0.0";
+const HOST = process.env.SERVER_HOST || "0.0.0.0";
 
 const server = http.createServer(app);
 

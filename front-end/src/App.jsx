@@ -1,5 +1,5 @@
+// client/src/App.jsx
 import {
-  BrowserRouter as Router,
   Routes,
   Route,
   Navigate,
@@ -43,10 +43,6 @@ const AppRoutes = () => {
   );
 };
 
-const App = () => (
-  <Router>
-    <AppRoutes />
-  </Router>
-);
+const App = () => <AppRoutes />; // ✅ no extra <Router>
 
 export default App;
