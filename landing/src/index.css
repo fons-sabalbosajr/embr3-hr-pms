@@ -1,0 +1,54 @@
+body {
+  margin: 0;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  background: #f8f9fa;
+  color: #333;
+}
+
+.landing-container {
+  text-align: center;
+}
+
+.hero {
+  background: linear-gradient(135deg, #004b80, #9acd32, #f5d8a3);
+  color: white;
+  padding: 4rem 2rem;
+}
+
+.hero h1 {
+  font-size: 2.5rem;
+  margin-bottom: 1rem;
+}
+
+.features {
+  display: flex;
+  justify-content: center;
+  gap: 1.5rem;
+  padding: 3rem 2rem;
+  flex-wrap: wrap;
+}
+
+.feature-card {
+  width: 300px;
+  text-align: center;
+  padding: 1.5rem;
+  border-radius: 12px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+}
+
+.cta {
+  background: #004b80;
+  color: white;
+  padding: 3rem 2rem;
+}
+
+.cta h2 {
+  margin-bottom: 1rem;
+}
+
+footer {
+  background: #111;
+  color: #aaa;
+  padding: 1rem;
+  margin-top: 2rem;
+}

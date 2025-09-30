@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Tabs, Form, Input, Button, Typography, Card, message } from "antd";
 import { useNavigate } from "react-router-dom";
-import { secureStore } from "../../../utils/secureStorage";
+import useAuth from "../../hooks/useAuth";
 import bgImage from "../../assets/bgemb.webp";
 import axios from "../../api/axiosInstance";
 import "./authpage.css";
@@ -15,6 +15,7 @@ const AuthPage = () => {
   const navigate = useNavigate();
   const [form] = Form.useForm();
   const [activeTab, setActiveTab] = useState("1");
+  const { login } = useAuth();
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -26,15 +27,8 @@ const AuthPage = () => {
   const onLogin = async (values) => {
     try {
       setLoading(true);
-      const res = await axios.post("/users/login", values);
-
-      const { token, user } = res.data;
-
-      secureStore("token", token);
-      secureStore("user", user); // ✅ Store the full user info
-
-      //message.success("Login successful");
-      navigate("/");
+      await login(values);
+      navigate("/", { replace: true }); // goes to HomePage
     } catch (err) {
       message.error(err.response?.data?.message || "Login failed");
     } finally {
@@ -92,7 +86,7 @@ const AuthPage = () => {
     >
       <Card className="auth-card">
         <Title level={3} className="auth-title">
-          EMBR3 Payroll Management System
+          EMBR3 DTR Management System
         </Title>
 
         <Tabs
@@ -101,10 +95,14 @@ const AuthPage = () => {
           centered
           items={[
             {
-              label: 'Login',
-              key: 'login',
+              label: "Login",
+              key: "login",
               children: (
-                <Form layout="vertical" onFinish={onLogin} className="login-form">
+                <Form
+                  layout="vertical"
+                  onFinish={onLogin}
+                  className="login-form"
+                >
                   <Form.Item
                     name="username"
                     label="Username"
@@ -162,7 +160,9 @@ const AuthPage = () => {
                               },
                             });
 
-                            await axios.post("/users/forgot-password", { email });
+                            await axios.post("/users/forgot-password", {
+                              email,
+                            });
 
                             Swal.fire({
                               icon: "success",
@@ -188,8 +188,8 @@ const AuthPage = () => {
               ),
             },
             {
-              label: 'Sign Up',
-              key: 'signup',
+              label: "Sign Up",
+              key: "signup",
               children: (
                 <Form
                   form={form}
@@ -197,7 +197,11 @@ const AuthPage = () => {
                   onFinish={onSignup}
                   className="signup-form"
                 >
-                  <Form.Item name="name" label="Name" rules={[{ required: true }]}>
+                  <Form.Item
+                    name="name"
+                    label="Name"
+                    rules={[{ required: true }]}
+                  >
                     <Input />
                   </Form.Item>
 
@@ -242,7 +246,10 @@ const AuthPage = () => {
                     label="Confirm Password"
                     dependencies={["password"]}
                     rules={[
-                      { required: true, message: "Please confirm your password" },
+                      {
+                        required: true,
+                        message: "Please confirm your password",
+                      },
                       ({ getFieldValue }) => ({
                         validator(_, value) {
                           return !value || getFieldValue("password") === value

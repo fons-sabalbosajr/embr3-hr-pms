@@ -1,6 +1,6 @@
 import React, { useState, useLayoutEffect, useRef } from "react";
 import { Card, Col, Row, Skeleton, Modal, Table, Typography } from "antd";
-import { TeamOutlined, UserOutlined } from "@ant-design/icons";
+import { TeamOutlined } from "@ant-design/icons";
 
 const { Text } = Typography;
 
@@ -61,7 +61,6 @@ const sectionColorMap = {
   "Accounting Unit": "magenta",
   "Chemicals and Hazardous Waste Monitoring Section": "purple",
   "Finance Section": "gold",
-  "N/A": "default",
   Other: "gold",
   "Section Chief": "blue",
 };
@@ -72,6 +71,20 @@ const chiefs = {
   EMED: "03-673",
 };
 
+const divisionShortNames = {
+  "Environmental Monitoring and Enforcement Division": "EMED",
+  "Office of the Regional Director": "ORD",
+  "Finance and Administrative Division": "FAD",
+  "Clearance and Permitting Division": "CPD",
+};
+
+const shortDivisionNames = {
+  EMED: "Environmental Monitoring and Enforcement Division",
+  ORD: "Office of the Regional Director",
+  FAD: "Finance and Administrative Division",
+  CPD: "Clearance and Permitting Division",
+};
+
 const EmployeesPerSectionTable = ({
   loadingEmployees,
   employeesPerSection = [],
@@ -80,15 +93,7 @@ const EmployeesPerSectionTable = ({
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [selectedSection, setSelectedSection] = useState(null);
   const [selectedDivision, setSelectedDivision] = useState(null);
-  const [maxHeight, setMaxHeight] = useState(0);
   const cardRefs = useRef([]);
-
-  useLayoutEffect(() => {
-    if (loadingEmployees) return;
-    const heights = cardRefs.current.map((ref) => ref?.scrollHeight || 0);
-    const max = Math.max(...heights);
-    setMaxHeight(max);
-  }, [loadingEmployees, employees]);
 
   const handleCardClick = (sectionName, divisionName) => {
     setSelectedSection(sectionName);
@@ -102,20 +107,7 @@ const EmployeesPerSectionTable = ({
     setSelectedDivision(null);
   };
 
-  const divisionShortNames = {
-    "Environmental Monitoring and Enforcement Division": "EMED",
-    "Office of the Regional Director": "ORD",
-    "Finance and Administrative Division": "FAD",
-    "Clearance and Permitting Division": "CPD",
-  };
-
-  const shortDivisionNames = {
-    EMED: "Environmental Monitoring and Enforcement Division",
-    ORD: "Office of the Regional Director",
-    FAD: "Finance and Administrative Division",
-    CPD: "Clearance and Permitting Division",
-  };
-
+  // Filter employees for modal
   const filteredEmployees = employees
     .filter((emp) => {
       if (selectedSection === "Other") {
@@ -129,14 +121,9 @@ const EmployeesPerSectionTable = ({
       return emp.sectionOrUnit === selectedSection;
     })
     .sort((a, b) => {
-      // Prioritize "Regular" employees
-      if (a.empType === "Regular" && b.empType !== "Regular") {
-        return -1; // a comes before b
-      }
-      if (a.empType !== "Regular" && b.empType === "Regular") {
-        return 1; // b comes before a
-      }
-      return 0; // maintain original order for same empType or if both are not "Regular"
+      if (a.empType === "Regular" && b.empType !== "Regular") return -1;
+      if (a.empType !== "Regular" && b.empType === "Regular") return 1;
+      return 0;
     });
 
   const columns = [
@@ -166,6 +153,7 @@ const EmployeesPerSectionTable = ({
             );
 
             const sectionsWithOther = [...sections, "Other"];
+
             return (
               <Col
                 xs={24}
@@ -180,60 +168,30 @@ const EmployeesPerSectionTable = ({
                   ref={(el) => (cardRefs.current[index] = el)}
                   size="small"
                   title={division}
-                  styles={{
-                    header: {
-                      background: "linear-gradient(to right, #e6f7ff, #ffffff)",
-                      borderBottom: "1px solid #d9d9d9",
-                    },
-                  }}
-                  style={{
-                    minHeight: 200,
-                    display: "flex",
-                    flexDirection: "column",
-                    fontSize: "0.85rem",
-                    width: "100%",
-                  }}
+                  className="employees-card"
                 >
                   {loadingEmployees ? (
                     <Skeleton active paragraph={{ rows: 10 }} />
                   ) : (
-                    <ul
-                      style={{
-                        paddingLeft: 5,
-                        margin: 0,
-                        listStyle: "none",
-                        flex: 1,
-                        overflowY: "auto",
-                      }}
-                    >
+                    <ul className="section-list">
                       {divisionChief && (
                         <li
                           key="chief"
-                          style={{ marginBottom: 8, cursor: "pointer" }}
+                          className="section-item"
                           onClick={() =>
                             handleCardClick("Division Chief", division)
                           }
                         >
                           <span
+                            className="section-badge"
                             style={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                              alignItems: "center",
-                              padding: "2px 6px",
                               borderLeft: `4px solid ${sectionColorMap["Section Chief"]}`,
-                              background: "#fafafa",
-                              borderRadius: 4,
-                              fontSize: "12px",
                             }}
                           >
-                            <Text style={{ fontSize: "12px" }} strong>Division Chief</Text>
-                            <span
-                              style={{
-                                color: "#1890ff",
-                                display: "flex",
-                                alignItems: "center",
-                              }}
-                            >
+                            <Text strong style={{ fontSize: "12px" }}>
+                              Division Chief
+                            </Text>
+                            <span className="section-count">
                               <TeamOutlined style={{ marginRight: 4 }} />1
                             </span>
                           </span>
@@ -245,43 +203,23 @@ const EmployeesPerSectionTable = ({
                           ? { count: otherEmployeesCount }
                           : employeesPerSection.find(
                               (s) => s.section === section
-                            ) || { count: 0, regular: 0, cos: 0 };
+                            ) || { count: 0 };
 
-                        if (isOther && otherEmployeesCount === 0) {
-                          return null;
-                        }
+                        if (isOther && otherEmployeesCount === 0) return null;
                         const color = sectionColorMap[section] || "darkgrey";
 
                         return (
                           <li
                             key={section}
-                            style={{
-                              marginBottom: 8,
-                              cursor: "pointer",
-                            }}
+                            className="section-item"
                             onClick={() => handleCardClick(section, division)}
                           >
                             <span
-                              style={{
-                                display: "flex", // Use flexbox
-                                justifyContent: "space-between", // Push content to ends
-                                alignItems: "center", // Vertically align items
-                                padding: "2px 6px",
-                                borderLeft: `4px solid ${color}`,
-                                background: "#fafafa",
-                                borderRadius: 4,
-                                // minWidth: "90%", // Removed, flexbox handles width
-                                fontSize: "12px", // Slightly larger font for readability
-                              }}
+                              className="section-badge"
+                              style={{ borderLeft: `4px solid ${color}` }}
                             >
-                              {section}{" "}
-                              <span
-                                style={{
-                                  color: "#1890ff",
-                                  display: "flex",
-                                  alignItems: "center",
-                                }}
-                              >
+                              {section}
+                              <span className="section-count">
                                 <TeamOutlined style={{ marginRight: 4 }} />{" "}
                                 {sec.count}
                               </span>

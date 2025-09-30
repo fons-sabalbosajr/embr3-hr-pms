@@ -6,27 +6,14 @@ import {
   Card,
   Row,
   Col,
-  Switch,
+  Radio,
   notification,
   Spin,
   Typography,
-  Divider,
 } from "antd";
 import axiosInstance from "../../../api/axiosInstance";
-import { secureGet, secureStore } from "../../../../utils/secureStorage";
-
-// A placeholder for a hook to get current user from context/storage
-// You would replace this with your actual auth context
-const useAuth = () => {
-  // Placeholder logic
-  const [user, setUser] = useState(null);
-  useEffect(() => {
-    // In a real app, you'd get this from a context or secure storage
-    const storedUser = secureGet("user");
-    setUser(storedUser);
-  }, []);
-  return { user };
-};
+import { useTheme } from "../../../context/ThemeContext";
+import useAuth from "../../../hooks/useAuth";
 
 const { Title } = Typography;
 
@@ -34,38 +21,24 @@ const AccountsSettings = () => {
   const [loading, setLoading] = useState(false);
   const [profileForm] = Form.useForm();
   const [passwordForm] = Form.useForm();
-  const { user } = useAuth(); // Get the current user
-
-  // States for preferences
-  const [showSalary, setShowSalary] = useState(true);
-  const [canManipulate, setCanManipulate] = useState(false);
+  const { user, updateCurrentUser } = useAuth();
+  const { theme, setTheme } = useTheme();
 
   useEffect(() => {
     if (user) {
       profileForm.setFieldsValue({ name: user.name, username: user.username });
-      // Fetch full user data for preferences
-      const fetchUserPreferences = async () => {
-        try {
-          const response = await axiosInstance.get(`/users/${user._id}`); 
-          setShowSalary(response.data.showSalaryAmounts);
-          setCanManipulate(response.data.canManipulateBiometrics);
-        } catch (error) {
-            console.error("Failed to fetch user preferences:", error);
-            // Fallback to default values if fetching fails
-            setShowSalary(true);
-            setCanManipulate(false);
-        }
-      };
-      fetchUserPreferences();
+      if (user.theme) {
+        setTheme(user.theme);
+      }
     }
-  }, [user, profileForm]);
+  }, [user, profileForm, setTheme]);
 
   const handleProfileUpdate = async (values) => {
     setLoading(true);
     try {
-      await axiosInstance.put("/users/profile", values);
+      const res = await axiosInstance.put("/users/profile", values);
+      updateCurrentUser({ ...user, ...res.data });
       notification.success({ message: "Profile updated successfully!" });
-      // You might want to update the user in your auth context here
     } catch (error) {
       notification.error({ message: error.response?.data?.message || "Failed to update profile." });
     } finally {
@@ -93,23 +66,16 @@ const AccountsSettings = () => {
     }
   };
 
-  const handlePreferenceChange = async (preference, value) => {
-    //console.log(`Attempting to change preference: ${preference} to ${value}`);
+  const handleThemeChange = async (e) => {
+    const newTheme = e.target.value;
+    setTheme(newTheme);
     setLoading(true);
     try {
-      await axiosInstance.put("/users/preferences", { [preference]: value });
-      notification.success({ message: "Preference updated!" });
-
-      // Update the user object in secure storage
-      const updatedUser = { ...user, [preference]: value };
-      secureStore("user", updatedUser);
-      //console.log("User object updated in secureStorage:", updatedUser);
-
-      if (preference === 'showSalaryAmounts') setShowSalary(value);
-      if (preference === 'canManipulateBiometrics') setCanManipulate(value);
+      const res = await axiosInstance.put("/users/preferences", { theme: newTheme });
+      updateCurrentUser(res.data);
+      notification.success({ message: "Theme updated!" });
     } catch (error) {
-      console.error("Error updating preference:", error);
-      notification.error({ message: error.response?.data?.message || "Failed to update preference." });
+      notification.error({ message: error.response?.data?.message || "Failed to save theme preference." });
     } finally {
       setLoading(false);
     }
@@ -159,26 +125,20 @@ const AccountsSettings = () => {
           </Card>
         </Col>
 
-        {/* Preferences Card */}
+        {/* Theme Preferences Card */}
         <Col xs={24} md={24}>
-            <Card title="Preferences">
-                 <Row align="middle" justify="space-between" style={{ marginBottom: 16 }}>
-                    <Col>
-                        <Title level={5}>Salary Visibility</Title>
-                        <Typography.Text type="secondary">Show literal salary amounts or hide them with asterisks (*).</Typography.Text>
-                    </Col>
-                    <Col>
-                        <Switch checked={showSalary} onChange={(checked) => handlePreferenceChange('showSalaryAmounts', checked)} />
-                    </Col>
-                </Row>
-                <Divider />
+            <Card title="Theme Preferences">
                  <Row align="middle" justify="space-between">
                     <Col>
-                        <Title level={5}>Biometrics Time Manipulation</Title>
-                        <Typography.Text type="secondary">Allow time to be manually adjusted when uploading biometrics data. (Requires admin approval)</Typography.Text>
+                        <Title level={5}>Application Theme</Title>
+                        <Typography.Text type="secondary">Choose a theme for the application.</Typography.Text>
                     </Col>
                     <Col>
-                        <Switch checked={canManipulate} onChange={(checked) => handlePreferenceChange('canManipulateBiometrics', checked)} />
+                        <Radio.Group onChange={handleThemeChange} value={theme}>
+                            <Radio.Button value="light">Light</Radio.Button>
+                            <Radio.Button value="dark">Dark</Radio.Button>
+                            <Radio.Button value="compact">Compact</Radio.Button>
+                        </Radio.Group>
                     </Col>
                 </Row>
             </Card>

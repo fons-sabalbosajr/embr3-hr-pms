@@ -3,7 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import http from "http";
 import { Server } from "socket.io";
-import connectDB from "./config/db.js";   // 👈 use centralized db connection
+import connectDB from "./config/db.js"; // 👈 use centralized db connection
 
 import authRoutes from "./routes/authRoutes.js";
 import protectedRoutes from "./routes/protectedRoutes.js";
@@ -16,7 +16,6 @@ import employeeDocRoutes from "./routes/employeeDocRoutes.js";
 import employeeSalaryRoutes from "./routes/employeeSalaryRoutes.js";
 import settingsRoutes from "./routes/settingsRoutes.js";
 import deductionTypeRoutes from "./routes/deductionTypeRoutes.js";
-
 
 import { setSocketInstance } from "./socket.js";
 
