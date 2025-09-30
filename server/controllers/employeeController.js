@@ -387,3 +387,17 @@ export const getUniqueSectionOrUnits = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+export const getEmployeeByEmpId = async (req, res) => {
+  try {
+    const { empId } = req.params;
+    const employee = await Employee.findOne({ empId });
+    if (!employee) {
+      return res.status(404).json({ success: false, message: "Employee not found" });
+    }
+    res.json({ success: true, data: employee });
+  } catch (err) {
+    console.error("Error in getEmployeeByEmpId:", err);
+    res.status(500).json({ success: false, message: "Server Error" });
+  }
+};

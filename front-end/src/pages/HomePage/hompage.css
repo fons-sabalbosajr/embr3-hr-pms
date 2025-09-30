@@ -158,7 +158,7 @@
 
 /* Avatar inside dark header */
 .header .user-avatar {
-  background-color: #444; /* subtle dark gray background */
+  background-color: #58a83e; /* subtle dark gray background */
   color: #fff;            /* white text/icon */
   cursor: pointer;
   transition: background-color 0.2s ease;

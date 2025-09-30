@@ -2,6 +2,8 @@ import dayjs from "dayjs";
 import DTRData from "../models/DTRData.js";
 import DTRLog from "../models/DTRLog.js";
 import Employee from "../models/Employee.js";
+import DTRGenerationLog from "../models/DTRGenerationLog.js";
+import { getSocketInstance } from "../socket.js";
 
 
 export const uploadDTR = async (req, res) => {
@@ -188,5 +190,33 @@ export const getRecentAttendance = async (req, res) => {
   } catch (error) {
     console.error("Error in getAttendance:", error);
     res.status(500).json({ success: false, message: "Server Error" });
+  }
+};
+
+export const logDTRGeneration = async (req, res) => {
+  try {
+    const { employeeId, period, generatedBy } = req.body;
+
+    if (!employeeId || !period || !generatedBy) {
+      return res.status(400).json({ success: false, message: "employeeId, period, and generatedBy are required" });
+    }
+
+    const newLog = await DTRGenerationLog.create({ employeeId, period, generatedBy });
+
+    if (newLog) {
+      const io = getSocketInstance();
+      if (io) {
+        io.emit("newDTRMessage", {
+          type: "DTRGeneration",
+          data: newLog,
+        });
+      }
+    }
+
+    res.status(201).json({ success: true, data: newLog });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: "Failed to log DTR generation" });
   }
 };

@@ -1,17 +1,93 @@
 import React from "react";
-import { Card, Typography, Button, Form, Input, DatePicker } from "antd";
+import { Card, Typography, Button, Form, Input, DatePicker, message } from "antd";
 import { Link } from "react-router-dom";
 import bgImage from "../../assets/bgemb.webp";
+import axiosInstance from "../../api/axiosInstance";
+import { generateDTRPdf } from "../../../utils/generateDTRpdf";
+import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc";
+import timezone from "dayjs/plugin/timezone";
 import "./requestdtrclient.css";
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
 
 const { Title, Text } = Typography;
 
 const RequestDTRClient = () => {
   const [form] = Form.useForm();
 
-  const onFinish = (values) => {
-    console.log("DTR Request Submitted:", values);
-    // TODO: send request to backend API securely
+  const onFinish = async (values) => {
+    try {
+      const [startDate, endDate] = values.dateRange;
+
+      // 1. Check for DTR data availability
+      const checkResponse = await axiosInstance.get("/dtrdatas/check", {
+        params: {
+          startDate: startDate.toISOString(),
+          endDate: endDate.toISOString(),
+        },
+      });
+
+      if (!checkResponse.data.data.available) {
+        message.error("DTR for that cut off is not yet available.");
+        return;
+      }
+
+      const selectedRecord = checkResponse.data.data.record;
+
+      // 2. Fetch employee data
+      const employeeResponse = await axiosInstance.get(`/employees/by-emp-id/${values.employeeId}`);
+      const employee = employeeResponse.data.data;
+
+      // 3. Fetch DTR logs
+      const dtrLogsResponse = await axiosInstance.get(`/dtrlogs/merged?acNo=${employee.normalizedEmpId}`);
+      const dtrLogs = dtrLogsResponse.data.data;
+
+      const STATE_LABELS = {
+        "C/In": "Time In",
+        "Out": "Break Out",
+        "Out Back": "Break In",
+        "C/Out": "Time Out",
+      };
+
+      const logsByDay = dtrLogs.reduce((acc, log) => {
+        const dateKey = dayjs(log.time).tz("Asia/Manila").format("YYYY-MM-DD");
+        if (!acc[dateKey]) {
+          acc[dateKey] = {};
+        }
+        const stateLabel = STATE_LABELS[log.state];
+        if (stateLabel) {
+            acc[dateKey][stateLabel] = dayjs(log.time).tz("Asia/Manila").format("hh:mm A");
+        }
+        return acc;
+      }, {});
+
+      const dtrLogsForPdf = {
+        [employee.empId]: logsByDay
+      };
+
+      // 4. Generate PDF
+      await generateDTRPdf({
+        employee,
+        dtrLogs: dtrLogsForPdf,
+        selectedRecord,
+      });
+
+      // 5. Log generation and notify
+      await axiosInstance.post("/dtr/log-generation", {
+        employeeId: values.employeeId,
+        period: `${startDate.format("YYYY-MM-DD")} to ${endDate.format("YYYY-MM-DD")}`,
+        generatedBy: values.email,
+      });
+
+      message.success("DTR generated successfully!");
+      form.resetFields();
+
+    } catch (error) {
+      message.error("An error occurred while processing your request.");
+      console.error("DTR request error:", error);
+    }
   };
 
   return (

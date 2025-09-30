@@ -16,9 +16,9 @@ const BiometricsData = ({ employee }) => {
     setLoading(true);
     try {
       const response = await axiosInstance.get(
-        `/dtr-logs/employee/${employee._id}`
+        `/dtrlogs/merged?acNo=${employee.normalizedEmpId}`
       );
-      setDtrLogs(response.data);
+      setDtrLogs(response.data.data);
     } catch (error) {
       message.error("Failed to fetch DTR logs.");
       console.error("Error fetching DTR logs:", error);
@@ -27,43 +27,44 @@ const BiometricsData = ({ employee }) => {
   };
 
   useEffect(() => {
-    if (employee?._id) {
+    if (employee?.normalizedEmpId) {
       fetchDtrLogs();
     }
-  }, [employee?._id]);
+  }, [employee?.normalizedEmpId]);
 
   const columns = [
     {
       title: "AC-No",
-      dataIndex: "AC-No",
-      key: "AC-No",
+      dataIndex: "acNo",
+      key: "acNo",
     },
     {
       title: "Name",
-      dataIndex: "Name",
-      key: "Name",
+      dataIndex: "name",
+      key: "name",
     },
     {
       title: "Time",
-      dataIndex: "Time",
-      key: "Time",
+      dataIndex: "time",
+      key: "time",
       render: (text) => dayjs(text).format("YYYY-MM-DD HH:mm:ss"),
     },
     {
       title: "State",
-      dataIndex: "State",
-      key: "State",
+      dataIndex: "state",
+      key: "state",
     },
     {
       title: "New State",
-      dataIndex: "New State",
-      key: "New State",
+      dataIndex: "newState",
+      key: "newState",
     },
     {
       title: "Action",
       key: "action",
       render: (_, record) => (
         <>
+          {/* Edit and Delete are disabled because the /merged endpoint does not provide the _id */}
           <Button type="link" onClick={() => handleEdit(record)}>
             Edit
           </Button>
@@ -85,14 +86,14 @@ const BiometricsData = ({ employee }) => {
     setEditingLog(record);
     form.setFieldsValue({
       ...record,
-      Time: dayjs(record.Time),
+      Time: dayjs(record.time),
     });
     setIsModalVisible(true);
   };
 
   const handleDelete = async (id) => {
     try {
-      await axiosInstance.delete(`/dtr-logs/${id}`);
+      await axiosInstance.delete(`/dtrlogs/${id}`);
       message.success("DTR Log deleted successfully.");
       fetchDtrLogs();
     } catch (error) {
@@ -112,10 +113,10 @@ const BiometricsData = ({ employee }) => {
       };
 
       if (editingLog) {
-        await axiosInstance.put(`/dtr-logs/${editingLog._id}`, payload);
+        await axiosInstance.put(`/dtrlogs/${editingLog._id}`, payload);
         message.success("DTR Log updated successfully.");
       } else {
-        await axiosInstance.post("/dtr-logs", payload);
+        await axiosInstance.post("/dtrlogs", payload);
         message.success("DTR Log added successfully.");
       }
       setIsModalVisible(false);
@@ -141,7 +142,7 @@ const BiometricsData = ({ employee }) => {
         columns={columns}
         dataSource={dtrLogs}
         loading={loading}
-        rowKey="_id"
+        rowKey={(record) => `${record.acNo}-${record.time}`}
         pagination={{ pageSize: 10 }}
       />
 

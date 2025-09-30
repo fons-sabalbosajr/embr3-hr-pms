@@ -1,7 +1,8 @@
 import React from "react";
-import { Card, Typography, Button, Form, Input, DatePicker } from "antd";
+import { Card, Typography, Button, Form, Input, DatePicker, message } from "antd";
 import { Link } from "react-router-dom";
 import bgImage from "../../assets/bgemb.webp";
+import axiosInstance from "../../api/axiosInstance";
 import "./paysliprequest.css";
 
 const { Title, Text } = Typography;
@@ -9,9 +10,24 @@ const { Title, Text } = Typography;
 const PayslipRequest = () => {
   const [form] = Form.useForm();
 
-  const onFinish = (values) => {
-    console.log("Payslip Request Submitted:", values);
-    // TODO: send request to backend API securely
+  const onFinish = async (values) => {
+    try {
+      const response = await axiosInstance.post("/payslip-requests", {
+        employeeId: values.employeeId,
+        period: values.month.format("YYYY-MM"),
+        email: values.email,
+      });
+
+      if (response.data.success) {
+        message.success("Payslip request submitted successfully!");
+        form.resetFields();
+      } else {
+        message.error(response.data.message || "Failed to submit payslip request.");
+      }
+    } catch (error) {
+      message.error("An error occurred while submitting the request.");
+      console.error("Payslip request error:", error);
+    }
   };
 
   return (

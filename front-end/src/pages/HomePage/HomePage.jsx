@@ -12,6 +12,7 @@ import {
   message,
   Modal,
   Input,
+  Tag,
 } from "antd";
 import {
   UserOutlined,
@@ -25,10 +26,9 @@ import {
   EyeOutlined,
   MailOutlined,
   FieldTimeOutlined,
-  PrinterOutlined,
   IdcardOutlined,
-  QuestionCircleOutlined,
   ClockCircleOutlined,
+  CloseOutlined,
 } from "@ant-design/icons";
 
 import { useNavigate, Routes, Route } from "react-router-dom";
@@ -61,13 +61,27 @@ const HomePage = () => {
   const navigate = useNavigate();
   const { user, logout, hasPermission } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
-  const [notifications, setNotifications] = useState([]);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isFeatureModalOpen, setIsFeatureModalOpen] = useState(false);
   const [featureTitle, setFeatureTitle] = useState("");
   const [featureDescription, setFeatureDescription] = useState("");
   const [loadingFeature, setLoadingFeature] = useState(false);
+
+  const [notifications, setNotifications] = useState(
+    () => JSON.parse(localStorage.getItem("notifications")) || []
+  );
+  const [messages, setMessages] = useState(
+    () => JSON.parse(localStorage.getItem("messages")) || []
+  );
+
+  useEffect(() => {
+    localStorage.setItem("notifications", JSON.stringify(notifications));
+  }, [notifications]);
+
+  useEffect(() => {
+    localStorage.setItem("messages", JSON.stringify(messages));
+  }, [messages]);
 
   const handleLogout = () => {
     message.success("Logging out...");
@@ -83,47 +97,54 @@ const HomePage = () => {
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
     });
+
     socket.on("newNotification", (data) => {
-      setNotifications((prev) => [data, ...prev]);
+      setNotifications((prev) => [
+        { ...data, id: data._id || Date.now() },
+        ...prev,
+      ]);
     });
+    socket.on("newDTRMessage", (data) => {
+      setMessages((prev) => [{ ...data, id: data._id || Date.now() }, ...prev]);
+    });
+
     return () => socket.disconnect();
   }, []);
 
-  // Idle Timeout Logic
-  const IDLE_TIMEOUT = 10 * 60 * 1000; // 10 minutes
+  const clearItem = (id, type) => {
+    if (type === "notification") {
+      setNotifications((prev) => prev.filter((item) => item.id !== id));
+    }
+    if (type === "message") {
+      setMessages((prev) => prev.filter((item) => item.id !== id));
+    }
+  };
+
+  const clearAll = (type) => {
+    if (type === "notification") setNotifications([]);
+    if (type === "message") setMessages([]);
+  };
+
+  const IDLE_TIMEOUT = 10 * 60 * 1000;
   const idleTimer = useRef(null);
 
   const resetIdleTimer = useCallback(() => {
-    if (idleTimer.current) {
-      clearTimeout(idleTimer.current);
-    }
-    idleTimer.current = setTimeout(() => {
-      handleLogout();
-    }, IDLE_TIMEOUT);
+    if (idleTimer.current) clearTimeout(idleTimer.current);
+    idleTimer.current = setTimeout(handleLogout, IDLE_TIMEOUT);
   }, [handleLogout]);
 
   useEffect(() => {
-    resetIdleTimer();
     window.addEventListener("mousemove", resetIdleTimer);
     window.addEventListener("keydown", resetIdleTimer);
-    window.addEventListener("scroll", resetIdleTimer);
-    window.addEventListener("click", resetIdleTimer);
-
     return () => {
       clearTimeout(idleTimer.current);
       window.removeEventListener("mousemove", resetIdleTimer);
       window.removeEventListener("keydown", resetIdleTimer);
-      window.removeEventListener("scroll", resetIdleTimer);
-      window.removeEventListener("click", resetIdleTimer);
     };
   }, [resetIdleTimer]);
 
-  const handleViewProfile = () => {
-    setIsProfileModalOpen(true);
-  };
-  const handleSuggestFeature = () => {
-    setIsFeatureModalOpen(true);
-  };
+  const handleViewProfile = () => setIsProfileModalOpen(true);
+  const handleSuggestFeature = () => setIsFeatureModalOpen(true);
 
   const getMenuItems = () => {
     const allItems = [
@@ -251,38 +272,119 @@ const HomePage = () => {
   );
 
   const notificationPopover = (
-    <div style={{ padding: 8, maxWidth: 250 }}>
-      {notifications.length ? (
-        notifications.map((n, i) => (
-          <div key={i} style={{ marginBottom: 6, fontSize: 13 }}>
-            {n.message || "New Notification"}
+    <div style={{ padding: "8px 0", maxWidth: 350 }}>
+      {notifications.length > 0 ? (
+        <>
+          <div style={{ maxHeight: 400, overflowY: "auto", padding: "0 8px" }}>
+            {notifications.map((item) => (
+              <div key={item.id} className="notification-item">
+                <div className="notification-content">
+                  <Tag color="green">Payslip Request</Tag>
+                  <Text
+                    style={{ fontSize: 13 }}
+                  >{`ID: ${item.employeeId} | Period: ${item.period}`}</Text>
+                  <Space>
+                    <Button
+                      type="link"
+                      size="small"
+                      onClick={() =>
+                        message.info("Payslip request page not yet available.")
+                      }
+                    >
+                      View Details
+                    </Button>
+                    <Button
+                      shape="circle"
+                      size="small"
+                      icon={<CloseOutlined />}
+                      onClick={() => clearItem(item.id, "notification")}
+                    />
+                  </Space>
+                </div>
+              </div>
+            ))}
           </div>
-        ))
+          <Divider style={{ margin: "8px 0" }} />
+          <div style={{ textAlign: "center", padding: "0 8px" }}>
+            <Button
+              type="link"
+              size="small"
+              onClick={() => clearAll("notification")}
+            >
+              Clear All
+            </Button>
+          </div>
+        </>
       ) : (
-        <Text type="secondary">No new notifications</Text>
+        <Text type="secondary" style={{ padding: "0 12px" }}>
+          No new notifications
+        </Text>
       )}
     </div>
   );
 
   const messagePopover = (
-    <div style={{ padding: 8, maxWidth: 250 }}>
-      <Text type="secondary">No new messages</Text>
+    <div style={{ padding: "8px 0", maxWidth: 350 }}>
+      {messages.length > 0 ? (
+        <>
+          <div style={{ maxHeight: 400, overflowY: "auto", padding: "0 8px" }}>
+            {messages.map((item) => (
+              <div key={item.id} className="notification-item">
+                <div className="notification-content">
+                  <Tag color="blue">DTR Generated</Tag>
+                  <Text
+                    style={{ fontSize: 13 }}
+                  >{`ID: ${item.employeeId} | By: ${item.generatedBy}`}</Text>
+                  <Space>
+                    <Button
+                      type="link"
+                      size="small"
+                      onClick={() =>
+                        navigate("/dtr/process", {
+                          state: { employeeId: item.employeeId },
+                        })
+                      }
+                    >
+                      View Details
+                    </Button>
+                    <Button
+                      shape="circle"
+                      size="small"
+                      icon={<CloseOutlined />}
+                      onClick={() => clearItem(item.id, "message")}
+                    />
+                  </Space>
+                </div>
+              </div>
+            ))}
+          </div>
+          <Divider style={{ margin: "8px 0" }} />
+          <div style={{ textAlign: "center", padding: "0 8px" }}>
+            <Button
+              type="link"
+              size="small"
+              onClick={() => clearAll("message")}
+            >
+              Clear All
+            </Button>
+          </div>
+        </>
+      ) : (
+        <Text type="secondary" style={{ padding: "0 12px" }}>
+          No new messages
+        </Text>
+      )}
     </div>
   );
 
-  const handleProfileModalClose = () => {
-    setIsProfileModalOpen(false);
-  };
-  const handleFeatureModalClose = () => {
-    setIsFeatureModalOpen(false);
-  };
+  const handleProfileModalClose = () => setIsProfileModalOpen(false);
+  const handleFeatureModalClose = () => setIsFeatureModalOpen(false);
 
   const handleFeatureSubmit = async () => {
     if (!featureTitle || !featureDescription) {
       message.warning("Please fill in all fields before submitting.");
       return;
     }
-
     try {
       setLoadingFeature(true);
       await axiosInstance.post("/features/suggest", {
@@ -291,7 +393,6 @@ const HomePage = () => {
         emailTo: "embrhrpms@gmail.com",
         submittedBy: user?.username || "unknown",
       });
-
       message.success("Your suggestion has been sent!");
       setFeatureTitle("");
       setFeatureDescription("");
@@ -327,7 +428,6 @@ const HomePage = () => {
             <span className="logo-text">EMBR3 DTR Management System</span>
           )}
         </div>
-
         {hasPermission(["canManipulateBiometrics"]) && (
           <div style={{ padding: "12px", textAlign: "center" }}>
             {collapsed ? (
@@ -349,7 +449,6 @@ const HomePage = () => {
             )}
           </div>
         )}
-
         <Menu
           theme="dark"
           mode="inline"
@@ -372,13 +471,7 @@ const HomePage = () => {
           <div
             style={{
               display: "flex",
-              color: "rgba(0, 0, 0, 0.88)",
               alignItems: "center",
-              fontWeight: 500,
-              fontSize: 16,
-              lineHeight: "22px",
-              letterSpacing: "-0.022em",
-              verticalAlign: "baseline",
               gap: "15px",
               marginRight: "10px",
             }}
@@ -386,30 +479,28 @@ const HomePage = () => {
             <Popover
               content={notificationPopover}
               placement="bottomRight"
-              trigger="hover"
-              classNames={{ root: "user-popover" }}
+              trigger="click"
+              overlayClassName="user-popover"
             >
-              <Badge count={notifications.length} offset={[-2, 2]}>
+              <Badge count={notifications.length} size="small">
                 <BellOutlined className="icon-trigger" />
               </Badge>
             </Popover>
-
             <Popover
               content={messagePopover}
               placement="bottomLeft"
-              trigger="hover"
-              classNames={{ root: "user-popover" }}
+              trigger="click"
+              overlayClassName="user-popover"
             >
-              <Badge dot offset={[-2, 2]}>
+              <Badge count={messages.length} size="small">
                 <MessageOutlined className="icon-trigger" />
               </Badge>
             </Popover>
-
             <Popover
               content={userPopover}
               placement="bottomLeft"
               trigger="hover"
-              classNames={{ root: "user-popover" }}
+              overlayClassName="user-popover"
             >
               <Avatar className="user-avatar">
                 {user?.name?.charAt(0).toUpperCase() || <UserOutlined />}
@@ -518,7 +609,6 @@ const HomePage = () => {
         </Footer>
       </Layout>
 
-      {/* View Profile Modal */}
       <Modal
         title={null}
         open={isProfileModalOpen}
@@ -540,9 +630,7 @@ const HomePage = () => {
           <Typography.Text type="secondary">
             @{user?.username || "unknown"}
           </Typography.Text>
-
           <Divider />
-
           <Space
             direction="vertical"
             style={{ width: "100%", textAlign: "left", marginTop: 10 }}
@@ -565,16 +653,13 @@ const HomePage = () => {
               Email: {user?.email || "Not Provided"}
             </Typography.Text>
           </Space>
-
           <Divider />
-
           <Button type="primary" block onClick={handleProfileModalClose}>
             Close
           </Button>
         </div>
       </Modal>
 
-      {/* Suggest Feature Modal */}
       <Modal
         title={null}
         open={isFeatureModalOpen}
@@ -594,9 +679,7 @@ const HomePage = () => {
           <Typography.Paragraph style={{ textAlign: "center" }}>
             Have an idea to improve the system? Share it with us!
           </Typography.Paragraph>
-
           <Divider />
-
           <Space direction="vertical" style={{ width: "100%" }}>
             <Input
               placeholder="Feature Title"
@@ -610,9 +693,7 @@ const HomePage = () => {
               onChange={(e) => setFeatureDescription(e.target.value)}
             />
           </Space>
-
           <Divider />
-
           <Space
             style={{
               display: "flex",
