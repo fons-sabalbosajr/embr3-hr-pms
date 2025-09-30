@@ -8,7 +8,8 @@ import {
   getLatestEmpNo,
   checkEmpIdUnique,
   getSignatoryEmployees,
-  getUniqueSectionOrUnits
+  getUniqueSectionOrUnits,
+  getEmployeeByEmpId
 } from "../controllers/employeeController.js";
 
 const router = express.Router();
@@ -21,5 +22,6 @@ router.get("/unique-sections", getUniqueSectionOrUnits);
 router.put("/:id", updateEmployeeById);
 router.get("/latest-empno/:type", getLatestEmpNo);
 router.get("/employees/check-empId", checkEmpIdUnique);
+router.get("/by-emp-id/:empId", getEmployeeByEmpId);
 
 export default router;

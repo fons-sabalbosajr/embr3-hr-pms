@@ -16,6 +16,7 @@ import employeeDocRoutes from "./routes/employeeDocRoutes.js";
 import employeeSalaryRoutes from "./routes/employeeSalaryRoutes.js";
 import settingsRoutes from "./routes/settingsRoutes.js";
 import deductionTypeRoutes from "./routes/deductionTypeRoutes.js";
+import payslipRequestRoutes from "./routes/payslipRequestRoutes.js";
 
 import { setSocketInstance } from "./socket.js";
 
@@ -61,6 +62,7 @@ app.use("/api/employee-docs", employeeDocRoutes);
 app.use("/api/employee-salaries", employeeSalaryRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/deduction-types", deductionTypeRoutes);
+app.use("/api/payslip-requests", payslipRequestRoutes);
 
 // Start server after DB connection
 connectDB().then(() => {
