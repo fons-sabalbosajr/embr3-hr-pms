@@ -35,7 +35,7 @@ export const signup = async (req, res) => {
       verificationTokenExpires: tokenExpiry,
     });
 
-    //console.log("[Signup] User created with verification token:", token);
+
 
     const verificationLink = `${CLIENT_URL}/verify/${token}`;
     await sendVerificationEmail(email, name, verificationLink);
@@ -52,7 +52,7 @@ export const signup = async (req, res) => {
 // Email Verification Controller
 export const verifyEmail = async (req, res) => {
   const { token } = req.params;
-  //console.log("[Verification] Token received:", token);
+
 
   try {
     let user = await User.findOne({
@@ -64,13 +64,13 @@ export const verifyEmail = async (req, res) => {
       // Try finding user who may have already verified
       user = await User.findOne({ isVerified: true });
       if (user) {
-        //console.log("[Verification] Token already used. User is already verified:", user.email);
+
         return res.status(200).json({
           message: "Email already verified.",
         });
       }
 
-      //console.warn("[Verification] No user found with token:", token);
+
       return res
         .status(400)
         .json({ message: "Invalid or expired verification link." });
@@ -81,7 +81,7 @@ export const verifyEmail = async (req, res) => {
     user.verificationTokenExpires = undefined;
     await user.save();
 
-    //console.log("[Verification] Email verified for:", user.email);
+
 
     return res.status(200).json({
       message: "Email verified successfully!",
@@ -117,16 +117,12 @@ export const login = async (req, res) => {
       expiresIn: "1d",
     });
 
+    const userObject = user.toObject();
+    delete userObject.password; // Ensure password is not sent
+
     res.json({
       token,
-      user: {
-        _id: user._id,
-        name: user.name,
-        username: user.username,
-        email: user.email,
-        showSalaryAmounts: user.showSalaryAmounts,
-        canManipulateBiometrics: user.canManipulateBiometrics,
-      },
+      user: userObject,
     });
   } catch (err) {
     res.status(500).json({ message: "Login failed", error: err.message });
@@ -176,16 +172,16 @@ export const forgotPassword = async (req, res) => {
     user.resetPasswordExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes from now
     await user.save();
 
-    //console.log("[ForgotPassword] Token Saved:", user.resetPasswordToken);
+
 
     const savedUser = await User.findOne({ email });
-    //console.log("[DB Check] Saved Token:", savedUser.resetPasswordToken);
-    //console.log("[DB Check] Expiry Time:", savedUser.resetPasswordExpires);
+
+
 
     const resetLink = `${
       process.env.VITE_FRONTEND_URL || process.env.FRONTEND_URL
     }/reset-password/${token}`;
-    //console.log(`[ForgotPassword] Reset link for ${user.email}: ${resetLink}`);
+
 
     await sendResetPasswordEmail(user.email, user.name, resetLink);
 
@@ -201,7 +197,7 @@ export const resetPassword = async (req, res) => {
   const { password } = req.body;
 
   try {
-    //console.log(`[ResetPassword] Received token: ${token}`);
+
 
     const user = await User.findOne({
       resetPasswordToken: { $eq: token },
@@ -209,7 +205,7 @@ export const resetPassword = async (req, res) => {
     });
 
     if (!user) {
-      console.warn(`[ResetPassword] Invalid or expired token: ${token}`);
+
       return res
         .status(400)
         .json({ message: "Invalid or expired reset token." });
@@ -221,7 +217,7 @@ export const resetPassword = async (req, res) => {
     user.resetPasswordExpires = undefined;
     await user.save();
 
-    //console.log(`[ResetPassword] Password reset successful for ${user.email}`);
+
     res.status(200).json({ message: "Password reset successful." });
   } catch (err) {
     console.error("[ResetPassword Error]", err);
@@ -294,7 +290,7 @@ export const changePassword = async (req, res) => {
 
 export const updateUserPreferences = async (req, res) => {
   try {
-    const { showSalaryAmounts, canManipulateBiometrics } = req.body;
+    const { showSalaryAmounts, canManipulateBiometrics, theme } = req.body;
     const userId = req.user.id;
 
     const user = await User.findById(userId);
@@ -307,6 +303,9 @@ export const updateUserPreferences = async (req, res) => {
     }
     if (canManipulateBiometrics !== undefined) {
       user.canManipulateBiometrics = canManipulateBiometrics;
+    }
+    if (theme !== undefined) {
+      user.theme = theme;
     }
 
     const updatedUser = await user.save();
@@ -323,5 +322,61 @@ export const getAllUsers = async (req, res) => {
   } catch (error) {
     console.error('Error fetching all users:', error);
     res.status(500).json({ success: false, message: 'Failed to fetch users' });
+  }
+};
+
+export const updateUserAccess = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      isVerified,
+      canManipulateBiometrics,
+      showSalaryAmounts,
+      isAdmin,
+      canManageUsers,
+      canViewDashboard,
+      canViewEmployees,
+      canEditEmployees,
+      canViewDTR,
+      canProcessDTR,
+      canViewPayroll,
+      canProcessPayroll,
+      canViewTrainings,
+      canEditTrainings,
+      canAccessSettings,
+      canChangeDeductions,
+      canPerformBackup,
+    } = req.body;
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Update the access rights
+    if (isVerified !== undefined) user.isVerified = isVerified;
+    if (canManipulateBiometrics !== undefined) user.canManipulateBiometrics = canManipulateBiometrics;
+    if (showSalaryAmounts !== undefined) user.showSalaryAmounts = showSalaryAmounts;
+    if (isAdmin !== undefined) user.isAdmin = isAdmin;
+    if (canManageUsers !== undefined) user.canManageUsers = canManageUsers;
+    if (canViewDashboard !== undefined) user.canViewDashboard = canViewDashboard;
+    if (canViewEmployees !== undefined) user.canViewEmployees = canViewEmployees;
+    if (canEditEmployees !== undefined) user.canEditEmployees = canEditEmployees;
+    if (canViewDTR !== undefined) user.canViewDTR = canViewDTR;
+    if (canProcessDTR !== undefined) user.canProcessDTR = canProcessDTR;
+    if (canViewPayroll !== undefined) user.canViewPayroll = canViewPayroll;
+    if (canProcessPayroll !== undefined) user.canProcessPayroll = canProcessPayroll;
+    if (canViewTrainings !== undefined) user.canViewTrainings = canViewTrainings;
+    if (canEditTrainings !== undefined) user.canEditTrainings = canEditTrainings;
+    if (canAccessSettings !== undefined) user.canAccessSettings = canAccessSettings;
+    if (canChangeDeductions !== undefined) user.canChangeDeductions = canChangeDeductions;
+    if (canPerformBackup !== undefined) user.canPerformBackup = canPerformBackup;
+
+    const updatedUser = await user.save();
+    res.json({ success: true, data: updatedUser });
+
+  } catch (error) {
+    console.error('Error updating user access:', error);
+    res.status(500).json({ success: false, message: 'Failed to update user access' });
   }
 };

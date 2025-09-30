@@ -18,6 +18,12 @@ import { InfoCircleOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import axiosInstance from "../../../../../api/axiosInstance";
 
+// Import PDF generation utilities
+import { generateDTRPdf } from "../../../../../../utils/generateDTRpdf.js";
+import { openPayslipInNewTab } from "../../../../../../utils/generatePaySlip.js";
+import { openPayslipInNewTabRegular } from "../../../../../../utils/generatePaySlipRegular.js";
+
+
 const { Option } = Select;
 
 const docColors = {
@@ -29,12 +35,41 @@ const docColors = {
   Other: "default",
 };
 
+/**
+ * Transforms a flat array of DTR logs into the nested object structure
+ * required by the generateDTRPdf utility.
+ * @param {Array} logs - The flat array of log objects.
+ * @param {Object} employee - The employee object.
+ * @returns {Object} - The transformed logs.
+ */
+const transformLogsForDTR = (logs, employee) => {
+  const dtrLogs = {};
+  const empId = employee.empId;
+  dtrLogs[empId] = {};
+
+  logs.forEach((log) => {
+    const dateKey = dayjs(log.time).format("YYYY-MM-DD");
+    if (!dtrLogs[empId][dateKey]) {
+      dtrLogs[empId][dateKey] = {};
+    }
+    // Use human-readable state from getWorkCalendarLogs and format time
+    // Only set the first log of a given type for the day
+    if (!dtrLogs[empId][dateKey][log.state]) {
+      dtrLogs[empId][dateKey][log.state] = dayjs(log.time).format("hh:mm A");
+    }
+  });
+  return dtrLogs;
+};
+
+
 const OtherDetails = ({ employee }) => {
   const [docs, setDocs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [selectedDoc, setSelectedDoc] = useState(null);
   const [addModalVisible, setAddModalVisible] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generatingDocId, setGeneratingDocId] = useState(null);
   const [form] = Form.useForm();
 
   useEffect(() => {
@@ -86,6 +121,69 @@ const OtherDetails = ({ employee }) => {
       }
     } catch (err) {
       message.error(err.response?.data?.message || "Failed to delete document");
+    }
+  };
+
+  const handleViewDoc = async (record) => {
+    setGeneratingDocId(record._id);
+    setIsGenerating(true);
+
+    try {
+      switch (record.docType) {
+        case "DTR": {
+          message.loading({ content: "Generating DTR...", key: "pdf" });
+          // NOTE: Assumes an endpoint exists to fetch DTR record metadata by its name.
+          const dtrDataRes = await axiosInstance.get(`/dtrdata/by-name/${record.reference}`);
+          const selectedRecord = dtrDataRes.data;
+
+          if (!selectedRecord) {
+            throw new Error("DTR record not found.");
+          }
+
+          const { start, end } = selectedRecord.DTR_Cut_Off;
+          const logsRes = await axiosInstance.get('/dtr-logs/work-calendar', {
+            params: { employeeId: employee._id, startDate: start, endDate: end }
+          });
+
+          const dtrLogs = transformLogsForDTR(logsRes.data.data, employee);
+          
+          await generateDTRPdf({
+            employee,
+            dtrLogs,
+            selectedRecord,
+            download: false, // Opens in new tab
+          });
+          message.success({ content: "DTR generated successfully!", key: "pdf" });
+          break;
+        }
+
+        case "Payslip": {
+          message.loading({ content: "Generating Payslip...", key: "pdf" });
+          // NOTE: Assumes an endpoint exists to fetch all necessary payslip data
+          // using the reference ID stored in the employee document.
+          const payslipRes = await axiosInstance.get(`/payslips/by-reference/${record.reference}`);
+          const { payslipData, payslipNumber, isFullMonthRange } = payslipRes.data;
+
+          if (employee.empType === 'Regular') {
+            openPayslipInNewTabRegular(payslipData, payslipNumber, isFullMonthRange);
+          } else {
+            openPayslipInNewTab(payslipData, payslipNumber, isFullMonthRange);
+          }
+          message.success({ content: "Payslip opened in a new tab!", key: "pdf" });
+          break;
+        }
+
+        default:
+          // Fallback to original behavior for other document types
+          setSelectedDoc(record);
+          break;
+      }
+    } catch (err) {
+      console.error("Failed to generate document:", err);
+      message.error({ content: err.response?.data?.message || "Failed to generate document.", key: "pdf" });
+    } finally {
+      setIsGenerating(false);
+      setGeneratingDocId(null);
     }
   };
 
@@ -145,12 +243,15 @@ const OtherDetails = ({ employee }) => {
       width: "25%",
       render: (_, record) => (
         <div style={{ display: "flex", gap: 8 }}>
-          <a
-            onClick={() => setSelectedDoc(record)}
-            style={{ cursor: "pointer" }}
+          <Button
+            type="link"
+            style={{ padding: 0 }}
+            onClick={() => handleViewDoc(record)}
+            loading={generatingDocId === record._id}
+            disabled={isGenerating}
           >
             View
-          </a>
+          </Button>
           {record.docType !== "DTR" && (
             <Popconfirm
               title="Are you sure you want to delete this document?"
@@ -158,7 +259,7 @@ const OtherDetails = ({ employee }) => {
               cancelText="No"
               onConfirm={() => handleDeleteDoc(record._id)}
             >
-              <a style={{ color: "red" }}>Delete</a>
+              <Button type="link" danger style={{ padding: 0 }}>Delete</Button>
             </Popconfirm>
           )}
         </div>

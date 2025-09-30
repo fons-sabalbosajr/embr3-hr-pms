@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import {
+  message,
   Input,
   Select,
   Button,
@@ -22,6 +23,7 @@ import {
 import AddEmployee from "./AddEmployee/AddEmployee";
 import UploadEmployee from "./UploadEmployee/UploadEmployee";
 import EditEmployeeForm from "./EditEmployee/EditEmployee";
+import useAuth from "../../../hooks/useAuth";
 import axiosInstance from "../../../api/axiosInstance";
 import "./geninfo.css";
 import GenerateReport from "./GenerateReport/GenerateReport";
@@ -29,6 +31,7 @@ import GenerateReport from "./GenerateReport/GenerateReport";
 const { Option } = Select;
 
 const GenInfo = () => {
+  const { hasPermission } = useAuth();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalType, setModalType] = useState("add"); // 'add' or 'upload'
   const [employeeData, setEmployeeData] = useState([]);
@@ -46,6 +49,9 @@ const GenInfo = () => {
     sectionOrUnit: [],
     division: [],
   });
+  // At the top of GenInfo component state
+  const [pageSize, setPageSize] = useState(10);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const [sorterInfo, setSorterInfo] = useState({
     columnKey: "empNo",
@@ -396,18 +402,20 @@ const GenInfo = () => {
       width: 200,
       render: (_, record) => (
         <Space>
-          <Tooltip title="Edit Employee">
-            <Button
-              size="small"
-              type="primary"
-              icon={<EyeOutlined />}
-              onClick={() => {
-                setSelectedEmployee(record);
-                setModalMode("edit");
-                setModalVisible(true);
-              }}
-            />
-          </Tooltip>
+          {hasPermission(["canEditEmployees"]) && (
+            <Tooltip title="Edit Employee">
+              <Button
+                size="small"
+                type="primary"
+                icon={<EyeOutlined />}
+                onClick={() => {
+                  setSelectedEmployee(record);
+                  setModalMode("edit");
+                  setModalVisible(true);
+                }}
+              />
+            </Tooltip>
+          )}
 
           <Tooltip title="Generate Report">
             <Button
@@ -466,11 +474,13 @@ const GenInfo = () => {
           </Select>
         </Space>
 
-        <Dropdown menu={menu}>
-          <Button type="primary">
-            Add <DownOutlined />
-          </Button>
-        </Dropdown>
+        {hasPermission(["canEditEmployees"]) && (
+          <Dropdown menu={menu}>
+            <Button type="primary">
+              Add <DownOutlined />
+            </Button>
+          </Dropdown>
+        )}
 
         <Modal
           open={isModalOpen}
@@ -534,11 +544,7 @@ const GenInfo = () => {
             setModalMode(null);
           }}
           footer={null}
-          title={
-            modalMode === "edit"
-              ? `Employee Details`
-              : `Employee Reports`
-          }
+          title={modalMode === "edit" ? `Employee Details` : `Employee Reports`}
           width={900}
         >
           {modalMode === "edit" && selectedEmployee && (
@@ -572,10 +578,31 @@ const GenInfo = () => {
         <Table
           columns={columns}
           dataSource={filteredData}
-          pagination={{ pageSize: 10 }}
-          rowKey="empId" // or "id", depending on your schema
+          rowKey="empId"
           size="small"
           loading={loading}
+          pagination={{
+            current: currentPage,
+            pageSize,
+            showSizeChanger: true,
+            pageSizeOptions: ["10", "20", "50", "100"],
+            onChange: (page, newPageSize) => {
+              setCurrentPage(page);
+              setPageSize(newPageSize);
+            },
+            showTotal: (total, range) => (
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  width: "100%",
+                }}
+              >
+                <span>Total rows: {total}</span>
+              </div>
+            ),
+          }}
         />
       </div>
     </div>

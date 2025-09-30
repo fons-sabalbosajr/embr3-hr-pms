@@ -5,7 +5,6 @@
   position: sticky;
   top: 0;
   z-index: 100;
-  background: #fff;
   padding: 0 24px;
   display: flex;
   justify-content: flex-end;
@@ -51,8 +50,6 @@
 
 /* Main Content Styling */
 .content-wrapper {
-  background: #fff;
-  padding: 24px;
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   min-height: 100%;
@@ -80,10 +77,6 @@
   justify-content: center;
   height: 32px;
   width: 32px;
-}
-
-.icon-container:hover {
-  background-color: rgba(0, 0, 0, 0.05);
 }
 
 .user-popover .ant-popover-inner {
@@ -151,6 +144,29 @@
   padding-left: 32px !important; /* Optional: slightly indent */
 }
 
+
+.header .icon-trigger {
+  font-size: 18px;
+  color: #fff; /* white for dark header */
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+
+.icon-trigger:hover {
+  color: var(--ant-primary-color-hover, #1677ff);
+}
+
+/* Avatar inside dark header */
+.header .user-avatar {
+  background-color: #444; /* subtle dark gray background */
+  color: #fff;            /* white text/icon */
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.header .user-avatar:hover {
+  background-color: #555; /* slightly lighter on hover */
+}
 
 @keyframes gradientFlow {
   0% {

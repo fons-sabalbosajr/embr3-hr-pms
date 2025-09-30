@@ -35,6 +35,23 @@ const userSchema = new mongoose.Schema(
     // User Preferences
     showSalaryAmounts: { type: Boolean, default: true },
     canManipulateBiometrics: { type: Boolean, default: false },
+
+    // Access Control
+    isAdmin: { type: Boolean, default: false },
+    canManageUsers: { type: Boolean, default: false },
+    canViewDashboard: { type: Boolean, default: false },
+    canViewEmployees: { type: Boolean, default: false },
+    canEditEmployees: { type: Boolean, default: false },
+    canViewDTR: { type: Boolean, default: false },
+    canProcessDTR: { type: Boolean, default: false },
+    canViewPayroll: { type: Boolean, default: false },
+    canProcessPayroll: { type: Boolean, default: false },
+    canViewTrainings: { type: Boolean, default: false },
+    canEditTrainings: { type: Boolean, default: false },
+    canAccessSettings: { type: Boolean, default: false },
+    canChangeDeductions: { type: Boolean, default: false },
+    canPerformBackup: { type: Boolean, default: false },
+    theme: { type: String, default: 'light' },
   },
   { timestamps: true }
 );

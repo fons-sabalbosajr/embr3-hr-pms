@@ -10,6 +10,8 @@ import {
   Divider,
   Button,
   message,
+  Modal,
+  Input,
 } from "antd";
 import {
   UserOutlined,
@@ -21,16 +23,19 @@ import {
   LogoutOutlined,
   BulbOutlined,
   EyeOutlined,
-  ImportOutlined,
+  MailOutlined,
   FieldTimeOutlined,
   PrinterOutlined,
+  IdcardOutlined,
+  QuestionCircleOutlined,
   ClockCircleOutlined,
 } from "@ant-design/icons";
 
 import { useNavigate, Routes, Route } from "react-router-dom";
 import { useEffect, useState, useRef, useCallback } from "react";
-import { secureGet, secureRemove } from "../../../utils/secureStorage";
+import useAuth from "../../hooks/useAuth";
 import emblogo from "../../assets/emblogo.svg";
+import axiosInstance from "../../api/axiosInstance";
 
 import Dashboard from "../../components/Dashboard/Dashboard";
 import GenInfo from "../../components/Employees/GeneralInfo/GenInfo";
@@ -44,6 +49,7 @@ import ImportDTRModal from "../../components/DTR/ImportDTRModal";
 import DTRLogs from "../DTR/DTRLogs/DTRLogs";
 import DTRProcess from "../DTR/components/DTRProcess/DTRProcess";
 import DTRReports from "../DTR/DTRReports/DTRReports";
+import ProtectedRoute from "../../components/ProtectedRoute";
 
 import io from "socket.io-client";
 import "./hompage.css";
@@ -53,26 +59,29 @@ const { Header, Content, Sider, Footer } = Layout;
 
 const HomePage = () => {
   const navigate = useNavigate();
+  const { user, logout, hasPermission } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
-  const userget = secureGet("user");
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isFeatureModalOpen, setIsFeatureModalOpen] = useState(false);
+  const [featureTitle, setFeatureTitle] = useState("");
+  const [featureDescription, setFeatureDescription] = useState("");
+  const [loadingFeature, setLoadingFeature] = useState(false);
 
   const handleLogout = () => {
-    message.success("Logging out..."); // Add a message before redirecting
-    secureRemove("token");
-    secureRemove("user");
-    // Use navigate for better React Router integration, but window.location.href is also fine for full page reload
+    message.success("Logging out...");
+    logout();
     navigate("/auth");
   };
 
   useEffect(() => {
     const socket = io(import.meta.env.VITE_SOCKET_URL, {
       path: "/socket.io/",
-      withCredentials: true, // allow cookies if server sets them
-      reconnection: true, // auto reconnect
-      reconnectionAttempts: 5, // retry 5 times
-      reconnectionDelay: 1000, // 1s delay between retries
+      withCredentials: true,
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
     });
     socket.on("newNotification", (data) => {
       setNotifications((prev) => [data, ...prev]);
@@ -81,7 +90,7 @@ const HomePage = () => {
   }, []);
 
   // Idle Timeout Logic
-  const IDLE_TIMEOUT = 10 * 60 * 1000; // 10 minutes in milliseconds
+  const IDLE_TIMEOUT = 10 * 60 * 1000; // 10 minutes
   const idleTimer = useRef(null);
 
   const resetIdleTimer = useCallback(() => {
@@ -89,22 +98,17 @@ const HomePage = () => {
       clearTimeout(idleTimer.current);
     }
     idleTimer.current = setTimeout(() => {
-      //message.warning("You have been idle for too long. Logging out...");
       handleLogout();
     }, IDLE_TIMEOUT);
-  }, [handleLogout]); // handleLogout is a dependency
+  }, [handleLogout]);
 
   useEffect(() => {
-    // Initial setup
     resetIdleTimer();
-
-    // Event listeners for user activity
     window.addEventListener("mousemove", resetIdleTimer);
     window.addEventListener("keydown", resetIdleTimer);
     window.addEventListener("scroll", resetIdleTimer);
     window.addEventListener("click", resetIdleTimer);
 
-    // Cleanup
     return () => {
       clearTimeout(idleTimer.current);
       window.removeEventListener("mousemove", resetIdleTimer);
@@ -114,54 +118,118 @@ const HomePage = () => {
     };
   }, [resetIdleTimer]);
 
-  const handleViewProfile = () => {};
-  const handleSuggestFeature = () => {};
+  const handleViewProfile = () => {
+    setIsProfileModalOpen(true);
+  };
+  const handleSuggestFeature = () => {
+    setIsFeatureModalOpen(true);
+  };
 
-  const menuItems = [
-    {
-      key: "/",
-      icon: <DashboardOutlined />,
-      label: "Dashboard",
-    },
-    {
-      key: "employees",
-      icon: <TeamOutlined />,
-      label: "Employees",
-      children: [
-        { key: "/employeeinfo", label: "General Info" },
-        { key: "/trainings", label: "Trainings" },
-        { key: "/benefitsinfo", label: "Salary Info" },
-      ],
-    },
-    {
-      key: "dtr",
-      icon: <FieldTimeOutlined />,
-      label: "Daily Time Record",
-      children: [
-        { key: "/dtr/logs", label: "DTR Logs" },
-        { key: "/dtr/process", label: "Process DTR" },
-        { key: "/dtr/reports", label: "Reports" },
-      ],
-    },
-    {
-      key: "settings",
-      icon: <SettingOutlined />,
-      label: "Settings",
-      children: [
-        { key: "/settings/account", label: "Account Settings" },
-        { key: "/settings/deductions", label: "Deduction Settings" },
-        { key: "/settings/access", label: "User Access" },
-        { key: "/settings/backup", label: "Backup Data" },
-      ],
-    },
-  ];
+  const getMenuItems = () => {
+    const allItems = [
+      {
+        key: "/",
+        icon: <DashboardOutlined />,
+        label: "Dashboard",
+        permissions: ["canViewDashboard"],
+      },
+      {
+        key: "employees",
+        icon: <TeamOutlined />,
+        label: "Employees",
+        permissions: ["canViewEmployees"],
+        children: [
+          {
+            key: "/employeeinfo",
+            label: "General Info",
+            permissions: ["canViewEmployees"],
+          },
+          {
+            key: "/trainings",
+            label: "Trainings",
+            permissions: ["canViewTrainings"],
+          },
+          {
+            key: "/benefitsinfo",
+            label: "Salary Info",
+            permissions: ["canViewPayroll"],
+          },
+        ],
+      },
+      {
+        key: "dtr",
+        icon: <FieldTimeOutlined />,
+        label: "Daily Time Record",
+        permissions: ["canViewDTR"],
+        children: [
+          { key: "/dtr/logs", label: "DTR Logs", permissions: ["canViewDTR"] },
+          {
+            key: "/dtr/process",
+            label: "Process DTR",
+            permissions: ["canProcessDTR"],
+          },
+          {
+            key: "/dtr/reports",
+            label: "Reports",
+            permissions: ["canViewDTR"],
+          },
+        ],
+      },
+      {
+        key: "settings",
+        icon: <SettingOutlined />,
+        label: "Settings",
+        permissions: ["canAccessSettings"],
+        children: [
+          {
+            key: "/settings/account",
+            label: "Account Settings",
+            permissions: ["canAccessSettings"],
+          },
+          {
+            key: "/settings/deductions",
+            label: "Deduction Settings",
+            permissions: ["canChangeDeductions"],
+          },
+          {
+            key: "/settings/access",
+            label: "User Access",
+            permissions: ["canManageUsers"],
+          },
+          {
+            key: "/settings/backup",
+            label: "Backup Data",
+            permissions: ["canPerformBackup"],
+          },
+        ],
+      },
+    ];
+
+    const filterItems = (items) => {
+      return items.reduce((acc, item) => {
+        if (hasPermission(item.permissions)) {
+          if (item.children) {
+            const filteredChildren = filterItems(item.children);
+            if (filteredChildren.length > 0) {
+              acc.push({ ...item, children: filteredChildren });
+            }
+          } else {
+            acc.push(item);
+          }
+        }
+        return acc;
+      }, []);
+    };
+
+    return filterItems(allItems);
+  };
 
   const userPopover = (
     <div className="popover-content">
       <div className="popover-user">
-        <Text strong>{userget?.name || "Unknown User"}</Text>
+        <Text strong>{user?.name || "Unknown User"}</Text>
         <Text type="secondary" style={{ fontSize: 12 }}>
-          @{userget?.username || "unknown"}
+          @{user?.username || "unknown"}
         </Text>
       </div>
       <Divider style={{ margin: "8px 0" }} />
@@ -202,6 +270,40 @@ const HomePage = () => {
     </div>
   );
 
+  const handleProfileModalClose = () => {
+    setIsProfileModalOpen(false);
+  };
+  const handleFeatureModalClose = () => {
+    setIsFeatureModalOpen(false);
+  };
+
+  const handleFeatureSubmit = async () => {
+    if (!featureTitle || !featureDescription) {
+      message.warning("Please fill in all fields before submitting.");
+      return;
+    }
+
+    try {
+      setLoadingFeature(true);
+      await axiosInstance.post("/features/suggest", {
+        title: featureTitle,
+        description: featureDescription,
+        emailTo: "embrhrpms@gmail.com",
+        submittedBy: user?.username || "unknown",
+      });
+
+      message.success("Your suggestion has been sent!");
+      setFeatureTitle("");
+      setFeatureDescription("");
+      handleFeatureModalClose();
+    } catch (error) {
+      console.error("Feature suggestion failed:", error);
+      message.error("Failed to send suggestion. Try again later.");
+    } finally {
+      setLoadingFeature(false);
+    }
+  };
+
   return (
     <Layout
       style={{
@@ -210,42 +312,43 @@ const HomePage = () => {
       }}
     >
       <Sider
-        width={220} // default is 200px
+        width={220}
         collapsible
         collapsed={collapsed}
         onCollapse={setCollapsed}
-        collapsedWidth={80} // still keep small size when collapsed
+        collapsedWidth={80}
         className="sider"
       >
         <div className={`logo-container ${collapsed ? "collapsed" : ""}`}>
-          <Tooltip title="EMBR3 Payroll Management System" placement="right">
+          <Tooltip title="EMBR3 DTR Management System" placement="right">
             <img src={emblogo} alt="EMB Logo" className="logo-img" />
           </Tooltip>
           {!collapsed && (
-            <span className="logo-text">EMBR3 Payroll Management System</span>
+            <span className="logo-text">EMBR3 DTR Management System</span>
           )}
         </div>
 
-        {/* Import Button */}
-        <div style={{ padding: "12px", textAlign: "center" }}>
-          {collapsed ? (
-            <Tooltip title="Import Biometrics" placement="right">
+        {hasPermission(["canManipulateBiometrics"]) && (
+          <div style={{ padding: "12px", textAlign: "center" }}>
+            {collapsed ? (
+              <Tooltip title="Import Biometrics" placement="right">
+                <Button
+                  shape="circle"
+                  icon={<FieldTimeOutlined />}
+                  onClick={() => setIsImportModalOpen(true)}
+                  className="animated-gradient-button"
+                />
+              </Tooltip>
+            ) : (
               <Button
-                shape="circle"
-                icon={<FieldTimeOutlined />}
                 onClick={() => setIsImportModalOpen(true)}
                 className="animated-gradient-button"
-              />
-            </Tooltip>
-          ) : (
-            <Button
-              onClick={() => setIsImportModalOpen(true)}
-              className="animated-gradient-button"
-            >
-              Import Biometrics
-            </Button>
-          )}
-        </div>
+              >
+                Import Biometrics
+              </Button>
+            )}
+          </div>
+        )}
 
         <Menu
           theme="dark"
@@ -254,15 +357,14 @@ const HomePage = () => {
           onClick={({ key }) =>
             key === "logout" ? handleLogout() : navigate(key)
           }
-          items={menuItems}
+          items={getMenuItems()}
         />
       </Sider>
 
-      {/* Import Modal */}
       <ImportDTRModal
         open={isImportModalOpen}
         onClose={() => setIsImportModalOpen(false)}
-        currentUser={userget}
+        currentUser={user}
       />
 
       <Layout>
@@ -270,7 +372,13 @@ const HomePage = () => {
           <div
             style={{
               display: "flex",
+              color: "rgba(0, 0, 0, 0.88)",
               alignItems: "center",
+              fontWeight: 500,
+              fontSize: 16,
+              lineHeight: "22px",
+              letterSpacing: "-0.022em",
+              verticalAlign: "baseline",
               gap: "15px",
               marginRight: "10px",
             }}
@@ -282,29 +390,29 @@ const HomePage = () => {
               classNames={{ root: "user-popover" }}
             >
               <Badge count={notifications.length} offset={[-2, 2]}>
-                <BellOutlined style={{ fontSize: 18 }} />
+                <BellOutlined className="icon-trigger" />
               </Badge>
             </Popover>
 
             <Popover
               content={messagePopover}
-              placement="bottomRight"
+              placement="bottomLeft"
               trigger="hover"
               classNames={{ root: "user-popover" }}
             >
               <Badge dot offset={[-2, 2]}>
-                <MessageOutlined style={{ fontSize: 18 }} />
+                <MessageOutlined className="icon-trigger" />
               </Badge>
             </Popover>
 
             <Popover
               content={userPopover}
-              placement="bottomRight"
+              placement="bottomLeft"
               trigger="hover"
               classNames={{ root: "user-popover" }}
             >
-              <Avatar style={{ backgroundColor: "#87d068", cursor: "pointer" }}>
-                {userget?.name?.charAt(0).toUpperCase() || <UserOutlined />}
+              <Avatar className="user-avatar">
+                {user?.name?.charAt(0).toUpperCase() || <UserOutlined />}
               </Avatar>
             </Popover>
           </div>
@@ -313,21 +421,94 @@ const HomePage = () => {
         <Content style={{ margin: "16px", paddingBottom: 0 }}>
           <div className="content-wrapper">
             <Routes>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/employeeinfo" element={<GenInfo />} />
-
-              <Route path="/dtr/logs" element={<DTRLogs />} />
+              <Route
+                path="/"
+                element={
+                  <ProtectedRoute requiredPermissions={["canViewDashboard"]}>
+                    <Dashboard />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/employeeinfo"
+                element={
+                  <ProtectedRoute requiredPermissions={["canViewEmployees"]}>
+                    <GenInfo />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/dtr/logs"
+                element={
+                  <ProtectedRoute requiredPermissions={["canViewDTR"]}>
+                    <DTRLogs />
+                  </ProtectedRoute>
+                }
+              />
               <Route
                 path="/dtr/process"
-                element={<DTRProcess currentUser={userget} />}
+                element={
+                  <ProtectedRoute requiredPermissions={["canProcessDTR"]}>
+                    <DTRProcess currentUser={user} />
+                  </ProtectedRoute>
+                }
               />
-              <Route path="/dtr/reports" element={<DTRReports />} />
-              <Route path="/trainings" element={<Trainings />} />
-              <Route path="/benefitsinfo" element={<BenefitsInfo />} />
-              <Route path="/settings/account" element={<AccountSettings />} />
-              <Route path="/settings/access" element={<UserAccess />} />
-              <Route path="/settings/backup" element={<Backup />} />
-              <Route path="/settings/deductions" element={<DeductionSettings />} />
+              <Route
+                path="/dtr/reports"
+                element={
+                  <ProtectedRoute requiredPermissions={["canViewDTR"]}>
+                    <DTRReports />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/trainings"
+                element={
+                  <ProtectedRoute requiredPermissions={["canViewTrainings"]}>
+                    <Trainings />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/benefitsinfo"
+                element={
+                  <ProtectedRoute requiredPermissions={["canViewPayroll"]}>
+                    <BenefitsInfo />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/settings/account"
+                element={
+                  <ProtectedRoute requiredPermissions={["canAccessSettings"]}>
+                    <AccountSettings />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/settings/access"
+                element={
+                  <ProtectedRoute requiredPermissions={["canManageUsers"]}>
+                    <UserAccess />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/settings/backup"
+                element={
+                  <ProtectedRoute requiredPermissions={["canPerformBackup"]}>
+                    <Backup />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/settings/deductions"
+                element={
+                  <ProtectedRoute requiredPermissions={["canChangeDeductions"]}>
+                    <DeductionSettings />
+                  </ProtectedRoute>
+                }
+              />
             </Routes>
           </div>
         </Content>
@@ -336,6 +517,120 @@ const HomePage = () => {
           © {new Date().getFullYear()} EMBR3 Payroll Management System
         </Footer>
       </Layout>
+
+      {/* View Profile Modal */}
+      <Modal
+        title={null}
+        open={isProfileModalOpen}
+        onCancel={handleProfileModalClose}
+        footer={null}
+        centered
+        width={500}
+      >
+        <div style={{ textAlign: "center", padding: "20px" }}>
+          <Avatar
+            size={100}
+            style={{ backgroundColor: "#1677ff", marginBottom: 15 }}
+          >
+            {user?.name?.charAt(0).toUpperCase() || <UserOutlined />}
+          </Avatar>
+          <Typography.Title level={4} style={{ marginBottom: 0 }}>
+            {user?.name || "Unknown User"}
+          </Typography.Title>
+          <Typography.Text type="secondary">
+            @{user?.username || "unknown"}
+          </Typography.Text>
+
+          <Divider />
+
+          <Space
+            direction="vertical"
+            style={{ width: "100%", textAlign: "left", marginTop: 10 }}
+          >
+            <Typography.Text>
+              <IdcardOutlined style={{ marginRight: 8, color: "#1677ff" }} />
+              Role: {user?.role || "Employee"}
+            </Typography.Text>
+            <Typography.Text>
+              <ClockCircleOutlined
+                style={{ marginRight: 8, color: "#1677ff" }}
+              />
+              Joined:{" "}
+              {user?.createdAt
+                ? new Date(user.createdAt).toDateString()
+                : "N/A"}
+            </Typography.Text>
+            <Typography.Text>
+              <MailOutlined style={{ marginRight: 8, color: "#1677ff" }} />
+              Email: {user?.email || "Not Provided"}
+            </Typography.Text>
+          </Space>
+
+          <Divider />
+
+          <Button type="primary" block onClick={handleProfileModalClose}>
+            Close
+          </Button>
+        </div>
+      </Modal>
+
+      {/* Suggest Feature Modal */}
+      <Modal
+        title={null}
+        open={isFeatureModalOpen}
+        onCancel={handleFeatureModalClose}
+        footer={null}
+        centered
+        width={500}
+      >
+        <div style={{ padding: "20px" }}>
+          <Typography.Title
+            level={4}
+            style={{ textAlign: "center", marginBottom: 10 }}
+          >
+            <BulbOutlined style={{ marginRight: 8, color: "#faad14" }} />
+            Suggest a Feature
+          </Typography.Title>
+          <Typography.Paragraph style={{ textAlign: "center" }}>
+            Have an idea to improve the system? Share it with us!
+          </Typography.Paragraph>
+
+          <Divider />
+
+          <Space direction="vertical" style={{ width: "100%" }}>
+            <Input
+              placeholder="Feature Title"
+              value={featureTitle}
+              onChange={(e) => setFeatureTitle(e.target.value)}
+            />
+            <Input.TextArea
+              placeholder="Describe your feature suggestion..."
+              autoSize={{ minRows: 4, maxRows: 6 }}
+              value={featureDescription}
+              onChange={(e) => setFeatureDescription(e.target.value)}
+            />
+          </Space>
+
+          <Divider />
+
+          <Space
+            style={{
+              display: "flex",
+              justifyContent: "flex-end",
+              width: "100%",
+            }}
+          >
+            <Button onClick={handleFeatureModalClose}>Cancel</Button>
+            <Button
+              type="primary"
+              loading={loadingFeature}
+              onClick={handleFeatureSubmit}
+            >
+              Submit
+            </Button>
+          </Space>
+        </div>
+      </Modal>
     </Layout>
   );
 };

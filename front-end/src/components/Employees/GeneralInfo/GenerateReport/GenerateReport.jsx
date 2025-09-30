@@ -19,7 +19,7 @@ const GenerateReport = ({ employee }) => {
     },
     {
       key: "3",
-      label: "Other Details",
+      label: "Employee Records",
       children: <OtherDetails employee={employee} />,
     },
     {
