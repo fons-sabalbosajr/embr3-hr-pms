@@ -1,14 +1,18 @@
-import React from "react";
+import React, { useContext } from "react";
 import { Card, Typography, Button, Form, Input, DatePicker, message } from "antd";
 import { Link } from "react-router-dom";
 import bgImage from "../../assets/bgemb.webp";
 import axiosInstance from "../../api/axiosInstance";
 import "./paysliprequest.css";
 
+// ✅ Make sure you have NotificationsContext or pass setNotifications from props
+import { NotificationsContext } from "../../context/NotificationsContext";
+
 const { Title, Text } = Typography;
 
 const PayslipRequest = () => {
   const [form] = Form.useForm();
+  const { setNotifications } = useContext(NotificationsContext); // ✅ add context
 
   const onFinish = async (values) => {
     try {
@@ -20,6 +24,21 @@ const PayslipRequest = () => {
 
       if (response.data.success) {
         message.success("Payslip request submitted successfully!");
+
+        // ✅ Push into notifications so it appears in bell popover
+        if (response.data.request) {
+          setNotifications((prev) => [
+            {
+              id: response.data.request._id || Date.now(),
+              employeeId: response.data.request.employeeId,
+              createdAt: response.data.request.createdAt || new Date(),
+              read: false,
+              type: "PayslipRequest",
+            },
+            ...prev,
+          ]);
+        }
+
         form.resetFields();
       } else {
         message.error(response.data.message || "Failed to submit payslip request.");

@@ -1,3 +1,4 @@
+// models/User.js
 import mongoose from "mongoose";
 
 const userSchema = new mongoose.Schema(
@@ -11,28 +12,14 @@ const userSchema = new mongoose.Schema(
     isVerified: { type: Boolean, default: false },
 
     // Email Verification
-    verificationToken: {
-      type: String,
-      required: false,
-      maxlength: 128,
-    },
-    verificationTokenExpires: {
-      type: Date,
-      required: false,
-    },
+    verificationToken: { type: String, maxlength: 128 },
+    verificationTokenExpires: { type: Date },
 
-    // 🔐 Password Reset
-    resetPasswordToken: {
-      type: String,
-      required: false,
-      maxlength: 128,
-    },
-    resetPasswordExpires: {
-      type: Date,
-      required: false,
-    },
+    // Password Reset
+    resetPasswordToken: { type: String, maxlength: 128 },
+    resetPasswordExpires: { type: Date },
 
-    // User Preferences
+    // Preferences
     showSalaryAmounts: { type: Boolean, default: true },
     canManipulateBiometrics: { type: Boolean, default: false },
 
@@ -51,7 +38,23 @@ const userSchema = new mongoose.Schema(
     canAccessSettings: { type: Boolean, default: false },
     canChangeDeductions: { type: Boolean, default: false },
     canPerformBackup: { type: Boolean, default: false },
-    theme: { type: String, default: 'light' },
+
+    // Notifications Access
+    canAccessNotifications: { type: Boolean, default: false },
+    canManageNotifications: { type: Boolean, default: false },
+    canViewNotifications: { type: Boolean, default: false },
+
+    // Message Access
+    canManageMessages: { type: Boolean, default: false },
+
+    // Security / Hierarchy
+    userType: {
+      type: String,
+      enum: ["developer", "administrator", "co-admin", "guest"],
+      default: "guest",
+    },
+
+    theme: { type: String, default: "light" },
   },
   { timestamps: true }
 );

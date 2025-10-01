@@ -3,16 +3,12 @@ import {
   Menu,
   Avatar,
   Badge,
-  Space,
   Tooltip,
   Typography,
   Popover,
   Divider,
   Button,
   message,
-  Modal,
-  Input,
-  Tag,
 } from "antd";
 import {
   UserOutlined,
@@ -24,15 +20,11 @@ import {
   LogoutOutlined,
   BulbOutlined,
   EyeOutlined,
-  MailOutlined,
   FieldTimeOutlined,
-  IdcardOutlined,
-  ClockCircleOutlined,
-  CloseOutlined,
 } from "@ant-design/icons";
 
 import { useNavigate, Routes, Route } from "react-router-dom";
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, useContext } from "react";
 import useAuth from "../../hooks/useAuth";
 import emblogo from "../../assets/emblogo.svg";
 import axiosInstance from "../../api/axiosInstance";
@@ -50,6 +42,9 @@ import DTRLogs from "../DTR/DTRLogs/DTRLogs";
 import DTRProcess from "../DTR/components/DTRProcess/DTRProcess";
 import DTRReports from "../DTR/DTRReports/DTRReports";
 import ProtectedRoute from "../../components/ProtectedRoute";
+import ProfileModal from "./components/ProfileModal";
+import FeatureModal from "./components/FeatureModal";
+import { NotificationsContext } from "../../context/NotificationsContext";
 
 import io from "socket.io-client";
 import "./hompage.css";
@@ -59,21 +54,14 @@ const { Header, Content, Sider, Footer } = Layout;
 
 const HomePage = () => {
   const navigate = useNavigate();
+  const { hasAccess } = useAuth();
   const { user, logout, hasPermission } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isFeatureModalOpen, setIsFeatureModalOpen] = useState(false);
-  const [featureTitle, setFeatureTitle] = useState("");
-  const [featureDescription, setFeatureDescription] = useState("");
-  const [loadingFeature, setLoadingFeature] = useState(false);
-
-  const [notifications, setNotifications] = useState(
-    () => JSON.parse(localStorage.getItem("notifications")) || []
-  );
-  const [messages, setMessages] = useState(
-    () => JSON.parse(localStorage.getItem("messages")) || []
-  );
+  const { notifications, setNotifications, messages, setMessages } =
+    useContext(NotificationsContext);
 
   useEffect(() => {
     localStorage.setItem("notifications", JSON.stringify(notifications));
@@ -83,12 +71,36 @@ const HomePage = () => {
     localStorage.setItem("messages", JSON.stringify(messages));
   }, [messages]);
 
-  const handleLogout = () => {
-    message.success("Logging out...");
-    logout();
-    navigate("/auth");
-  };
+  // Load initial data from backend
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [notifRes, msgRes] = await Promise.all([
+          axiosInstance.get("/payslip-requests"),
+          axiosInstance.get("/dtrlogs"),
+        ]);
 
+        setNotifications(
+          (notifRes.data?.data || notifRes.data || []).map((n) => ({
+            ...n,
+            id: n._id || Date.now(),
+          }))
+        );
+
+        setMessages(
+          (msgRes.data?.data || msgRes.data || []).map((m) => ({
+            ...m,
+            id: m._id || Date.now(),
+          }))
+        );
+      } catch (err) {
+        console.error("Failed to load initial data:", err);
+      }
+    };
+    fetchData();
+  }, []);
+
+  // Socket.io real-time updates
   useEffect(() => {
     const socket = io(import.meta.env.VITE_SOCKET_URL, {
       path: "/socket.io/",
@@ -104,6 +116,7 @@ const HomePage = () => {
         ...prev,
       ]);
     });
+
     socket.on("newDTRMessage", (data) => {
       setMessages((prev) => [{ ...data, id: data._id || Date.now() }, ...prev]);
     });
@@ -111,18 +124,10 @@ const HomePage = () => {
     return () => socket.disconnect();
   }, []);
 
-  const clearItem = (id, type) => {
-    if (type === "notification") {
-      setNotifications((prev) => prev.filter((item) => item.id !== id));
-    }
-    if (type === "message") {
-      setMessages((prev) => prev.filter((item) => item.id !== id));
-    }
-  };
-
-  const clearAll = (type) => {
-    if (type === "notification") setNotifications([]);
-    if (type === "message") setMessages([]);
+  const handleLogout = () => {
+    message.success("Logging out...");
+    logout();
+    navigate("/auth");
   };
 
   const IDLE_TIMEOUT = 10 * 60 * 1000;
@@ -245,6 +250,134 @@ const HomePage = () => {
     return filterItems(allItems);
   };
 
+  // ---- Notifications Popover ----
+  const notificationContent = hasAccess("canViewNotifications") && (
+    <div style={{ maxHeight: 350, overflowY: "auto", width: 320 }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          padding: "4px 8px",
+        }}
+      >
+        <Text strong>Notifications</Text>
+        {hasAccess("canManageNotifications") && (
+          <Button
+            type="link"
+            size="small"
+            onClick={() =>
+              setNotifications((prev) =>
+                prev.map((n) => ({ ...n, read: true }))
+              )
+            }
+          >
+            Mark all as read
+          </Button>
+        )}
+      </div>
+      {notifications.length > 0 ? (
+        notifications.map((n) => (
+          <div
+            key={n.id}
+            style={{
+              padding: "8px 12px",
+              borderBottom: "1px solid #f0f0f0",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              opacity: n.read ? 0.6 : 1, // 👈 dim if read
+            }}
+          >
+            <div>
+              <Text strong>{`Payslip Request - ${n.employeeId}`}</Text>
+              <br />
+              <Text type="secondary" style={{ fontSize: "12px" }}>
+                {new Date(n.createdAt).toLocaleString()}
+              </Text>
+            </div>
+            <Button
+              size="small"
+              type="link"
+              onClick={() => console.log("View notification:", n)}
+            >
+              View
+            </Button>
+          </div>
+        ))
+      ) : (
+        <Text
+          type="secondary"
+          style={{ padding: "8px 12px", display: "block" }}
+        >
+          No new notifications
+        </Text>
+      )}
+    </div>
+  );
+
+  // ---- Messages Popover ----
+  const messageContent = hasAccess("canViewMessages") && (
+    <div style={{ maxHeight: 350, overflowY: "auto", width: 320 }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          padding: "4px 8px",
+        }}
+      >
+        <Text strong>Messages</Text>
+        {hasAccess("canManageMessages") && (
+          <Button
+            type="link"
+            size="small"
+            onClick={() =>
+              setMessages((prev) => prev.map((m) => ({ ...m, read: true })))
+            }
+          >
+            Mark all as read
+          </Button>
+        )}
+      </div>
+      {messages.length > 0 ? (
+        messages.map((m) => (
+          <div
+            key={m.id}
+            style={{
+              padding: "8px 12px",
+              borderBottom: "1px solid #f0f0f0",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              opacity: m.read ? 0.6 : 1,
+            }}
+          >
+            <div>
+              <Text strong>{`DTR Log - ${m.employeeId}`}</Text>
+              <br />
+              <Text type="secondary" style={{ fontSize: "12px" }}>
+                {new Date(m.createdAt).toLocaleString()}
+              </Text>
+            </div>
+            <Button
+              size="small"
+              type="link"
+              onClick={() => console.log("View message:", m)}
+            >
+              View
+            </Button>
+          </div>
+        ))
+      ) : (
+        <Text
+          type="secondary"
+          style={{ padding: "8px 12px", display: "block" }}
+        >
+          No new messages
+        </Text>
+      )}
+    </div>
+  );
+
   const userPopover = (
     <div className="popover-content">
       <div className="popover-user">
@@ -270,140 +403,6 @@ const HomePage = () => {
       </div>
     </div>
   );
-
-  const notificationPopover = (
-    <div style={{ padding: "8px 0", maxWidth: 350 }}>
-      {notifications.length > 0 ? (
-        <>
-          <div style={{ maxHeight: 400, overflowY: "auto", padding: "0 8px" }}>
-            {notifications.map((item) => (
-              <div key={item.id} className="notification-item">
-                <div className="notification-content">
-                  <Tag color="green">Payslip Request</Tag>
-                  <Text
-                    style={{ fontSize: 13 }}
-                  >{`ID: ${item.employeeId} | Period: ${item.period}`}</Text>
-                  <Space>
-                    <Button
-                      type="link"
-                      size="small"
-                      onClick={() =>
-                        message.info("Payslip request page not yet available.")
-                      }
-                    >
-                      View Details
-                    </Button>
-                    <Button
-                      shape="circle"
-                      size="small"
-                      icon={<CloseOutlined />}
-                      onClick={() => clearItem(item.id, "notification")}
-                    />
-                  </Space>
-                </div>
-              </div>
-            ))}
-          </div>
-          <Divider style={{ margin: "8px 0" }} />
-          <div style={{ textAlign: "center", padding: "0 8px" }}>
-            <Button
-              type="link"
-              size="small"
-              onClick={() => clearAll("notification")}
-            >
-              Clear All
-            </Button>
-          </div>
-        </>
-      ) : (
-        <Text type="secondary" style={{ padding: "0 12px" }}>
-          No new notifications
-        </Text>
-      )}
-    </div>
-  );
-
-  const messagePopover = (
-    <div style={{ padding: "8px 0", maxWidth: 350 }}>
-      {messages.length > 0 ? (
-        <>
-          <div style={{ maxHeight: 400, overflowY: "auto", padding: "0 8px" }}>
-            {messages.map((item) => (
-              <div key={item.id} className="notification-item">
-                <div className="notification-content">
-                  <Tag color="blue">DTR Generated</Tag>
-                  <Text
-                    style={{ fontSize: 13 }}
-                  >{`ID: ${item.employeeId} | By: ${item.generatedBy}`}</Text>
-                  <Space>
-                    <Button
-                      type="link"
-                      size="small"
-                      onClick={() =>
-                        navigate("/dtr/process", {
-                          state: { employeeId: item.employeeId },
-                        })
-                      }
-                    >
-                      View Details
-                    </Button>
-                    <Button
-                      shape="circle"
-                      size="small"
-                      icon={<CloseOutlined />}
-                      onClick={() => clearItem(item.id, "message")}
-                    />
-                  </Space>
-                </div>
-              </div>
-            ))}
-          </div>
-          <Divider style={{ margin: "8px 0" }} />
-          <div style={{ textAlign: "center", padding: "0 8px" }}>
-            <Button
-              type="link"
-              size="small"
-              onClick={() => clearAll("message")}
-            >
-              Clear All
-            </Button>
-          </div>
-        </>
-      ) : (
-        <Text type="secondary" style={{ padding: "0 12px" }}>
-          No new messages
-        </Text>
-      )}
-    </div>
-  );
-
-  const handleProfileModalClose = () => setIsProfileModalOpen(false);
-  const handleFeatureModalClose = () => setIsFeatureModalOpen(false);
-
-  const handleFeatureSubmit = async () => {
-    if (!featureTitle || !featureDescription) {
-      message.warning("Please fill in all fields before submitting.");
-      return;
-    }
-    try {
-      setLoadingFeature(true);
-      await axiosInstance.post("/features/suggest", {
-        title: featureTitle,
-        description: featureDescription,
-        emailTo: "embrhrpms@gmail.com",
-        submittedBy: user?.username || "unknown",
-      });
-      message.success("Your suggestion has been sent!");
-      setFeatureTitle("");
-      setFeatureDescription("");
-      handleFeatureModalClose();
-    } catch (error) {
-      console.error("Feature suggestion failed:", error);
-      message.error("Failed to send suggestion. Try again later.");
-    } finally {
-      setLoadingFeature(false);
-    }
-  };
 
   return (
     <Layout
@@ -477,22 +476,30 @@ const HomePage = () => {
             }}
           >
             <Popover
-              content={notificationPopover}
-              placement="bottomRight"
+              content={notificationContent}
               trigger="click"
-              overlayClassName="user-popover"
+              placement="bottomRight"
             >
-              <Badge count={notifications.length} size="small">
+              <Badge
+                count={notifications.length}
+                size="small"
+                overflowCount={99}
+                showZero
+              >
                 <BellOutlined className="icon-trigger" />
               </Badge>
             </Popover>
             <Popover
-              content={messagePopover}
-              placement="bottomLeft"
+              content={messageContent}
               trigger="click"
-              overlayClassName="user-popover"
+              placement="bottomRight"
             >
-              <Badge count={messages.length} size="small">
+              <Badge
+                count={messages.length}
+                size="small"
+                overflowCount={99}
+                showZero
+              >
                 <MessageOutlined className="icon-trigger" />
               </Badge>
             </Popover>
@@ -500,7 +507,7 @@ const HomePage = () => {
               content={userPopover}
               placement="bottomLeft"
               trigger="hover"
-              overlayClassName="user-popover"
+              classNames="user-popover"
             >
               <Avatar className="user-avatar">
                 {user?.name?.charAt(0).toUpperCase() || <UserOutlined />}
@@ -605,113 +612,21 @@ const HomePage = () => {
         </Content>
 
         <Footer style={{ textAlign: "center" }}>
-          © {new Date().getFullYear()} EMBR3 Payroll Management System
+          © {new Date().getFullYear()} EMBR3 Daily Time Record Management System
         </Footer>
       </Layout>
 
-      <Modal
-        title={null}
+      <ProfileModal
         open={isProfileModalOpen}
-        onCancel={handleProfileModalClose}
-        footer={null}
-        centered
-        width={500}
-      >
-        <div style={{ textAlign: "center", padding: "20px" }}>
-          <Avatar
-            size={100}
-            style={{ backgroundColor: "#1677ff", marginBottom: 15 }}
-          >
-            {user?.name?.charAt(0).toUpperCase() || <UserOutlined />}
-          </Avatar>
-          <Typography.Title level={4} style={{ marginBottom: 0 }}>
-            {user?.name || "Unknown User"}
-          </Typography.Title>
-          <Typography.Text type="secondary">
-            @{user?.username || "unknown"}
-          </Typography.Text>
-          <Divider />
-          <Space
-            direction="vertical"
-            style={{ width: "100%", textAlign: "left", marginTop: 10 }}
-          >
-            <Typography.Text>
-              <IdcardOutlined style={{ marginRight: 8, color: "#1677ff" }} />
-              Role: {user?.role || "Employee"}
-            </Typography.Text>
-            <Typography.Text>
-              <ClockCircleOutlined
-                style={{ marginRight: 8, color: "#1677ff" }}
-              />
-              Joined:{" "}
-              {user?.createdAt
-                ? new Date(user.createdAt).toDateString()
-                : "N/A"}
-            </Typography.Text>
-            <Typography.Text>
-              <MailOutlined style={{ marginRight: 8, color: "#1677ff" }} />
-              Email: {user?.email || "Not Provided"}
-            </Typography.Text>
-          </Space>
-          <Divider />
-          <Button type="primary" block onClick={handleProfileModalClose}>
-            Close
-          </Button>
-        </div>
-      </Modal>
+        onClose={() => setIsProfileModalOpen(false)}
+        user={user}
+      />
 
-      <Modal
-        title={null}
+      <FeatureModal
         open={isFeatureModalOpen}
-        onCancel={handleFeatureModalClose}
-        footer={null}
-        centered
-        width={500}
-      >
-        <div style={{ padding: "20px" }}>
-          <Typography.Title
-            level={4}
-            style={{ textAlign: "center", marginBottom: 10 }}
-          >
-            <BulbOutlined style={{ marginRight: 8, color: "#faad14" }} />
-            Suggest a Feature
-          </Typography.Title>
-          <Typography.Paragraph style={{ textAlign: "center" }}>
-            Have an idea to improve the system? Share it with us!
-          </Typography.Paragraph>
-          <Divider />
-          <Space direction="vertical" style={{ width: "100%" }}>
-            <Input
-              placeholder="Feature Title"
-              value={featureTitle}
-              onChange={(e) => setFeatureTitle(e.target.value)}
-            />
-            <Input.TextArea
-              placeholder="Describe your feature suggestion..."
-              autoSize={{ minRows: 4, maxRows: 6 }}
-              value={featureDescription}
-              onChange={(e) => setFeatureDescription(e.target.value)}
-            />
-          </Space>
-          <Divider />
-          <Space
-            style={{
-              display: "flex",
-              justifyContent: "flex-end",
-              width: "100%",
-            }}
-          >
-            <Button onClick={handleFeatureModalClose}>Cancel</Button>
-            <Button
-              type="primary"
-              loading={loadingFeature}
-              onClick={handleFeatureSubmit}
-            >
-              Submit
-            </Button>
-          </Space>
-        </div>
-      </Modal>
+        onClose={() => setIsFeatureModalOpen(false)}
+        user={user}
+      />
     </Layout>
   );
 };

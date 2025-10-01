@@ -35,8 +35,6 @@ export const signup = async (req, res) => {
       verificationTokenExpires: tokenExpiry,
     });
 
-
-
     const verificationLink = `${CLIENT_URL}/verify/${token}`;
     await sendVerificationEmail(email, name, verificationLink);
 
@@ -53,7 +51,6 @@ export const signup = async (req, res) => {
 export const verifyEmail = async (req, res) => {
   const { token } = req.params;
 
-
   try {
     let user = await User.findOne({
       verificationToken: token,
@@ -64,12 +61,10 @@ export const verifyEmail = async (req, res) => {
       // Try finding user who may have already verified
       user = await User.findOne({ isVerified: true });
       if (user) {
-
         return res.status(200).json({
           message: "Email already verified.",
         });
       }
-
 
       return res
         .status(400)
@@ -80,8 +75,6 @@ export const verifyEmail = async (req, res) => {
     user.verificationToken = undefined;
     user.verificationTokenExpires = undefined;
     await user.save();
-
-
 
     return res.status(200).json({
       message: "Email verified successfully!",
@@ -172,16 +165,11 @@ export const forgotPassword = async (req, res) => {
     user.resetPasswordExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes from now
     await user.save();
 
-
-
     const savedUser = await User.findOne({ email });
-
-
 
     const resetLink = `${
       process.env.VITE_FRONTEND_URL || process.env.FRONTEND_URL
     }/reset-password/${token}`;
-
 
     await sendResetPasswordEmail(user.email, user.name, resetLink);
 
@@ -197,15 +185,12 @@ export const resetPassword = async (req, res) => {
   const { password } = req.body;
 
   try {
-
-
     const user = await User.findOne({
       resetPasswordToken: { $eq: token },
       resetPasswordExpires: { $gt: new Date() },
     });
 
     if (!user) {
-
       return res
         .status(400)
         .json({ message: "Invalid or expired reset token." });
@@ -217,7 +202,6 @@ export const resetPassword = async (req, res) => {
     user.resetPasswordExpires = undefined;
     await user.save();
 
-
     res.status(200).json({ message: "Password reset successful." });
   } catch (err) {
     console.error("[ResetPassword Error]", err);
@@ -227,14 +211,14 @@ export const resetPassword = async (req, res) => {
 
 export const getUserById = async (req, res) => {
   try {
-    const user = await User.findById(req.params.id).select('-password'); // Exclude password
+    const user = await User.findById(req.params.id).select("-password"); // Exclude password
     if (!user) {
-      return res.status(404).json({ message: 'User not found' });
+      return res.status(404).json({ message: "User not found" });
     }
     res.json(user);
   } catch (error) {
-    console.error('Error fetching user by ID:', error);
-    res.status(500).json({ message: 'Server error' });
+    console.error("Error fetching user by ID:", error);
+    res.status(500).json({ message: "Server error" });
   }
 };
 
@@ -317,11 +301,11 @@ export const updateUserPreferences = async (req, res) => {
 
 export const getAllUsers = async (req, res) => {
   try {
-    const users = await User.find().select('-password'); // Exclude passwords
+    const users = await User.find().select("-password"); // Exclude passwords
     res.json({ success: true, data: users });
   } catch (error) {
-    console.error('Error fetching all users:', error);
-    res.status(500).json({ success: false, message: 'Failed to fetch users' });
+    console.error("Error fetching all users:", error);
+    res.status(500).json({ success: false, message: "Failed to fetch users" });
   }
 };
 
@@ -329,9 +313,8 @@ export const updateUserAccess = async (req, res) => {
   try {
     const { id } = req.params;
     const {
-      isVerified,
-      canManipulateBiometrics,
       showSalaryAmounts,
+      canManipulateBiometrics,
       isAdmin,
       canManageUsers,
       canViewDashboard,
@@ -346,37 +329,46 @@ export const updateUserAccess = async (req, res) => {
       canAccessSettings,
       canChangeDeductions,
       canPerformBackup,
+      canAccessNotifications,
+      canManageNotifications,
+      canViewNotifications,
+      userType, // ✅ new
     } = req.body;
 
-    const user = await User.findById(id);
-    if (!user) {
+    const updatedUser = await User.findByIdAndUpdate(
+      id,
+      {
+        showSalaryAmounts,
+        canManipulateBiometrics,
+        isAdmin,
+        canManageUsers,
+        canViewDashboard,
+        canViewEmployees,
+        canEditEmployees,
+        canViewDTR,
+        canProcessDTR,
+        canViewPayroll,
+        canProcessPayroll,
+        canViewTrainings,
+        canEditTrainings,
+        canAccessSettings,
+        canChangeDeductions,
+        canPerformBackup,
+        canAccessNotifications,
+        canManageNotifications,
+        canViewNotifications,
+        ...(userType && { userType }), // ✅ only update if provided
+      },
+      { new: true, runValidators: true }
+    ).select("-password");
+
+    if (!updatedUser) {
       return res.status(404).json({ message: "User not found" });
     }
 
-    // Update the access rights
-    if (isVerified !== undefined) user.isVerified = isVerified;
-    if (canManipulateBiometrics !== undefined) user.canManipulateBiometrics = canManipulateBiometrics;
-    if (showSalaryAmounts !== undefined) user.showSalaryAmounts = showSalaryAmounts;
-    if (isAdmin !== undefined) user.isAdmin = isAdmin;
-    if (canManageUsers !== undefined) user.canManageUsers = canManageUsers;
-    if (canViewDashboard !== undefined) user.canViewDashboard = canViewDashboard;
-    if (canViewEmployees !== undefined) user.canViewEmployees = canViewEmployees;
-    if (canEditEmployees !== undefined) user.canEditEmployees = canEditEmployees;
-    if (canViewDTR !== undefined) user.canViewDTR = canViewDTR;
-    if (canProcessDTR !== undefined) user.canProcessDTR = canProcessDTR;
-    if (canViewPayroll !== undefined) user.canViewPayroll = canViewPayroll;
-    if (canProcessPayroll !== undefined) user.canProcessPayroll = canProcessPayroll;
-    if (canViewTrainings !== undefined) user.canViewTrainings = canViewTrainings;
-    if (canEditTrainings !== undefined) user.canEditTrainings = canEditTrainings;
-    if (canAccessSettings !== undefined) user.canAccessSettings = canAccessSettings;
-    if (canChangeDeductions !== undefined) user.canChangeDeductions = canChangeDeductions;
-    if (canPerformBackup !== undefined) user.canPerformBackup = canPerformBackup;
-
-    const updatedUser = await user.save();
-    res.json({ success: true, data: updatedUser });
-
+    res.json(updatedUser);
   } catch (error) {
-    console.error('Error updating user access:', error);
-    res.status(500).json({ success: false, message: 'Failed to update user access' });
+    console.error("Error updating user access:", error);
+    res.status(500).json({ message: "Server error" });
   }
 };

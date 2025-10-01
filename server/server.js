@@ -4,6 +4,8 @@ import dotenv from "dotenv";
 import http from "http";
 import { Server } from "socket.io";
 import connectDB from "./config/db.js"; // 👈 use centralized db connection
+import User from "./models/User.js";
+import { ensureUserTypes } from "./utils/bootstrap.js";
 
 import authRoutes from "./routes/authRoutes.js";
 import protectedRoutes from "./routes/protectedRoutes.js";
@@ -17,6 +19,7 @@ import employeeSalaryRoutes from "./routes/employeeSalaryRoutes.js";
 import settingsRoutes from "./routes/settingsRoutes.js";
 import deductionTypeRoutes from "./routes/deductionTypeRoutes.js";
 import payslipRequestRoutes from "./routes/payslipRequestRoutes.js";
+import dtrGenerationLogRoutes from "./routes/dtrGenerationLogRoutes.js";
 
 import { setSocketInstance } from "./socket.js";
 
@@ -63,9 +66,12 @@ app.use("/api/employee-salaries", employeeSalaryRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/deduction-types", deductionTypeRoutes);
 app.use("/api/payslip-requests", payslipRequestRoutes);
+app.use("/api/dtrlogs", dtrGenerationLogRoutes);
 
 // Start server after DB connection
-connectDB().then(() => {
+connectDB().then(async () => {
+  await ensureUserTypes(); // 👈 bootstrap logic
+
   server.listen(PORT, HOST, () => {
     console.log(`Server running at http://${HOST}:${PORT}`);
   });
