@@ -36,10 +36,6 @@ const AppRoutes = () => {
 
       {/* 🔒 Protected app (requires login) */}
       <Route
-        path="/"
-        element={isAuthenticated ? <HomePage /> : <Navigate to="/auth" replace />}
-      />
-      <Route
         path="/*"
         element={isAuthenticated ? <HomePage /> : <Navigate to="/auth" replace />}
       />

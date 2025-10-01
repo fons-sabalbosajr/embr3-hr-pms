@@ -1,9 +1,155 @@
 import React, { useState, useEffect } from "react";
-import { Card, Switch, Typography, message, Table, Modal, Button } from "antd";
+import {
+  Card,
+  Switch,
+  Typography,
+  message,
+  Table,
+  Modal,
+  Button,
+  Collapse,
+  List,
+  Tag,
+  Radio,
+} from "antd";
 import axiosInstance from "../../../api/axiosInstance";
 import useAuth from "../../../hooks/useAuth";
 
-const { Title } = Typography;
+const { Title, Text } = Typography;
+const { Panel } = Collapse;
+
+// Permission config for clean mapping
+const accessGroups = [
+  {
+    key: "general",
+    title: "General Access",
+    permissions: [
+      {
+        key: "canViewDashboard",
+        label: "Can View Dashboard",
+        description: "Allows user to view the system dashboard with analytics.",
+      },
+      {
+        key: "canAccessSettings",
+        label: "Can Access Settings",
+        description: "Allows user to configure system settings and preferences.",
+      },
+      {
+        key: "showSalaryAmounts",
+        label: "Show Salary Amounts",
+        description: "Allows user to view sensitive salary details in payroll.",
+      },
+    ],
+  },
+  {
+    key: "employees",
+    title: "Employee Management",
+    permissions: [
+      {
+        key: "canViewEmployees",
+        label: "Can View Employees",
+        description: "Allows user to view employee records.",
+      },
+      {
+        key: "canEditEmployees",
+        label: "Can Edit Employees",
+        description: "Allows user to modify employee records.",
+      },
+    ],
+  },
+  {
+    key: "dtrPayroll",
+    title: "DTR & Payroll",
+    permissions: [
+      {
+        key: "canViewDTR",
+        label: "Can View DTR",
+        description: "Allows user to view daily time records.",
+      },
+      {
+        key: "canProcessDTR",
+        label: "Can Process DTR",
+        description: "Allows user to generate or process daily time records.",
+      },
+      {
+        key: "canViewPayroll",
+        label: "Can View Payroll",
+        description: "Allows user to view payroll data.",
+      },
+      {
+        key: "canProcessPayroll",
+        label: "Can Process Payroll",
+        description: "Allows user to process payroll runs.",
+      },
+    ],
+  },
+  {
+    key: "trainings",
+    title: "Trainings & Others",
+    permissions: [
+      {
+        key: "canViewTrainings",
+        label: "Can View Trainings",
+        description: "Allows user to view training schedules and records.",
+      },
+      {
+        key: "canEditTrainings",
+        label: "Can Edit Trainings",
+        description: "Allows user to create or modify trainings.",
+      },
+      {
+        key: "canChangeDeductions",
+        label: "Can Change Deductions",
+        description: "Allows user to configure deductions.",
+      },
+      {
+        key: "canPerformBackup",
+        label: "Can Perform Backup",
+        description: "Allows user to perform database backups.",
+      },
+      {
+        key: "canManipulateBiometrics",
+        label: "Can Manipulate Biometrics",
+        description: "Allows user to override or change biometrics data.",
+      },
+    ],
+  },
+  {
+    key: "messaging",
+    title: "Messaging",
+    permissions: [
+      {
+        key: "canViewMessages",
+        label: "Can View Messages",
+        description: "Allows user to view real-time DTR messages in the popover.",
+      },
+      {
+        key: "canManageMessages",
+        label: "Can Manage Messages",
+        description: "Allows user to mark messages as read in the popover.",
+      },
+    ],
+  },
+];
+
+
+// Danger Zone Config
+const dangerZone = {
+  key: "danger",
+  title: "Navigation & Security Hierarchy (Danger Zone)",
+  permissions: [
+    {
+      key: "isAdmin",
+      label: "Administrator Access",
+      description: "Full admin privileges for this user.",
+    },
+    {
+      key: "canManageUsers",
+      label: "Can Manage Users",
+      description: "Allows user to create, update, and remove user accounts.",
+    },
+  ],
+};
 
 const UserAccess = () => {
   const { user: currentUser, updateCurrentUser } = useAuth();
@@ -29,15 +175,19 @@ const UserAccess = () => {
 
   const handleToggle = async (userId, key, value) => {
     try {
-      const response = await axiosInstance.put(`/users/${userId}/access`, { [key]: value });
+      const response = await axiosInstance.put(`/users/${userId}/access`, {
+        [key]: value,
+      });
       if (response.data.success) {
         const updatedUser = response.data.data;
-        setUsers(users.map(user => user._id === userId ? updatedUser : user));
+        setUsers((prev) =>
+          prev.map((u) => (u._id === userId ? updatedUser : u))
+        );
         setSelectedUser(updatedUser);
         if (currentUser._id === userId) {
           updateCurrentUser(updatedUser);
         }
-        message.success(`Successfully updated ${key} for user.`);
+        message.success("Updated successfully.");
       } else {
         message.error(response.data.message || "Failed to update user access");
       }
@@ -58,25 +208,13 @@ const UserAccess = () => {
   };
 
   const userColumns = [
+    { title: "Name", dataIndex: "name", key: "name" },
+    { title: "Username", dataIndex: "username", key: "username" },
+    { title: "Email", dataIndex: "email", key: "email" },
     {
-      title: 'Name',
-      dataIndex: 'name',
-      key: 'name',
-    },
-    {
-      title: 'Username',
-      dataIndex: 'username',
-      key: 'username',
-    },
-    {
-      title: 'Email',
-      dataIndex: 'email',
-      key: 'email',
-    },
-    {
-      title: 'Actions',
-      key: 'actions',
-      render: (text, record) => (
+      title: "Actions",
+      key: "actions",
+      render: (_, record) => (
         <Button type="primary" onClick={() => showModal(record)}>
           Manage Access
         </Button>
@@ -84,118 +222,24 @@ const UserAccess = () => {
     },
   ];
 
-  const accessColumns = [
-      {
-          title: 'Permission',
-          dataIndex: 'permission',
-          key: 'permission',
-      },
-      {
-          title: 'Status',
-          dataIndex: 'status',
-          key: 'status',
-      }
-  ]
-
-  const getAccessDataSource = (user) => {
-      if (!user) return [];
-      return [
-          {
-              key: '1',
-              permission: 'Verified',
-              status: <Switch checked={user.isVerified} onChange={(val) => handleToggle(user._id, "isVerified", val)} style={{ backgroundColor: user.isVerified ? 'green' : '' }} />
-          },
-          {
-            key: '2',
-            permission: 'Admin Access',
-            status: <Switch checked={user.isAdmin || false} onChange={(val) => handleToggle(user._id, "isAdmin", val)} />
-          },
-          {
-            key: '3',
-            permission: 'Can Manage Users',
-            status: <Switch checked={user.canManageUsers || false} onChange={(val) => handleToggle(user._id, "canManageUsers", val)} />
-          },
-          {
-            key: '4',
-            permission: 'Can View Dashboard',
-            status: <Switch checked={user.canViewDashboard || false} onChange={(val) => handleToggle(user._id, "canViewDashboard", val)} />
-          },
-          {
-            key: '5',
-            permission: 'Can View Employees',
-            status: <Switch checked={user.canViewEmployees || false} onChange={(val) => handleToggle(user._id, "canViewEmployees", val)} />
-          },
-          {
-            key: '6',
-            permission: 'Can Edit Employees',
-            status: <Switch checked={user.canEditEmployees || false} onChange={(val) => handleToggle(user._id, "canEditEmployees", val)} />
-          },
-          {
-            key: '7',
-            permission: 'Can View DTR',
-            status: <Switch checked={user.canViewDTR || false} onChange={(val) => handleToggle(user._id, "canViewDTR", val)} />
-          },
-          {
-            key: '8',
-            permission: 'Can Process DTR',
-            status: <Switch checked={user.canProcessDTR || false} onChange={(val) => handleToggle(user._id, "canProcessDTR", val)} />
-          },
-          {
-            key: '9',
-            permission: 'Can View Payroll',
-            status: <Switch checked={user.canViewPayroll || false} onChange={(val) => handleToggle(user._id, "canViewPayroll", val)} />
-          },
-          {
-            key: '10',
-            permission: 'Can Process Payroll',
-            status: <Switch checked={user.canProcessPayroll || false} onChange={(val) => handleToggle(user._id, "canProcessPayroll", val)} />
-          },
-          {
-            key: '11',
-            permission: 'Can View Trainings',
-            status: <Switch checked={user.canViewTrainings || false} onChange={(val) => handleToggle(user._id, "canViewTrainings", val)} />
-          },
-          {
-            key: '12',
-            permission: 'Can Edit Trainings',
-            status: <Switch checked={user.canEditTrainings || false} onChange={(val) => handleToggle(user._id, "canEditTrainings", val)} />
-          },
-          {
-            key: '13',
-            permission: 'Can Access Settings',
-            status: <Switch checked={user.canAccessSettings || false} onChange={(val) => handleToggle(user._id, "canAccessSettings", val)} />
-          },
-          {
-            key: '14',
-            permission: 'Can Change Deductions',
-            status: <Switch checked={user.canChangeDeductions || false} onChange={(val) => handleToggle(user._id, "canChangeDeductions", val)} />
-          },
-          {
-            key: '15',
-            permission: 'Can Perform Backup',
-            status: <Switch checked={user.canPerformBackup || false} onChange={(val) => handleToggle(user._id, "canPerformBackup", val)} />
-          },
-          {
-            key: '16',
-            permission: 'Can Manipulate Biometrics',
-            status: <Switch checked={user.canManipulateBiometrics} onChange={(val) => handleToggle(user._id, "canManipulateBiometrics", val)} />
-          },
-          {
-            key: '17',
-            permission: 'Show Salary Amounts',
-            status: <Switch checked={user.showSalaryAmounts} onChange={(val) => handleToggle(user._id, "showSalaryAmounts", val)} />
-          },
-      ]
-  }
-
   return (
     <Card style={{ margin: "10px", borderRadius: 12 }}>
       <Title level={3}>User Account Access Settings</Title>
-      <Table dataSource={users} columns={userColumns} rowKey="_id" pagination={{ pageSize: 10 }} />
+      <Table
+        dataSource={users}
+        columns={userColumns}
+        rowKey="_id"
+        pagination={{ pageSize: 10 }}
+      />
 
       {selectedUser && (
         <Modal
-          title={`Access for ${selectedUser.name}`}
+          title={
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span>Access for {selectedUser.name}</span>
+              {selectedUser.isVerified && <Tag color="green">Verified</Tag>}
+            </div>
+          }
           open={isModalVisible}
           onCancel={handleCancel}
           footer={[
@@ -203,8 +247,88 @@ const UserAccess = () => {
               Close
             </Button>,
           ]}
+          width={700}
+          style={{ top: 40 }}
         >
-            <Table dataSource={getAccessDataSource(selectedUser)} columns={accessColumns} pagination={false} />
+          <Collapse defaultActiveKey={["general"]} bordered={false}>
+            {accessGroups.map((group) => (
+              <Panel header={group.title} key={group.key}>
+                <List
+                  itemLayout="horizontal"
+                  dataSource={group.permissions}
+                  renderItem={(perm) => (
+                    <List.Item
+                      actions={[
+                        <Switch
+                          key={perm.key}
+                          checked={selectedUser[perm.key] || false}
+                          onChange={(val) =>
+                            handleToggle(selectedUser._id, perm.key, val)
+                          }
+                        />,
+                      ]}
+                    >
+                      <List.Item.Meta
+                        title={perm.label}
+                        description={perm.description}
+                      />
+                    </List.Item>
+                  )}
+                />
+              </Panel>
+            ))}
+
+            {/* 🚨 Danger Zone */}
+            <Panel
+              header={
+                <Text strong type="danger">
+                  {dangerZone.title}
+                </Text>
+              }
+              key={dangerZone.key}
+            >
+              <List
+                itemLayout="horizontal"
+                dataSource={dangerZone.permissions}
+                renderItem={(perm) => (
+                  <List.Item
+                    actions={[
+                      <Switch
+                        key={perm.key}
+                        checked={selectedUser[perm.key] || false}
+                        onChange={(val) =>
+                          handleToggle(selectedUser._id, perm.key, val)
+                        }
+                      />,
+                    ]}
+                  >
+                    <List.Item.Meta
+                      title={perm.label}
+                      description={perm.description}
+                    />
+                  </List.Item>
+                )}
+              />
+
+              {/* User Hierarchy */}
+              <div style={{ marginTop: 16 }}>
+                <Text strong>User Hierarchy</Text>
+                <br />
+                <Radio.Group
+                  value={selectedUser.userType || "guest"}
+                  onChange={(e) =>
+                    handleToggle(selectedUser._id, "userType", e.target.value)
+                  }
+                  style={{ marginTop: 8 }}
+                >
+                  <Radio value="developer">Developer</Radio>
+                  <Radio value="admin">Administrator</Radio>
+                  <Radio value="coadmin">Co-Admin</Radio>
+                  <Radio value="guest">Guest User</Radio>
+                </Radio.Group>
+              </div>
+            </Panel>
+          </Collapse>
         </Modal>
       )}
     </Card>

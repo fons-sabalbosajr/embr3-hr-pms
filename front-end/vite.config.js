@@ -7,7 +7,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd());
 
   return {
-    base: "/hrpms/", // 👈 important for Nginx subpath
+    base: "/hrpms", // 👈 important for Nginx subpath
     plugins: [react()],
     server: {
       host: env.VITE_HOST || "localhost",

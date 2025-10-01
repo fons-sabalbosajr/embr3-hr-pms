@@ -22,9 +22,19 @@ export const createPayslipRequest = async (req, res) => {
     }
 
     res.status(201).json({ success: true, data: newRequest });
-
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, message: "Failed to create payslip request" });
+  }
+};
+
+// ✅ New controller for GET
+export const getPayslipRequests = async (req, res) => {
+  try {
+    const requests = await PayslipRequest.find().sort({ createdAt: -1 });
+    res.json({ success: true, data: requests });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: "Failed to fetch payslip requests" });
   }
 };

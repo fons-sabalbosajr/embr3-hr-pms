@@ -1,11 +1,11 @@
 .dashboard-container {
   min-height: calc(100vh - 64px); /* Adjust based on header height */
-  padding: 16px;
+  padding: 5px;
   border-radius: 8px;
 }
 
 .dashboard-title {
-  font-size: 28px;
+  font-size: 24px;
   margin-bottom: 20px;
   font-weight: 500;
 }
@@ -172,8 +172,6 @@
     margin-top: 10px;
   }
 }
-
-
 
 
 
