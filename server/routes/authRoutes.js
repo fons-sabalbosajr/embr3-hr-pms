@@ -30,6 +30,6 @@ router.put('/change-password', verifyToken, changePassword);
 router.put('/preferences', verifyToken, updateUserPreferences);
 router.get('/', verifyToken, getAllUsers);
 router.get('/:id', verifyToken, getUserById);
-router.put('/:id/access', verifyToken, updateUserAccess);
+router.put('/:userId/access', verifyToken, updateUserAccess);
 
 export default router;

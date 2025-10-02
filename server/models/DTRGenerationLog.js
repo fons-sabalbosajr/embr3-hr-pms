@@ -1,10 +1,12 @@
+// models/DTRGenerationLog.js
 import mongoose from "mongoose";
 
 const dtrGenerationLogSchema = new mongoose.Schema(
   {
     employeeId: { type: String, required: true },
     period: { type: String, required: true },
-    generatedBy: { type: String, required: true }, // email of the user who requested
+    generatedBy: { type: String, required: true },
+    read: { type: Boolean, default: false }, // ✅ added
   },
   { timestamps: true }
 );

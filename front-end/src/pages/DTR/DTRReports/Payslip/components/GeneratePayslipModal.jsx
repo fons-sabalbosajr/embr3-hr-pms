@@ -15,6 +15,8 @@ import {
   Dropdown,
   Menu,
   notification,
+  Switch,
+  Tag,
 } from "antd";
 import {
   MinusCircleOutlined,
@@ -22,15 +24,9 @@ import {
   SyncOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
-import {
-  generatePaySlipPreview,
-} from "../../../../../../utils/generatePaySlip.js";
-import {
-  generatePaySlipPreviewRegular,
-} from "../../../../../../utils/generatePaySlipRegular.js";
+import { generatePaySlipPreview } from "../../../../../../utils/generatePaySlip.js";
+import { generatePaySlipPreviewRegular } from "../../../../../../utils/generatePaySlipRegular.js";
 import axiosInstance from "../../../../../api/axiosInstance.js";
-
-const { Option } = Select;
 
 const DeductionRow = ({
   fieldNamePrefix,
@@ -42,286 +38,69 @@ const DeductionRow = ({
   showSalaryAmounts,
   deductionTypes,
 }) => {
-  const type = form.getFieldValue([fieldNamePrefix, name, "type"]);
-  const selectedTypeInfo = deductionTypes.find((t) => t.name === type);
+  const itemType = form.getFieldValue([fieldNamePrefix, name, "type"]);
+  const empType = selectedEmployee?.empType;
 
-  let color = "black";
-  if (selectedTypeInfo) {
-    if (selectedTypeInfo.type === "incentive") {
-      color = "green";
-    } else {
-      color = "red";
-    }
-  } else if (
-    ["Absent", "Late/Undertime", "Tax", "GSIS", "PhilHealth", "Pag-IBIG"].includes(
-      type
-    )
-  ) {
-    color = "red";
-  }
-
-  const rawDailyRate = form.getFieldValue("dailyRate");
-  const dailyRate =
-    Number(String(rawDailyRate).replace(/[^\d.-]/g, "")) ||
-    Math.round(
-      (selectedEmployee.salaryInfo?.ratePerMonth ||
-        selectedEmployee.salaryInfo?.basicSalary ||
-        0) / 22
-    );
-
-  const handleTypeChange = (value) => {
-    const selectedType = deductionTypes.find((t) => t.name === value);
-    if (selectedType) {
-      if (
-        selectedType.calculationType === "formula" &&
-        selectedType.name === "Year-End Bonus"
-      ) {
-        const monthlyRate =
-          selectedEmployee.salaryInfo?.ratePerMonth ||
-          selectedEmployee.salaryInfo?.basicSalary ||
-          0;
-        form.setFieldValue([fieldNamePrefix, name, "amount"], monthlyRate);
-      } else {
-        form.setFieldValue([fieldNamePrefix, name, "amount"], selectedType.amount);
-      }
-    }
-    form.submit();
-  };
+  const colorStyle =
+    itemType === "Tax" ||
+    deductionTypes.find((d) => d.name === itemType)?.type === "deduction"
+      ? { color: "red", fontWeight: 600 }
+      : deductionTypes.find((d) => d.name === itemType)?.type === "incentive"
+      ? { color: "green", fontWeight: 600 }
+      : {};
 
   return (
-    <Space
-      key={name}
-      style={{
-        display: "flex",
-        width: "100%",
-        alignItems: "center",
-        marginBottom: -15,
-      }}
-      align="baseline"
-    >
-      <div style={{ display: "flex", gap: "8px", flex: 1 }}>
-        {/* Deduction Type */}
+    <Row gutter={8} align="middle" style={{ marginBottom: 4 }}>
+      <Col span={8}>
         <Form.Item
           {...restField}
           name={[name, "type"]}
-          rules={[{ required: true, message: "Select deduction type" }]}
-          style={{ width: "160px" }}
+          style={{ marginBottom: 0 }}
         >
-          <Select
-            key={color}
-            placeholder="Deduction Type"
-            onChange={handleTypeChange}
-            style={{ color: color }}
-          >
-            <Option value="Absent" style={{ color: "red" }}>
-              Absent
-            </Option>
-            <Option value="Late/Undertime" style={{ color: "red" }}>
-              Late/Undertime
-            </Option>
-            <Option value="Tax" style={{ color: "red" }}>
-              Tax (3%)
-            </Option>
-            {selectedEmployee.empType === "Regular" && (
-              <Option value="GSIS" style={{ color: "red" }}>
-                GSIS
-              </Option>
-            )}
-            {selectedEmployee.empType === "Regular" && (
-              <Option value="PhilHealth" style={{ color: "red" }}>
-                PhilHealth
-              </Option>
-            )}
-            {selectedEmployee.empType === "Regular" && (
-              <Option value="Pag-IBIG" style={{ color: "red" }}>
-                Pag-IBIG
-              </Option>
-            )}
-            {deductionTypes.map((deduction) => (
-              <Option
-                key={deduction._id}
-                value={deduction.name}
-                style={{
-                  color: deduction.type === "incentive" ? "green" : "red",
-                }}
-              >
-                {deduction.name}
-              </Option>
+          <Select placeholder="Select Deduction/Incentive" size="small">
+            {deductionTypes.map((dt) => (
+              <Select.Option key={dt.name} value={dt.name}>
+                {dt.name}
+              </Select.Option>
             ))}
-            <Option value="Other">Other</Option>
           </Select>
         </Form.Item>
-
-        {/* Absent Input (Days) */}
-        {type === "Absent" && (
-          <>
-            <Form.Item
-              {...restField}
-              name={[name, "days"]}
-              rules={[{ required: true, message: "Enter days" }]}
-              style={{ width: "80px" }}
-            >
-              <InputNumber
-                min={0}
-                placeholder="Days"
-                onChange={(val) => {
-                  const computed = val * dailyRate;
-                  form.setFieldValue(
-                    [fieldNamePrefix, name, "amount"],
-                    computed
-                  );
-                  form.submit();
-                }}
-                style={{ width: "100%" }}
-              />
-            </Form.Item>
-
-            <Form.Item
-              {...restField}
-              name={[name, "amount"]}
-              style={{ width: "120px" }}
-            >
-              <InputNumber
-                min={0}
-                readOnly
-                precision={2}
-                formatter={(value) =>
-                  showSalaryAmounts
-                    ? `₱${parseFloat(value || 0).toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}`
-                    : "*****"
-                }
-                parser={(value) => value.replace(/₱\s?|(,*)/g, "")}
-                style={{ width: "100%", color: color }}
-              />
-            </Form.Item>
-          </>
-        )}
-
-        {/* Late/Undertime */}
-        {type === "Late/Undertime" && (
-          <>
-            <Form.Item
-              {...restField}
-              name={[name, "unit"]}
-              initialValue="minutes"
-              style={{ width: "100px" }}
-            >
-              <Select onChange={() => form.submit()}>
-                <Option value="minutes">Minutes</Option>
-                <Option value="hours">Hours</Option>
-              </Select>
-            </Form.Item>
-
-            <Form.Item
-              {...restField}
-              name={[name, "value"]}
-              rules={[{ required: true, message: "Enter value" }]}
-            >
-              <InputNumber
-                min={0}
-                placeholder="Value"
-                onChange={(val) => {
-                  const unit = form.getFieldValue([
-                    fieldNamePrefix,
-                    name,
-                    "unit",
-                  ]);
-                  let computed = 0;
-                  if (unit === "minutes") {
-                    const perMinute = dailyRate / (8 * 60);
-                    computed = val * perMinute;
-                  } else if (unit === "hours") {
-                    const perHour = dailyRate / 8;
-                    computed = val * perHour;
-                  }
-                  form.setFieldValue(
-                    [fieldNamePrefix, name, "amount"],
-                    computed
-                  );
-                  form.submit();
-                }}
-              />
-            </Form.Item>
-
-            <Form.Item
-              {...restField}
-              name={[name, "amount"]}
-              style={{ width: "150px" }}
-            >
-              <InputNumber
-                min={0}
-                readOnly
-                precision={2}
-                onChange={() => form.submit()}
-                formatter={(value) =>
-                  showSalaryAmounts
-                    ? `₱${parseFloat(value || 0).toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}`
-                    : "*****"
-                }
-                parser={(value) => value.replace(/₱\s?|(,*)/g, "")}
-                style={{ width: "110px", color: color }}
-              />
-            </Form.Item>
-          </>
-        )}
-
-        {/* Tax */}
-        {type === "Tax" && (
-          <Form.Item
-            {...restField}
-            name={[name, "amount"]}
-            style={{ width: "150px" }}
-          >
-            <InputNumber
-              min={0}
-              readOnly
-              placeholder="Calculated Tax"
-              formatter={(value) =>
-                showSalaryAmounts
-                  ? `₱${parseFloat(value || 0).toLocaleString(undefined, {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}`
-                  : "*****"
-              }
-              parser={(value) => value.replace(/₱\s?|(,*)/g, "")}
-              style={{ width: "100px", color: color }}
-            />
-          </Form.Item>
-        )}
-
-        {/* Other Manual */}
-        {(type !== "Absent" && type !== "Late/Undertime" && type !== "Tax") && (
-          <Form.Item
-            {...restField}
-            name={[name, "amount"]}
-            rules={[{ required: true, message: "Enter amount" }]}
-            style={{ width: "150px" }}
-          >
-            <InputNumber
-              min={0}
-              onChange={() => form.submit()}
-              formatter={(value) =>
-                showSalaryAmounts
-                  ? `₱${parseFloat(value || 0).toLocaleString(undefined, {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}`
-                  : "*****"
-              }
-              parser={(value) => value.replace(/₱\s?|(,*)/g, "")}
-              style={{ width: "110px", color: color }}
-            />
-          </Form.Item>
-        )}
-      </div>
-    </Space>
+      </Col>
+      <Col span={8}>
+        <Form.Item
+          {...restField}
+          name={[name, "amount"]}
+          style={{ marginBottom: 0 }}
+        >
+          <InputNumber
+            size="small"
+            min={0}
+            precision={2}
+            style={{ width: "100%", ...colorStyle }}
+            readOnly={!(empType === "Regular")} // ✅ editable only for Regulars
+            formatter={(value) =>
+              showSalaryAmounts
+                ? `₱${parseFloat(value || 0).toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}`
+                : "*****"
+            }
+            parser={(value) => value.replace(/₱\s?|(,*)/g, "")}
+            onChange={() => form.submit()}
+          />
+        </Form.Item>
+      </Col>
+      <Col span={4}>
+        <Button
+          type="text"
+          size="small"
+          danger
+          icon={<MinusCircleOutlined />}
+          onClick={() => remove(name)}
+        />
+      </Col>
+    </Row>
   );
 };
 
@@ -346,6 +125,9 @@ const GeneratePayslipModal = ({
   formDeductionsFirstCutOff,
   formDeductionsSecondCutOff,
   cutOffDateRange,
+  firstCutOffGross,
+  secondCutOffGross,
+  monthlyRate,
 }) => {
   const [pdfPreview, setPdfPreview] = useState(null);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
@@ -399,21 +181,18 @@ const GeneratePayslipModal = ({
         return;
       }
 
-      const ratePerMonthValue =
-        selectedEmployee.salaryInfo?.ratePerMonth ||
-        selectedEmployee.salaryInfo?.basicSalary ||
-        0;
-      const secondPeriodEarned = ratePerMonthValue / 2;
+      const ratePerMonthValue = form.getFieldValue("ratePerMonth");
+      const peraAcaValue = form.getFieldValue("peraAca") || 0;
+      const peraAcaCutOff = form.getFieldValue("peraAcaCutOff") || "first";
 
-      const rawDailyRate = form.getFieldValue("dailyRate");
-      const dailyRate =
-        Number(String(rawDailyRate).replace(/[^\d.-]/g, "")) ||
-        Math.round(
-          (selectedEmployee.salaryInfo?.ratePerMonth ||
-            selectedEmployee.salaryInfo?.basicSalary ||
-            0) / 22
-        );
+      const cutOffPayValue = form.getFieldValue("cutOffPay");
 
+      const secondPeriodEarned =
+        form.getFieldValue("secondCutOffGrossAmount") ?? ratePerMonthValue / 2;
+      const firstCutOffNetPayValue =
+        form.getFieldValue("firstCutOffNetPay") ?? firstCutOffNetPay;
+
+      // Helper for tax calculations
       const calculateTax = (earnings, deductions) => {
         const otherDeductions = (deductions || []).filter(
           (d) => d && d.type !== "Tax"
@@ -431,23 +210,19 @@ const GeneratePayslipModal = ({
         earnings,
         fieldNamePrefix
       ) => {
-        if (!deductions) return [];
+        if (!deductions || selectedEmployee.empType === "Regular")
+          return deductions;
 
         const newTaxAmount = calculateTax(earnings, deductions);
-        const taxDeductionIndex = deductions.findIndex(
-          (d) => d && d.type === "Tax"
-        );
+        const taxIndex = deductions.findIndex((d) => d && d.type === "Tax");
 
-        if (
-          taxDeductionIndex !== -1 &&
-          deductions[taxDeductionIndex].amount !== newTaxAmount
-        ) {
+        if (taxIndex !== -1 && deductions[taxIndex].amount !== newTaxAmount) {
           setTimeout(() => {
             const currentDeductions = form.getFieldValue(fieldNamePrefix) || [];
-            if (currentDeductions[taxDeductionIndex]) {
+            if (currentDeductions[taxIndex]) {
               const newDeductions = [...currentDeductions];
-              newDeductions[taxDeductionIndex] = {
-                ...newDeductions[taxDeductionIndex],
+              newDeductions[taxIndex] = {
+                ...newDeductions[taxIndex],
                 amount: newTaxAmount,
               };
               form.setFieldsValue({ [fieldNamePrefix]: newDeductions });
@@ -462,7 +237,7 @@ const GeneratePayslipModal = ({
 
       const updatedFormDeductionsFirstCutOff = updateDeductionsAndTax(
         formDeductionsFirstCutOff,
-        cutOffPay,
+        cutOffPayValue,
         "deductionsFirstCutOff"
       );
       const updatedFormDeductionsSecondCutOff = updateDeductionsAndTax(
@@ -472,27 +247,57 @@ const GeneratePayslipModal = ({
       );
 
       if (selectedEmployee.empType === "Regular") {
+        // Aggregate deductions & incentives
         const allItems = isFullMonthRange
           ? [
-              ...(form.getFieldValue("deductionsFirstCutOff") || []).map((d) => ({ ...d, cutoff: 1})),
-              ...(form.getFieldValue("deductionsSecondCutOff") || []).map((d) => ({ ...d, cutoff: 2})),
+              ...(form.getFieldValue("deductionsFirstCutOff") || []).map(
+                (d) => ({ ...d, cutoff: 1 })
+              ),
+              ...(form.getFieldValue("deductionsSecondCutOff") || []).map(
+                (d) => ({ ...d, cutoff: 2 })
+              ),
             ]
-          : (form.getFieldValue("deductions") || []).map((d) => ({ ...d, cutoff: 1}));
+          : (form.getFieldValue("deductions") || []).map((d) => ({
+              ...d,
+              cutoff: 1,
+            }));
 
-        const deductions = allItems.filter(item => {
-          const type = deductionTypes.find(d => d.name === item.type);
-          return !type || type.type === 'deduction';
+        const deductions = allItems.filter((item) => {
+          const type = deductionTypes.find((d) => d.name === item.type);
+          return !type || type.type === "deduction";
         });
 
-        const incentives = allItems.filter(item => {
-          const type = deductionTypes.find(d => d.name === item.type);
-          return type && type.type === 'incentive';
+        const incentives = allItems.filter((item) => {
+          const type = deductionTypes.find((d) => d.name === item.type);
+          return type && type.type === "incentive";
         });
+
+        // Add PERA/ACA dynamically to the selected cut-off
+        if (peraAcaValue > 0) {
+          incentives.push({
+            type: "PERA/ACA",
+            amount: peraAcaValue,
+            cutoff: peraAcaCutOff === "first" ? 1 : 2,
+          });
+        }
+
+        const firstCutNet =
+          peraAcaCutOff === "first"
+            ? firstCutOffNetPay + peraAcaValue
+            : firstCutOffNetPay;
+        const secondCutNet =
+          peraAcaCutOff === "second"
+            ? secondCutOffNetPay + peraAcaValue
+            : secondCutOffNetPay;
+
+        const finalNetPay =
+          form.getFieldValue("grandTotalNetPay") ?? grandNetPay;
 
         const payslipData = {
           name: selectedEmployee.name,
           empId: selectedEmployee.empId,
           position: selectedEmployee.position,
+          empType: selectedEmployee.empType,
           cutOffStartDate: dayjs(cutOffDateRange[0]).format("YYYY-MM-DD"),
           cutOffEndDate: dayjs(cutOffDateRange[1]).format("YYYY-MM-DD"),
           grossIncome: {
@@ -502,11 +307,13 @@ const GeneratePayslipModal = ({
           deductions,
           incentives,
           totalDeductions: grandTotalDeductions,
-          netPay: grandNetPay,
+          netPay: finalNetPay,
+          firstCutOffNetPay: firstCutNet,
+          secondCutOffNetPay: secondCutNet,
+          secondPeriodEarned: secondPeriodEarned,
         };
 
         setCurrentPayslipData(payslipData);
-
         const previewUri = generatePaySlipPreviewRegular(
           payslipData,
           currentPayslipNo,
@@ -514,14 +321,16 @@ const GeneratePayslipModal = ({
         );
         setPdfPreview(previewUri);
       } else {
+        // Contract employees
         const payslipData = {
           name: selectedEmployee.name,
           empId: selectedEmployee.empId,
           position: selectedEmployee.position,
+          empType: selectedEmployee.empType,
           cutOffStartDate: dayjs(cutOffDateRange[0]).format("YYYY-MM-DD"),
           cutOffEndDate: dayjs(cutOffDateRange[1]).format("YYYY-MM-DD"),
           grossIncome: {
-            rate: cutOffPay,
+            rate: cutOffPayValue,
             earnPeriod: earningsForPeriod,
           },
           secondPeriodRatePerMonth: ratePerMonthValue,
@@ -566,7 +375,6 @@ const GeneratePayslipModal = ({
         };
 
         setCurrentPayslipData(payslipData);
-
         const previewUri = generatePaySlipPreview(
           payslipData,
           currentPayslipNo,
@@ -579,10 +387,7 @@ const GeneratePayslipModal = ({
     };
 
     const handler = setTimeout(generatePreview, 1000);
-
-    return () => {
-      clearTimeout(handler);
-    };
+    return () => clearTimeout(handler);
   }, [
     isModalOpen,
     selectedEmployee,
@@ -662,7 +467,10 @@ const GeneratePayslipModal = ({
               <Form
                 form={form}
                 layout="vertical"
-                onValuesChange={(_, allValues) => recalcPayslip(allValues, deductionTypes)}
+                size="small"
+                onValuesChange={(_, allValues) =>
+                  recalcPayslip(allValues, deductionTypes)
+                }
               >
                 {/* Header */}
                 <div
@@ -688,78 +496,59 @@ const GeneratePayslipModal = ({
                 {/* Employee info */}
                 <Row gutter={16}>
                   <Col span={8}>
-                    <Form.Item label="Employee ID">
+                    <Form.Item
+                      label="Employee ID"
+                      labelCol={{ style: { paddingBottom: "0px" } }}
+                    >
                       <Input value={selectedEmployee.empId} readOnly />
                     </Form.Item>
                   </Col>
                   <Col span={8}>
-                    <Form.Item label="Employee No">
+                    <Form.Item
+                      label="Employee No"
+                      labelCol={{ style: { paddingBottom: "0px" } }}
+                    >
                       <Input value={selectedEmployee.empNo} readOnly />
                     </Form.Item>
                   </Col>
                   <Col span={8}>
-                    <Form.Item label="Salary Type">
+                    <Form.Item
+                      label="Salary Type"
+                      labelCol={{ style: { paddingBottom: "0px" } }}
+                    >
                       <Input value={selectedEmployee.empType} readOnly />
                     </Form.Item>
                   </Col>
                 </Row>
                 <Row gutter={16}>
-                  <Col span={12}>
-                    <Form.Item label="Name">
+                  <Col span={8}>
+                    <Form.Item
+                      label="Name"
+                      labelCol={{ style: { paddingBottom: "0px" } }}
+                    >
                       <Input value={selectedEmployee.name} readOnly />
                     </Form.Item>
                   </Col>
-                  <Col span={12}>
-                    <Form.Item label="Position">
+                  <Col span={16}>
+                    <Form.Item
+                      label="Position"
+                      labelCol={{ style: { paddingBottom: "0px" } }}
+                    >
                       <Input value={selectedEmployee.position} readOnly />
                     </Form.Item>
                   </Col>
                 </Row>
                 <Row gutter={16}>
                   <Col span={8}>
-                    <Form.Item label="Rate per Month">
-                      <Input
-                        value={
-                          showSalaryAmounts
-                            ? `₱${(
-                                selectedEmployee.salaryInfo?.ratePerMonth ||
-                                selectedEmployee.salaryInfo?.basicSalary ||
-                                0
-                              ).toLocaleString(undefined, {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                              })}`
-                            : "*****"
-                        }
-                        disabled
-                      />
-                    </Form.Item>
-                  </Col>
-                  <Col span={8}>
-                    <Form.Item label="Rate per Cut Off">
-                      <Input
-                        value={
-                          showSalaryAmounts
-                            ? `₱${cutOffPay.toLocaleString(undefined, {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                              })}`
-                            : "*****"
-                        }
-                        disabled
-                      />
-                    </Form.Item>
-                  </Col>
-
-                  <Col span={8}>
                     <Form.Item
-                      label="Daily Rate"
-                      name="dailyRate"
-                      initialValue={Math.round(
-                        (selectedEmployee.salaryInfo?.ratePerMonth ||
-                          selectedEmployee.salaryInfo?.basicSalary ||
-                          0) / 22
-                      )}
+                      labelCol={{ style: { paddingBottom: "0px" } }}
+                      label="Rate per Month"
+                      name="ratePerMonth"
+                      initialValue={
+                        selectedEmployee.salaryInfo?.ratePerMonth ||
+                        selectedEmployee.salaryInfo?.basicSalary ||
+                        0
+                      }
                     >
                       <InputNumber
                         min={0}
@@ -779,13 +568,139 @@ const GeneratePayslipModal = ({
                       />
                     </Form.Item>
                   </Col>
+                  <Col span={8}>
+                    <Form.Item
+                      labelCol={{ style: { paddingBottom: "0px" } }}
+                      label="PERA/ACA"
+                      style={{ marginBottom: 0 }}
+                    >
+                      <Space.Compact
+                        style={{ display: "flex", alignItems: "center" }}
+                      >
+                        {/* PERA/ACA Amount */}
+                        <Form.Item name="peraAca" initialValue={0} noStyle>
+                          <InputNumber
+                            min={0}
+                            precision={2}
+                            formatter={(value) =>
+                              showSalaryAmounts
+                                ? `₱${parseFloat(value || 0).toLocaleString(
+                                    undefined,
+                                    {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                    }
+                                  )}`
+                                : "*****"
+                            }
+                            parser={(value) => value.replace(/₱\s?|(,*)/g, "")}
+                            style={{
+                              width: "60%",
+                              color: "green",
+                              fontWeight: 600,
+                            }}
+                            onChange={(value) => {
+                              // Trigger recalculation with the new value
+                              recalcPayslip(
+                                { ...form.getFieldsValue(), peraAca: value },
+                                deductionTypes
+                              );
+                            }}
+                          />
+                        </Form.Item>
+
+                        {/* Switch + Indicator */}
+                        <Form.Item
+                          name="peraAcaCutOff"
+                          initialValue="first"
+                          noStyle
+                        >
+                          <Switch
+                            checkedChildren="1st"
+                            unCheckedChildren="2nd"
+                            checked={
+                              form.getFieldValue("peraAcaCutOff") === "first"
+                            }
+                            onChange={(checked) => {
+                              const cutOff = checked ? "first" : "second";
+                              const allValues = {
+                                ...form.getFieldsValue(),
+                                peraAcaCutOff: cutOff,
+                              };
+
+                              form.setFieldsValue({ peraAcaCutOff: cutOff });
+                              recalcPayslip(allValues, deductionTypes); // recalc immediately
+                            }}
+                            style={{ marginLeft: 8 }}
+                          />
+                        </Form.Item>
+                      </Space.Compact>
+                    </Form.Item>
+                  </Col>
+
+                  {selectedEmployee?.empType !== "Regular" && (
+                    <>
+                      <Col span={8}>
+                        <Form.Item
+                          labelCol={{ style: { paddingBottom: "0px" } }}
+                          label="Rate per Cut Off"
+                          name="cutOffPay"
+                        >
+                          <InputNumber
+                            min={0}
+                            formatter={(value) =>
+                              `₱${parseFloat(value || 0).toLocaleString(
+                                undefined,
+                                {
+                                  minimumFractionDigits: 2,
+                                  maximumFractionDigits: 2,
+                                }
+                              )}`
+                            }
+                            parser={(value) => value.replace(/₱\s?|(,*)/g, "")}
+                            style={{ width: "100%" }}
+                          />
+                        </Form.Item>
+                      </Col>
+                      <Col span={8}>
+                        <Form.Item
+                          labelCol={{ style: { paddingBottom: "0px" } }}
+                          label="Daily Rate"
+                          name="dailyRate"
+                          initialValue={Math.round(
+                            (selectedEmployee.salaryInfo?.ratePerMonth ||
+                              selectedEmployee.salaryInfo?.basicSalary ||
+                              0) / 22
+                          )}
+                        >
+                          <InputNumber
+                            min={0}
+                            formatter={(value) =>
+                              showSalaryAmounts
+                                ? `₱${parseFloat(value || 0).toLocaleString(
+                                    undefined,
+                                    {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                    }
+                                  )}`
+                                : "*****"
+                            }
+                            parser={(value) => value.replace(/₱\s?|(,*)/g, "")}
+                            style={{ width: "100%" }}
+                          />
+                        </Form.Item>
+                      </Col>
+                    </>
+                  )}
                 </Row>
+
                 {/* Deduction Section */}
                 <h3>Add Deductions/Incentives</h3>
 
                 {isFullMonthRange ? (
                   <>
-                    {/* First Cut-Off */}
+                    {/* 1st Cut-Off */}
                     <Card
                       title={`1st Cut-Off (1–15 ${dayjs(
                         form.getFieldValue("cutOffDateRange")?.[0]
@@ -793,6 +708,62 @@ const GeneratePayslipModal = ({
                       size="small"
                       style={{ marginBottom: 10 }}
                     >
+                      <Row
+                        gutter={8}
+                        style={{ width: "100%", marginBottom: 6 }}
+                      >
+                        <Col span={12}>
+                          <Form.Item
+                            label="Rate Per Month"
+                            style={{ marginBottom: 6 }}
+                          >
+                            <Input
+                              value={
+                                showSalaryAmounts
+                                  ? `₱${(monthlyRate || 0).toLocaleString(
+                                      undefined,
+                                      {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2,
+                                      }
+                                    )}`
+                                  : "*****"
+                              }
+                              readOnly
+                            />
+                          </Form.Item>
+                        </Col>
+                        <Col span={12}>
+                          <Form.Item
+                            label="Gross Amount Earned"
+                            name="firstCutOffGross"
+                            initialValue={firstCutOffGross}
+                            style={{ marginBottom: 6 }}
+                          >
+                            <InputNumber
+                              min={0}
+                              precision={2}
+                              style={{ width: "100%" }}
+                              onChange={() => form.submit()}
+                              formatter={(value) =>
+                                showSalaryAmounts
+                                  ? `₱${parseFloat(value || 0).toLocaleString(
+                                      undefined,
+                                      {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2,
+                                      }
+                                    )}`
+                                  : "*****"
+                              }
+                              parser={(value) =>
+                                value.replace(/₱\s?|(,*)/g, "")
+                              }
+                            />
+                          </Form.Item>
+                        </Col>
+                      </Row>
+
                       <Form.List name="deductionsFirstCutOff">
                         {(fields, { add, remove }) => (
                           <>
@@ -809,100 +780,105 @@ const GeneratePayslipModal = ({
                                 deductionTypes={deductionTypes}
                               />
                             ))}
+
+                            <Form.Item style={{ marginBottom: 6 }}>
+                              <Button
+                                type="primary"
+                                size="small"
+                                onClick={() =>
+                                  add({ type: "Other", amount: 0 })
+                                }
+                                icon={<PlusOutlined />}
+                              >
+                                Add Item (1st Cut-Off)
+                              </Button>
+                            </Form.Item>
+
                             <Row
-                              gutter={16}
-                              style={{ width: "100%", marginTop: "16px" }}
+                              gutter={8}
+                              style={{ width: "100%", marginTop: 6 }}
                             >
                               <Col span={12}>
-                                <Form.Item label="Total Deductions">
-                                  <Input
-                                    value={
-                                      showSalaryAmounts
-                                        ? `₱${firstCutOffTotalDeductions.toLocaleString(
-                                            undefined,
-                                            {
-                                              minimumFractionDigits: 2,
-                                              maximumFractionDigits: 2,
-                                            }
-                                          )}`
-                                        : "*****"
-                                    }
-                                    readOnly
-                                  />
-                                </Form.Item>
+                                <Card
+                                  size="small"
+                                  bordered
+                                  bodyStyle={{ padding: "6px 8px" }}
+                                  style={{ background: "#fafafa" }}
+                                >
+                                  <Form.Item
+                                    label="Total Deductions"
+                                    style={{ marginBottom: 0 }}
+                                  >
+                                    <Input
+                                      value={
+                                        showSalaryAmounts
+                                          ? `₱${(
+                                              firstCutOffTotalDeductions || 0
+                                            ).toLocaleString()}`
+                                          : "*****"
+                                      }
+                                      readOnly
+                                    />
+                                  </Form.Item>
+                                </Card>
                               </Col>
                               <Col span={12}>
-                                <Form.Item label="Net Pay">
-                                  <Input
-                                    value={
-                                      showSalaryAmounts
-                                        ? `₱${firstCutOffNetPay.toLocaleString(
-                                            undefined,
-                                            {
-                                              minimumFractionDigits: 2,
-                                              maximumFractionDigits: 2,
-                                            }
-                                          )}`
-                                        : "*****"
-                                    }
-                                    readOnly
-                                  />
-                                </Form.Item>
+                                <Card
+                                  size="small"
+                                  bordered
+                                  bodyStyle={{ padding: "6px 8px" }}
+                                  style={{ background: "#fafafa" }}
+                                >
+                                  <Form.Item
+                                    label="Net Pay"
+                                    style={{ marginBottom: 0 }}
+                                  >
+                                    <Input
+                                      value={
+                                        showSalaryAmounts
+                                          ? `₱${(
+                                              firstCutOffNetPay || 0
+                                            ).toLocaleString()}`
+                                          : "*****"
+                                      }
+                                      readOnly
+                                    />
+                                  </Form.Item>
+                                </Card>
                               </Col>
                             </Row>
-                            <Form.Item>
-                              <Space>
-                                <Button
-                                  type="primary"
-                                  size="small"
-                                  onClick={() =>
-                                    add({ type: "Other", amount: 0 })
-                                  }
-                                  icon={<PlusOutlined />}
-                                >
-                                  Add Item (1st Cut-Off)
-                                </Button>
-                                {fields.length > 0 && (
-                                  <Button
-                                    type="default"
-                                    size="small"
-                                    danger
-                                    onClick={() => remove(fields.length - 1)}
-                                    icon={<MinusCircleOutlined />}
-                                  >
-                                    Remove
-                                  </Button>
-                                )}
-                              </Space>
-                            </Form.Item>
                           </>
                         )}
                       </Form.List>
                     </Card>
 
-                    {/* Second Cut-Off */}
+                    {/* 2nd Cut-Off */}
                     <Card
                       title={`2nd Cut-Off (16–${dayjs(
                         form.getFieldValue("cutOffDateRange")?.[1]
-                      ).daysInMonth()} ${dayjs(
-                        form.getFieldValue("cutOffDateRange")?.[1]
                       ).format("MMMM YYYY")})`}
                       size="small"
+                      style={{ marginBottom: 10 }}
                     >
-                      <Row gutter={16}>
+                      <Row
+                        gutter={8}
+                        style={{ width: "100%", marginBottom: 6 }}
+                      >
                         <Col span={12}>
-                          <Form.Item label="Rate Per Month">
+                          <Form.Item
+                            label="Rate Per Month"
+                            style={{ marginBottom: 6 }}
+                          >
                             <Input
                               value={
                                 showSalaryAmounts
-                                  ? `₱${(
-                                      selectedEmployee.salaryInfo?.ratePerMonth ||
-                                      selectedEmployee.salaryInfo?.basicSalary ||
-                                      0
-                                    ).toLocaleString(undefined, {
-                                      minimumFractionDigits: 2,
-                                      maximumFractionDigits: 2,
-                                    })}`
+                                  ? `₱${(monthlyRate || 0).toLocaleString(
+                                      undefined,
+                                      {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2,
+                                      }
+                                    )}`
                                   : "*****"
                               }
                               readOnly
@@ -910,25 +886,36 @@ const GeneratePayslipModal = ({
                           </Form.Item>
                         </Col>
                         <Col span={12}>
-                          <Form.Item label="Gross Amount Earned">
-                            <Input
-                              value={
+                          <Form.Item
+                            label="Gross Amount Earned"
+                            name="secondCutOffGross"
+                            initialValue={secondCutOffGross}
+                            style={{ marginBottom: 6 }}
+                          >
+                            <InputNumber
+                              min={0}
+                              precision={2}
+                              style={{ width: "100%" }}
+                              onChange={() => form.submit()}
+                              formatter={(value) =>
                                 showSalaryAmounts
-                                  ? `₱${(
-                                      (selectedEmployee.salaryInfo?.ratePerMonth ||
-                                        selectedEmployee.salaryInfo?.basicSalary ||
-                                        0) / 2
-                                    ).toLocaleString(undefined, {
-                                      minimumFractionDigits: 2,
-                                      maximumFractionDigits: 2,
-                                    })}`
+                                  ? `₱${parseFloat(value || 0).toLocaleString(
+                                      undefined,
+                                      {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2,
+                                      }
+                                    )}`
                                   : "*****"
                               }
-                              readOnly
+                              parser={(value) =>
+                                value.replace(/₱\s?|(,*)/g, "")
+                              }
                             />
                           </Form.Item>
                         </Col>
                       </Row>
+
                       <Form.List name="deductionsSecondCutOff">
                         {(fields, { add, remove }) => (
                           <>
@@ -945,72 +932,73 @@ const GeneratePayslipModal = ({
                                 deductionTypes={deductionTypes}
                               />
                             ))}
+
+                            <Form.Item style={{ marginBottom: 6 }}>
+                              <Button
+                                type="primary"
+                                size="small"
+                                onClick={() =>
+                                  add({ type: "Other", amount: 0 })
+                                }
+                                icon={<PlusOutlined />}
+                              >
+                                Add Item (2nd Cut-Off)
+                              </Button>
+                            </Form.Item>
+
                             <Row
-                              gutter={16}
-                              style={{ width: "100%", marginTop: "16px" }}
+                              gutter={8}
+                              style={{ width: "100%", marginTop: 6 }}
                             >
                               <Col span={12}>
-                                <Form.Item label="Total Deductions">
-                                  <Input
-                                    value={
-                                      showSalaryAmounts
-                                        ? `₱${secondCutOffTotalDeductions.toLocaleString(
-                                            undefined,
-                                            {
-                                              minimumFractionDigits: 2,
-                                              maximumFractionDigits: 2,
-                                            }
-                                          )}`
-                                        : "*****"
-                                    }
-                                    readOnly
-                                  />
-                                </Form.Item>
+                                <Card
+                                  size="small"
+                                  bordered
+                                  bodyStyle={{ padding: "6px 8px" }}
+                                  style={{ background: "#fafafa" }}
+                                >
+                                  <Form.Item
+                                    label="Total Deductions"
+                                    style={{ marginBottom: 0 }}
+                                  >
+                                    <Input
+                                      value={
+                                        showSalaryAmounts
+                                          ? `₱${(
+                                              secondCutOffTotalDeductions || 0
+                                            ).toLocaleString()}`
+                                          : "*****"
+                                      }
+                                      readOnly
+                                    />
+                                  </Form.Item>
+                                </Card>
                               </Col>
                               <Col span={12}>
-                                <Form.Item label="Net Pay">
-                                  <Input
-                                    value={
-                                      showSalaryAmounts
-                                        ? `₱${secondCutOffNetPay.toLocaleString(
-                                            undefined,
-                                            {
-                                              minimumFractionDigits: 2,
-                                              maximumFractionDigits: 2,
-                                            }
-                                          )}`
-                                        : "*****"
-                                    }
-                                    readOnly
-                                  />
-                                </Form.Item>
+                                <Card
+                                  size="small"
+                                  bordered
+                                  bodyStyle={{ padding: "6px 8px" }}
+                                  style={{ background: "#fafafa" }}
+                                >
+                                  <Form.Item
+                                    label="Net Pay"
+                                    style={{ marginBottom: 0 }}
+                                  >
+                                    <Input
+                                      value={
+                                        showSalaryAmounts
+                                          ? `₱${(
+                                              secondCutOffNetPay || 0
+                                            ).toLocaleString()}`
+                                          : "*****"
+                                      }
+                                      readOnly
+                                    />
+                                  </Form.Item>
+                                </Card>
                               </Col>
                             </Row>
-                            <Form.Item>
-                              <Space>
-                                <Button
-                                  type="primary"
-                                  size="small"
-                                  onClick={() =>
-                                    add({ type: "Other", amount: 0 })
-                                  }
-                                  icon={<PlusOutlined />}
-                                >
-                                  Add Item (2nd Cut-Off)
-                                </Button>
-                                {fields.length > 0 && (
-                                  <Button
-                                    type="default"
-                                    size="small"
-                                    danger
-                                    onClick={() => remove(fields.length - 1)}
-                                    icon={<MinusCircleOutlined />}
-                                  >
-                                    Remove
-                                  </Button>
-                                )}
-                              </Space>
-                            </Form.Item>
                           </>
                         )}
                       </Form.List>
@@ -1039,7 +1027,9 @@ const GeneratePayslipModal = ({
                             <Space>
                               <Button
                                 type="primary"
-                                onClick={() => add({ type: "Other", amount: 0 })}
+                                onClick={() =>
+                                  add({ type: "Other", amount: 0 })
+                                }
                                 icon={<PlusOutlined />}
                               >
                                 Add Item
@@ -1067,38 +1057,66 @@ const GeneratePayslipModal = ({
               <div className="payslip-summary">
                 <Row gutter={16}>
                   <Col span={12}>
-                    <Form.Item label="Grand Total Deductions">
-                      <Input
-                        value={
-                          showSalaryAmounts
-                            ? `₱${grandTotalDeductions.toLocaleString(
-                                undefined,
-                                {
-                                  minimumFractionDigits: 2,
-                                  maximumFractionDigits: 2,
-                                }
-                              )}`
-                            : "*****"
-                        }
-                        readOnly
-                      />
+                    <Form.Item labelCol={{ style: { paddingBottom: "0px" } }}>
+                      <Form.Item label="Grand Total Deductions">
+                        <Input
+                          value={
+                            showSalaryAmounts
+                              ? `₱${grandTotalDeductions.toLocaleString(
+                                  undefined,
+                                  {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                  }
+                                )}`
+                              : "*****"
+                          }
+                          readOnly
+                        />
+                      </Form.Item>
                     </Form.Item>
                   </Col>
-                  <Col span={12}>
-                    <Form.Item label="Grand Total Net Pay">
-                      <Input
-                        value={
-                          showSalaryAmounts
-                            ? `₱${grandNetPay.toLocaleString(undefined, {
+                  {selectedEmployee.empType === "Regular" ? (
+                    <Col span={12}>
+                      <Form.Item
+                        label="Grand Total Net Pay"
+                        name="grandTotalNetPay"
+                        initialValue={grandNetPay}
+                      >
+                        <InputNumber
+                          formatter={(value) =>
+                            `₱${parseFloat(value || 0).toLocaleString(
+                              undefined,
+                              {
                                 minimumFractionDigits: 2,
                                 maximumFractionDigits: 2,
-                              })}`
-                            : "*****"
-                        }
-                        readOnly
-                      />
-                    </Form.Item>
-                  </Col>
+                              }
+                            )}`
+                          }
+                          parser={(value) => value.replace(/₱\s?|(,*)/g, "")}
+                          style={{ width: "100%" }}
+                        />
+                      </Form.Item>
+                    </Col>
+                  ) : (
+                    <Col span={12}>
+                      <Col span={12}>
+                        <Form.Item label="Grand Total Net Pay">
+                          <Input
+                            value={
+                              showSalaryAmounts
+                                ? `₱${grandNetPay.toLocaleString(undefined, {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                  })}`
+                                : "*****"
+                            }
+                            readOnly
+                          />
+                        </Form.Item>
+                      </Col>
+                    </Col>
+                  )}
                 </Row>
               </div>
             </div>

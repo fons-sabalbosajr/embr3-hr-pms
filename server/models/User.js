@@ -45,7 +45,12 @@ const userSchema = new mongoose.Schema(
     canViewNotifications: { type: Boolean, default: false },
 
     // Message Access
+    canViewMessages: { type: Boolean, default: false },
     canManageMessages: { type: Boolean, default: false },
+
+     // Backup and Config
+    canAccessConfigSettings: { type: Boolean, default: false },
+    canAccessDeveloper: { type: Boolean, default: false },
 
     // Security / Hierarchy
     userType: {

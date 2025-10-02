@@ -41,6 +41,8 @@ import ImportDTRModal from "../../components/DTR/ImportDTRModal";
 import DTRLogs from "../DTR/DTRLogs/DTRLogs";
 import DTRProcess from "../DTR/components/DTRProcess/DTRProcess";
 import DTRReports from "../DTR/DTRReports/DTRReports";
+import RecordConfigSettings from "../../components/Settings/RecordConfigSettings/RecordConfigSettings";
+import DeveloperSettings from "../../components/Settings/DevSettings/DevSettings";
 import ProtectedRoute from "../../components/ProtectedRoute";
 import ProfileModal from "./components/ProfileModal";
 import FeatureModal from "./components/FeatureModal";
@@ -196,7 +198,7 @@ const HomePage = () => {
           },
           {
             key: "/dtr/reports",
-            label: "Reports",
+            label: "Report Management",
             permissions: ["canViewDTR"],
           },
         ],
@@ -219,13 +221,24 @@ const HomePage = () => {
           },
           {
             key: "/settings/access",
-            label: "User Access",
+            label: "User Access Settings",
             permissions: ["canManageUsers"],
           },
+          // {
+          //   key: "/settings/record-config",
+          //   label: "Record Configuration Settings",
+          //   permissions: ["canAccessConfigSettings"],
+          // },
           {
             key: "/settings/backup",
             label: "Backup Data",
             permissions: ["canPerformBackup"],
+          },
+          {
+            key: "/settings/developer-settings",
+            label: "Developer Settings",
+            className: "developer-menu-item", // 👈 custom class
+            permissions: ["canAccessDeveloper"],
           },
         ],
       },
@@ -265,11 +278,16 @@ const HomePage = () => {
           <Button
             type="link"
             size="small"
-            onClick={() =>
-              setNotifications((prev) =>
-                prev.map((n) => ({ ...n, read: true }))
-              )
-            }
+            onClick={async () => {
+              try {
+                await axiosInstance.put("/payslip-requests/read-all");
+                setNotifications((prev) =>
+                  prev.map((n) => ({ ...n, read: true }))
+                );
+              } catch (error) {
+                message.error("Failed to mark all notifications as read");
+              }
+            }}
           >
             Mark all as read
           </Button>
@@ -298,7 +316,18 @@ const HomePage = () => {
             <Button
               size="small"
               type="link"
-              onClick={() => console.log("View notification:", n)}
+              onClick={async () => {
+                try {
+                  await axiosInstance.put(`/payslip-requests/${n.id}/read`);
+                  setNotifications((prev) =>
+                    prev.map((notif) =>
+                      notif.id === n.id ? { ...notif, read: true } : notif
+                    )
+                  );
+                } catch (error) {
+                  message.error("Failed to mark notification as read");
+                }
+              }}
             >
               View
             </Button>
@@ -330,18 +359,33 @@ const HomePage = () => {
           <Button
             type="link"
             size="small"
-            onClick={() =>
-              setMessages((prev) => prev.map((m) => ({ ...m, read: true })))
-            }
+            onClick={async () => {
+              try {
+                // ✅ Optimistically update UI
+                setMessages((prev) => prev.map((m) => ({ ...m, read: true })));
+
+                // ✅ Call backend to persist
+                await axiosInstance.put("/dtrlogs/read-all");
+
+                // ✅ Refresh to stay in sync
+                const { data } = await axiosInstance.get("/dtrlogs");
+                if (data.success) {
+                  setMessages(data.data);
+                }
+              } catch (error) {
+                message.error("Failed to mark all messages as read");
+              }
+            }}
           >
             Mark all as read
           </Button>
         )}
       </div>
+
       {messages.length > 0 ? (
         messages.map((m) => (
           <div
-            key={m.id}
+            key={m._id} // ✅ use _id instead of id
             style={{
               padding: "8px 12px",
               borderBottom: "1px solid #f0f0f0",
@@ -361,7 +405,27 @@ const HomePage = () => {
             <Button
               size="small"
               type="link"
-              onClick={() => console.log("View message:", m)}
+              onClick={async () => {
+                try {
+                  // ✅ Optimistic update
+                  setMessages((prev) =>
+                    prev.map((msg) =>
+                      msg._id === m._id ? { ...msg, read: true } : msg
+                    )
+                  );
+
+                  // ✅ Persist to backend
+                  await axiosInstance.put(`/dtrlogs/${m._id}/read`);
+
+                  // ✅ Refresh list
+                  const { data } = await axiosInstance.get("/dtrlogs");
+                  if (data.success) {
+                    setMessages(data.data);
+                  }
+                } catch (error) {
+                  message.error("Failed to mark message as read");
+                }
+              }}
             >
               View
             </Button>
@@ -459,11 +523,13 @@ const HomePage = () => {
         />
       </Sider>
 
-      <ImportDTRModal
-        open={isImportModalOpen}
-        onClose={() => setIsImportModalOpen(false)}
-        currentUser={user}
-      />
+      {user && (
+        <ImportDTRModal
+          open={isImportModalOpen}
+          onClose={() => setIsImportModalOpen(false)}
+          currentUser={user}
+        />
+      )}
 
       <Layout>
         <Header className="header">
@@ -481,10 +547,9 @@ const HomePage = () => {
               placement="bottomRight"
             >
               <Badge
-                count={notifications.length}
+                count={notifications.filter((n) => !n.read).length} // Correctly count unread
                 size="small"
                 overflowCount={99}
-                showZero
               >
                 <BellOutlined className="icon-trigger" />
               </Badge>
@@ -495,10 +560,9 @@ const HomePage = () => {
               placement="bottomRight"
             >
               <Badge
-                count={messages.length}
+                count={messages.filter((m) => !m.read).length} // Correctly count unread
                 size="small"
                 overflowCount={99}
-                showZero
               >
                 <MessageOutlined className="icon-trigger" />
               </Badge>
@@ -591,6 +655,14 @@ const HomePage = () => {
                   </ProtectedRoute>
                 }
               />
+              {/* <Route
+                path="/settings/record-config"
+                element={
+                  <ProtectedRoute requiredPermissions={["canAccessSettings"]}>
+                    <RecordConfigSettings />
+                  </ProtectedRoute>
+                }
+              /> */}
               <Route
                 path="/settings/backup"
                 element={
@@ -604,6 +676,14 @@ const HomePage = () => {
                 element={
                   <ProtectedRoute requiredPermissions={["canChangeDeductions"]}>
                     <DeductionSettings />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/settings/developer-settings"
+                element={
+                  <ProtectedRoute requiredPermissions={["canAccessDeveloper"]}>
+                    <DeveloperSettings />
                   </ProtectedRoute>
                 }
               />

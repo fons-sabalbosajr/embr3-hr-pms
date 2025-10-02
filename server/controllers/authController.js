@@ -311,64 +311,56 @@ export const getAllUsers = async (req, res) => {
 
 export const updateUserAccess = async (req, res) => {
   try {
-    const { id } = req.params;
-    const {
-      showSalaryAmounts,
-      canManipulateBiometrics,
-      isAdmin,
-      canManageUsers,
-      canViewDashboard,
-      canViewEmployees,
-      canEditEmployees,
-      canViewDTR,
-      canProcessDTR,
-      canViewPayroll,
-      canProcessPayroll,
-      canViewTrainings,
-      canEditTrainings,
-      canAccessSettings,
-      canChangeDeductions,
-      canPerformBackup,
-      canAccessNotifications,
-      canManageNotifications,
-      canViewNotifications,
-      userType, // ✅ new
-    } = req.body;
+    const { userId } = req.params; // Correctly get userId from params
+    const updates = req.body;
 
-    const updatedUser = await User.findByIdAndUpdate(
-      id,
-      {
-        showSalaryAmounts,
-        canManipulateBiometrics,
-        isAdmin,
-        canManageUsers,
-        canViewDashboard,
-        canViewEmployees,
-        canEditEmployees,
-        canViewDTR,
-        canProcessDTR,
-        canViewPayroll,
-        canProcessPayroll,
-        canViewTrainings,
-        canEditTrainings,
-        canAccessSettings,
-        canChangeDeductions,
-        canPerformBackup,
-        canAccessNotifications,
-        canManageNotifications,
-        canViewNotifications,
-        ...(userType && { userType }), // ✅ only update if provided
-      },
-      { new: true, runValidators: true }
-    ).select("-password");
-
-    if (!updatedUser) {
-      return res.status(404).json({ message: "User not found" });
+    // Find the user first
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    res.json(updatedUser);
+    // Define allowed keys to prevent unwanted updates
+    const allowedUpdates = [
+      "showSalaryAmounts",
+      "canManipulateBiometrics",
+      "isAdmin",
+      "canManageUsers",
+      "canViewDashboard",
+      "canViewEmployees",
+      "canEditEmployees",
+      "canViewDTR",
+      "canProcessDTR",
+      "canViewPayroll",
+      "canProcessPayroll",
+      "canViewTrainings",
+      "canEditTrainings",
+      "canAccessSettings",
+      "canChangeDeductions",
+      "canPerformBackup",
+      "canViewMessages", // Added
+      "canManageMessages", // Added
+      "canAccessConfigSettings", // Added
+      "canAccessDeveloper", // Added
+      "userType",
+    ];
+
+    // Dynamically and safely apply updates
+    Object.keys(updates).forEach((key) => {
+      if (allowedUpdates.includes(key)) {
+        user[key] = updates[key];
+      }
+    });
+
+    const updatedUser = await user.save();
+
+    // Exclude password from the returned user object
+    const userObject = updatedUser.toObject();
+    delete userObject.password;
+
+    res.json({ success: true, data: userObject });
   } catch (error) {
     console.error("Error updating user access:", error);
-    res.status(500).json({ message: "Server error" });
+    res.status(500).json({ success: false, message: "Server error" });
   }
 };

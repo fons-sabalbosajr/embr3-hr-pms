@@ -38,3 +38,32 @@ export const getPayslipRequests = async (req, res) => {
     res.status(500).json({ success: false, message: "Failed to fetch payslip requests" });
   }
 };
+
+export const markAllPayslipRequestsAsRead = async (req, res) => {
+  try {
+    await PayslipRequest.updateMany({}, { $set: { read: true } });
+    res.json({ success: true, message: "All requests marked as read" });
+  } catch (error) {
+    console.error("Error marking all requests as read:", error);
+    res.status(500).json({ success: false, message: "Server Error" });
+  }
+};
+
+export const markNotificationAsRead = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const request = await PayslipRequest.findById(id);
+
+    if (!request) {
+      return res.status(404).json({ success: false, message: "Request not found" });
+    }
+
+    request.read = true;
+    await request.save();
+
+    res.json({ success: true, data: request });
+  } catch (error) {
+    console.error("Error marking request as read:", error);
+    res.status(500).json({ success: false, message: "Server Error" });
+  }
+};

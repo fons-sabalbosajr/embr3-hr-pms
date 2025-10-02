@@ -32,7 +32,8 @@ const accessGroups = [
       {
         key: "canAccessSettings",
         label: "Can Access Settings",
-        description: "Allows user to configure system settings and preferences.",
+        description:
+          "Allows user to configure system settings and preferences.",
       },
       {
         key: "showSalaryAmounts",
@@ -121,7 +122,8 @@ const accessGroups = [
       {
         key: "canViewMessages",
         label: "Can View Messages",
-        description: "Allows user to view real-time DTR messages in the popover.",
+        description:
+          "Allows user to view real-time DTR messages in the popover.",
       },
       {
         key: "canManageMessages",
@@ -131,7 +133,6 @@ const accessGroups = [
     ],
   },
 ];
-
 
 // Danger Zone Config
 const dangerZone = {
@@ -147,6 +148,17 @@ const dangerZone = {
       key: "canManageUsers",
       label: "Can Manage Users",
       description: "Allows user to create, update, and remove user accounts.",
+    },
+    //  {
+    //   key: "canAccessConfigSettings",
+    //   label: "Can Access Record Configurtion Settings",
+    //   description: "Allows user configure, manipulate daily time biometrics.",
+    // },
+    {
+      key: "canAccessDeveloper",
+      label: "Can Access Developer Settings",
+      description:
+        "Allows user to manage developer settings and other system data.",
     },
   ],
 };

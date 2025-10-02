@@ -184,3 +184,32 @@ export const getWorkCalendarLogs = async (req, res) => {
     res.status(500).json({ success: false, message: "Server Error" });
   }
 };
+
+export const markDTRLogAsRead = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const log = await DTRLog.findById(id);
+
+    if (!log) {
+      return res.status(404).json({ success: false, message: "Log not found" });
+    }
+
+    log.read = true;
+    await log.save();
+
+    res.json({ success: true, data: log });
+  } catch (error) {
+    console.error("Error marking log as read:", error);
+    res.status(500).json({ success: false, message: "Server Error" });
+  }
+};
+
+export const markAllDTRLogsAsRead = async (req, res) => {
+  try {
+    await DTRLog.updateMany({}, { $set: { read: true } });
+    res.json({ success: true, message: "All logs marked as read" });
+  } catch (error) {
+    console.error("Error marking all logs as read:", error);
+    res.status(500).json({ success: false, message: "Server Error" });
+  }
+};
