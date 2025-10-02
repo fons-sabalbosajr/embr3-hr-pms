@@ -168,6 +168,31 @@
   background-color: #555; /* slightly lighter on hover */
 }
 
+/* Default style: red text */
+.developer-menu-item {
+  color: #ff4d4f !important; 
+  font-weight: 600;
+}
+
+/* Hover: red background with white text */
+.developer-menu-item:hover {
+  background-color: #ff4d4f !important;
+  color: #fff !important;
+}
+
+/* Selected (active) state: fixed red background + white text */
+.ant-menu-item-selected.developer-menu-item {
+  background-color: #ff4d4f !important;
+  color: #fff !important;
+}
+
+/* Make sure inner text follows the same color rules */
+.developer-menu-item .ant-menu-title-content {
+  color: inherit !important;
+}
+
+
+
 @keyframes gradientFlow {
   0% {
     background-position: 0% 50%;

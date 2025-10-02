@@ -58,6 +58,7 @@ app.use("/api/users", authRoutes);
 app.use("/api/protected", protectedRoutes);
 app.use("/api/employees", employeeRoutes);
 app.use("/api/dtr", dtrRoutes);
+app.use("/api/dtrlogs", dtrGenerationLogRoutes);
 app.use("/api/dtrlogs", dtrLogRoutes);
 app.use("/api/dtrdatas", dtrDataRoutes);
 app.use("/api/trainings", trainingRoutes);
@@ -66,7 +67,6 @@ app.use("/api/employee-salaries", employeeSalaryRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/deduction-types", deductionTypeRoutes);
 app.use("/api/payslip-requests", payslipRequestRoutes);
-app.use("/api/dtrlogs", dtrGenerationLogRoutes);
 
 // Start server after DB connection
 connectDB().then(async () => {

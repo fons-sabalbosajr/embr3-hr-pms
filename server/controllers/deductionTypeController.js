@@ -17,7 +17,8 @@ export const getDeductionTypes = async (req, res) => {
 // @access  Private
 export const createDeductionType = async (req, res) => {
   try {
-    const { name, description, type, calculationType, amount, formula } = req.body;
+    const { name, description, type, calculationType, amount, formula } =
+      req.body;
 
     const deductionType = new DeductionType({
       name,
@@ -40,7 +41,8 @@ export const createDeductionType = async (req, res) => {
 // @access  Private
 export const updateDeductionType = async (req, res) => {
   try {
-    const { name, description, type, calculationType, amount, formula } = req.body;
+    const { name, description, type, calculationType, amount, formula } =
+      req.body;
     const deductionType = await DeductionType.findById(req.params.id);
 
     if (!deductionType) {
@@ -66,15 +68,12 @@ export const updateDeductionType = async (req, res) => {
 // @access  Private
 export const deleteDeductionType = async (req, res) => {
   try {
-    const deductionType = await DeductionType.findById(req.params.id);
-
+    const deductionType = await DeductionType.findByIdAndDelete(req.params.id);
     if (!deductionType) {
       return res.status(404).json({ message: "Deduction type not found" });
     }
-
-    await deductionType.remove();
-    res.status(200).json({ message: "Deduction type removed" });
+    res.json({ message: "Deduction type deleted successfully" });
   } catch (error) {
-    res.status(500).json({ message: "Server Error" });
+    res.status(500).json({ message: error.message });
   }
 };

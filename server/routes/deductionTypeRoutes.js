@@ -1,4 +1,4 @@
-import express from 'express';
+import express from "express";
 const router = express.Router();
 import {
   getDeductionTypes,
@@ -11,9 +11,6 @@ import authMiddleware from "../middleware/authMiddleware.js";
 router.use(authMiddleware); // Protect all routes
 
 router.route("/").get(getDeductionTypes).post(createDeductionType);
-router
-  .route("/:id")
-  .put(updateDeductionType)
-  .delete(deleteDeductionType);
+router.route("/:id").put(updateDeductionType).delete(deleteDeductionType);
 
 export default router;
