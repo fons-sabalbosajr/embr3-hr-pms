@@ -1,12 +1,12 @@
+// server.js
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import http from "http";
-import { Server } from "socket.io";
-import connectDB from "./config/db.js"; // 👈 use centralized db connection
-import User from "./models/User.js";
+import connectDB from "./config/db.js";
 import { ensureUserTypes } from "./utils/bootstrap.js";
 
+// Import your routes
 import authRoutes from "./routes/authRoutes.js";
 import protectedRoutes from "./routes/protectedRoutes.js";
 import employeeRoutes from "./routes/employeeRoutes.js";
@@ -21,39 +21,25 @@ import deductionTypeRoutes from "./routes/deductionTypeRoutes.js";
 import payslipRequestRoutes from "./routes/payslipRequestRoutes.js";
 import dtrGenerationLogRoutes from "./routes/dtrGenerationLogRoutes.js";
 
-import { setSocketInstance } from "./socket.js";
+// Import the socket initializer
+import { initSocket } from "./socket.js";
 
+// --- Basic Setup ---
 dotenv.config();
-
 const app = express();
 const PORT = process.env.SERVER_PORT || 5000;
 const HOST = process.env.SERVER_HOST || "0.0.0.0";
-
 const server = http.createServer(app);
 
-const io = new Server(server, {
-  path: "/socket.io/", // Explicitly set the path
-  cors: {
-    origin: process.env.CLIENT_ORIGIN,
-    methods: ["GET", "POST"],
-    credentials: true,
-  },
-});
-setSocketInstance(io);
+// --- Initialize Socket.IO Server ---
+initSocket(server);
 
-io.on("connection", (socket) => {
-  //console.log(`Socket connected: ${socket.id}`);
-  socket.on("disconnect", () => {
-    //console.log("Socket disconnected:", socket.id);
-  });
-});
-
-// Middleware
+// --- Middleware ---
 app.use(cors({ origin: process.env.CLIENT_ORIGIN, credentials: true }));
 app.use(express.json({ limit: "20mb" }));
 app.use(express.urlencoded({ extended: true, limit: "20mb" }));
 
-// Routes
+// --- API Routes ---
 app.use("/api/users", authRoutes);
 app.use("/api/protected", protectedRoutes);
 app.use("/api/employees", employeeRoutes);
@@ -68,10 +54,9 @@ app.use("/api/settings", settingsRoutes);
 app.use("/api/deduction-types", deductionTypeRoutes);
 app.use("/api/payslip-requests", payslipRequestRoutes);
 
-// Start server after DB connection
+// --- Start Server ---
 connectDB().then(async () => {
-  await ensureUserTypes(); // 👈 bootstrap logic
-
+  await ensureUserTypes(); // Run bootstrap logic after DB connection
   server.listen(PORT, HOST, () => {
     console.log(`Server running at http://${HOST}:${PORT}`);
   });

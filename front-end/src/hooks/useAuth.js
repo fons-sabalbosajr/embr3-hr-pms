@@ -2,7 +2,11 @@ import { useContext } from "react";
 import AuthContext from "../context/AuthContext";
 
 const useAuth = () => {
-  const { user, updateCurrentUser, ...rest } = useContext(AuthContext);
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error("useAuth must be used within an AuthProvider");
+  }
+  const { user, updateCurrentUser, ...rest } = context;
 
   // ✅ Simple helper for feature access
   const hasAccess = (key) => {

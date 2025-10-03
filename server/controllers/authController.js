@@ -2,6 +2,7 @@ import bcrypt from "bcrypt";
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
+import { getSocketInstance } from "../socket.js";
 import {
   sendVerificationEmail,
   sendResetPasswordEmail,
@@ -106,12 +107,20 @@ export const login = async (req, res) => {
       return res.status(403).json({ message: "Email not verified" });
     }
 
+    user.isOnline = true;
+    await user.save();
+
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
       expiresIn: "1d",
     });
 
     const userObject = user.toObject();
     delete userObject.password; // Ensure password is not sent
+
+    const io = getSocketInstance();
+    if (io) {
+      io.emit("user-status-changed", { userId: user._id, status: "online" });
+    }
 
     res.json({
       token,
@@ -317,7 +326,9 @@ export const updateUserAccess = async (req, res) => {
     // Find the user first
     const user = await User.findById(userId);
     if (!user) {
-      return res.status(404).json({ success: false, message: "User not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
     }
 
     // Define allowed keys to prevent unwanted updates
@@ -362,5 +373,24 @@ export const updateUserAccess = async (req, res) => {
   } catch (error) {
     console.error("Error updating user access:", error);
     res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+export const logout = async (req, res) => {
+  try {
+    const { userId } = req.body;
+    if (userId) {
+      await User.findByIdAndUpdate(userId, { isOnline: false });
+
+      // ✅ Tell all clients exactly who logged out
+      const io = getSocketInstance();
+      if (io) {
+        io.emit("user-status-changed", { userId, status: "offline" });
+      }
+    }
+    res.status(200).json({ message: "Logout successful." });
+  } catch (error) {
+    console.error("[Logout Error]", error);
+    res.status(500).json({ message: "Logout failed." });
   }
 };

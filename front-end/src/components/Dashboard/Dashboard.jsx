@@ -1,7 +1,11 @@
-import React, { useEffect, useState, lazy, Suspense } from "react";
+import React, { useEffect, useState, lazy, Suspense, useRef } from "react";
 import { Alert, Row, Col, Card, Skeleton } from "antd";
 import { getEmployees } from "../../api/employeeAPI";
+import { getUsers } from "../../api/userAPI";
 import "./dashboard.css";
+import OnlineUsers from "./component/OnlineUsers";
+import useAuth from "../../hooks/useAuth";
+import socket from "../../../utils/socket";
 
 const PieChartComponent = lazy(() =>
   import("../Dashboard/component/PieChart/PieChartComponent")
@@ -13,6 +17,10 @@ import EmployeesPerSectionTable from "./component/EmployeesPerSectionTable";
 
 const Dashboard = () => {
   const [employees, setEmployees] = useState([]);
+  const [users, setUsers] = useState([]);
+  const employeesRef = useRef(employees);
+  employeesRef.current = employees;
+
   const [totalEmployees, setTotalEmployees] = useState(0);
   const [employeeTypeCounts, setEmployeeTypeCounts] = useState({});
   const [presentCount, setPresentCount] = useState(0);
@@ -20,6 +28,9 @@ const Dashboard = () => {
   const [employeesPerSection, setEmployeesPerSection] = useState([]);
   const [loadingEmployees, setLoadingEmployees] = useState(true);
   const [error, setError] = useState(null);
+  const [onlineUsers, setOnlineUsers] = useState([]);
+  const [offlineUsers, setOfflineUsers] = useState([]);
+  const { user } = useAuth();
 
   const COLORS = [
     "#0050b3",
@@ -31,6 +42,30 @@ const Dashboard = () => {
     "#13c2c2",
     "#f5222d",
   ];
+
+  const fetchUsers = async () => {
+    try {
+      const usersArray = await getUsers(); // always returns an array
+      setUsers(usersArray);
+      setOnlineUsers(usersArray.filter((u) => u.isOnline));
+      setOfflineUsers(usersArray.filter((u) => !u.isOnline));
+    } catch (err) {
+      console.error("Failed to fetch users:", err);
+      setUsers([]); // fallback
+      setOnlineUsers([]);
+      setOfflineUsers([]);
+    }
+  };
+
+  useEffect(() => {
+    fetchUsers();
+
+    socket.on("user-status-changed", fetchUsers);
+
+    return () => {
+      socket.off("user-status-changed", fetchUsers);
+    };
+  }, []);
 
   useEffect(() => {
     const fetchEmployees = async () => {
@@ -90,8 +125,7 @@ const Dashboard = () => {
       />
 
       <Row gutter={[16, 16]} style={{ marginTop: 20 }}>
-        {/** Lazy-loaded Pie Chart */}
-        <Col xs={24} md={24}>
+        <Col xs={24} md={18}>
           {loadingEmployees ? (
             <Skeleton active paragraph={{ rows: 6 }} />
           ) : (
@@ -103,6 +137,15 @@ const Dashboard = () => {
               />
             </Suspense>
           )}
+        </Col>
+
+        {/* 🟢 Sidebar-like Online Users */}
+        <Col
+          xs={24}
+          md={6}
+          style={{ display: "flex", flexDirection: "column" }}
+        >
+          <OnlineUsers onlineUsers={onlineUsers} offlineUsers={offlineUsers} />
         </Col>
       </Row>
 

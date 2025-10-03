@@ -1,0 +1,121 @@
+/* Main container for the Online Users component */
+.online-users-container {
+  background: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  padding: 16px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Header styling */
+.online-users-header {
+  margin-bottom: 12px;
+  color: #333;
+  font-weight: 600;
+  font-size: 16px;
+}
+
+/* Search input styling */
+.online-users-search {
+  margin-bottom: 12px;
+}
+
+.online-users-search .ant-input-search-button {
+  border-radius: 0 6px 6px 0;
+}
+
+.online-users-search .ant-input {
+  border-radius: 6px;
+}
+
+/* Container for online/offline counts */
+.status-counts {
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: #555;
+  display: flex;
+  justify-content: space-around;
+  gap: 10px;
+  padding: 4px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+/* Wrapper for the user list to enable scrolling */
+.user-list-wrapper {
+  flex: 1;
+  overflow-y: auto;
+  /* Custom scrollbar styling */
+  scrollbar-width: thin;
+  scrollbar-color: #cccccc #f0f0f0;
+}
+
+.user-list-wrapper::-webkit-scrollbar {
+  width: 6px;
+}
+
+.user-list-wrapper::-webkit-scrollbar-track {
+  background: #f0f0f0;
+}
+
+.user-list-wrapper::-webkit-scrollbar-thumb {
+  background-color: #cccccc;
+  border-radius: 10px;
+  border: 2px solid #f0f0f0;
+}
+
+/* Individual user list item */
+.user-list-item {
+  border: none !important;
+  padding: 8px 10px !important;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.2s ease-in-out;
+}
+
+/* Hover effect for all list items */
+.user-list-item:hover {
+  background-color: rgba(0, 0, 0, 0.03) !important;
+}
+
+/* Special styling for the current user's item */
+.current-user-item {
+  background-color: rgba(24, 144, 255, 0.1) !important;
+}
+
+/* Hover effect for the current user's item */
+.current-user-item:hover {
+  background-color: rgba(24, 144, 255, 0.15) !important;
+}
+
+/* User avatar */
+.user-avatar {
+  background-color: #1890ff;
+  font-size: 14px;
+  font-weight: bold;
+}
+
+/* User name/title */
+.user-title {
+  font-weight: 500;
+  font-size: 14px;
+  color: #333;
+}
+
+.current-user-item .user-title {
+  font-weight: bold;
+}
+
+/* "(You)" indicator */
+.you-indicator {
+  color: #1890ff;
+  font-size: 12px;
+  font-weight: normal;
+}
+
+/* Last seen description */
+.user-description {
+  font-size: 12px;
+  color: #888;
+}

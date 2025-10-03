@@ -1,47 +1,80 @@
-import React, { createContext, useState, useEffect } from 'react';
-import { secureGet, secureStore, secureRemove } from '../../utils/secureStorage';
-import axiosInstance from '../api/axiosInstance';
+import React, { createContext, useState, useEffect } from "react";
+import {
+  secureGet,
+  secureStore,
+  secureRemove,
+} from "../../utils/secureStorage";
+import axiosInstance from "../api/axiosInstance";
+import socket from "../../utils/socket";
 
 const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-  const [token, setToken] = useState(secureGet('token'));
+  const [user, setUser] = useState(() => secureGet("user"));
+  const [token, setToken] = useState(() => secureGet("token"));
 
   useEffect(() => {
-    const storedUser = secureGet('user');
-    if (storedUser) {
-      setUser(storedUser);
-    }
     if (token) {
-      axiosInstance.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+      axiosInstance.defaults.headers.common[
+        "Authorization"
+      ] = `Bearer ${token}`;
     } else {
-      delete axiosInstance.defaults.headers.common['Authorization'];
+      delete axiosInstance.defaults.headers.common["Authorization"];
     }
-  }, [token]);
+
+    if (user) {
+      socket.connect(); // Connect the socket
+      socket.emit("store-user", user); // Tell the server who is connected
+    } else {
+      socket.disconnect(); // Disconnect on logout
+    }
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [user, token]);
 
   const login = async (credentials) => {
-    const res = await axiosInstance.post('/users/login', credentials);
+    const res = await axiosInstance.post("/users/login", credentials);
     const { token, user } = res.data;
-    secureStore('token', token);
-    secureStore('user', user);
+
+    secureStore("token", token);
+    secureStore("user", user);
     setToken(token);
     setUser(user);
-    axiosInstance.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+
+    axiosInstance.defaults.headers.common["Authorization"] = `Bearer ${token}`;
+
+    // ✅ Immediately tell server user is online
+    socket.connect();
+    socket.emit("store-user", user);
+
     return user;
   };
 
-  const logout = () => {
-    secureRemove('token');
-    secureRemove('user');
+  const logout = async () => {
+    if (user) {
+      try {
+        await axiosInstance.post("/users/logout", { userId: user._id });
+      } catch (error) {
+        console.error("Logout failed on server", error);
+      }
+
+      // ✅ Explicitly tell server user logged out
+      socket.emit("logout", user._id);
+      socket.disconnect();
+    }
+
+    secureRemove("token");
+    secureRemove("user");
     setToken(null);
     setUser(null);
-    delete axiosInstance.defaults.headers.common['Authorization'];
+    delete axiosInstance.defaults.headers.common["Authorization"];
   };
 
   const updateCurrentUser = (updatedUser) => {
     setUser(updatedUser);
-    secureStore('user', updatedUser);
+    secureStore("user", updatedUser);
   };
 
   const hasPermission = (permissions) => {
@@ -49,7 +82,7 @@ export const AuthProvider = ({ children }) => {
     if (user.isAdmin) return true;
     if (!permissions || permissions.length === 0) return true; // No specific permission required
 
-    return permissions.every(p => user[p]);
+    return permissions.every((p) => user[p]);
   };
 
   const value = {
