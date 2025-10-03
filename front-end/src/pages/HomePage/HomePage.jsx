@@ -47,6 +47,7 @@ import ProtectedRoute from "../../components/ProtectedRoute";
 import ProfileModal from "./components/ProfileModal";
 import FeatureModal from "./components/FeatureModal";
 import { NotificationsContext } from "../../context/NotificationsContext";
+import socket from "../../../utils/socket";
 
 import io from "socket.io-client";
 import "./hompage.css";
@@ -72,6 +73,23 @@ const HomePage = () => {
   useEffect(() => {
     localStorage.setItem("messages", JSON.stringify(messages));
   }, [messages]);
+
+   useEffect(() => {
+    // 👇 2. The socket is already connected by AuthContext, so just listen for events
+    socket.on("newNotification", (data) => {
+      setNotifications((prev) => [
+        { ...data, id: data._id || Date.now() },
+        ...prev,
+      ]);
+    });
+
+    socket.on("newDTRMessage", (data) => {
+      setMessages((prev) => [{ ...data, id: data._id || Date.now() }, ...prev]);
+    });
+
+    // 👇 3. Remove the return () => socket.disconnect(); from here
+    //    AuthContext is now responsible for disconnecting.
+  }, []);
 
   // Load initial data from backend
   useEffect(() => {
