@@ -68,10 +68,21 @@
 /* Individual user list item */
 .user-list-item {
   border: none !important;
-  padding: 8px 10px !important;
+  padding: 2px 8px !important; /* FURTHER REDUCED */
   border-radius: 6px;
   cursor: pointer;
   transition: background-color 0.2s ease-in-out;
+}
+
+/* Align avatar and content vertically */
+.user-list-item .ant-list-item-meta {
+  align-items: center;
+}
+
+/* Reduce gap between title and description */
+.user-list-item .ant-list-item-meta-title {
+  margin-bottom: -10px !important; /* FURTHER REDUCED */
+  padding-top: 5px;
 }
 
 /* Hover effect for all list items */
@@ -92,15 +103,19 @@
 /* User avatar */
 .user-avatar {
   background-color: #1890ff;
-  font-size: 14px;
+  font-size: 12px !important; /* REDUCED */
   font-weight: bold;
+  width: 28px !important; /* ADDED */
+  height: 28px !important; /* ADDED */
+  line-height: 28px !important; /* ADDED */
 }
 
 /* User name/title */
 .user-title {
-  font-weight: 500;
-  font-size: 14px;
+  font-weight: 400;
+  font-size: 12px; /* REDUCED */
   color: #333;
+  line-height: 1.3; /* ADDED */
 }
 
 .current-user-item .user-title {
@@ -110,12 +125,13 @@
 /* "(You)" indicator */
 .you-indicator {
   color: #1890ff;
-  font-size: 12px;
+  font-size: 11px; /* REDUCED */
   font-weight: normal;
 }
 
 /* Last seen description */
 .user-description {
-  font-size: 12px;
+  font-size: 10px; /* REDUCED */
   color: #888;
+  line-height: 1.3; /* ADDED */
 }
