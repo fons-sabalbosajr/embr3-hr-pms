@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { List, Avatar, Badge, Input } from "antd";
 import { getUsers } from "../../../api/userAPI";
 import socket from "../../../../utils/socket";
@@ -10,33 +10,38 @@ const OnlineUsers = () => {
   const [search, setSearch] = useState("");
   const { user: currentUser } = useAuth();
 
-  // Effect for initial user fetch
-  useEffect(() => {
-    const fetchUsers = async () => {
-      try {
-        const usersArray = await getUsers();
-        // Enrich user objects with initial lastSeen status
+  const fetchUsers = useCallback(async () => {
+    try {
+      const usersArray = await getUsers(); // getUsers() directly returns the array
+      if (Array.isArray(usersArray)) {
         const enrichedUsers = usersArray.map((u) => ({
           ...u,
           lastSeen: u.isOnline ? "Online now" : "Offline",
         }));
         setUsers(enrichedUsers);
-      } catch (error) {
-        console.error("Failed to fetch users:", error);
-        setUsers([]); // Reset on error
+      } else {
+        console.error("getUsers did not return an array:", usersArray);
+        setUsers([]);
       }
-    };
-    fetchUsers();
+    } catch (error) {
+      console.error("Failed to fetch users:", error);
+      setUsers([]);
+    }
   }, []);
+
+  // Effect for initial user fetch
+  useEffect(() => {
+    fetchUsers();
+  }, [fetchUsers]);
 
   // Effect for real-time socket updates on user status
   useEffect(() => {
     const handleStatusChange = ({ userId, status }) => {
-      const timestamp = new Date().toLocaleString();
+      console.log("Received user-status-changed event:", { userId, status });
       setUsers((prevUsers) => {
         const userExists = prevUsers.some((u) => u._id === userId);
         if (userExists) {
-          // Update existing user's status and lastSeen
+          const timestamp = new Date().toLocaleString();
           return prevUsers.map((u) =>
             u._id === userId
               ? {
@@ -50,29 +55,20 @@ const OnlineUsers = () => {
               : u
           );
         } else {
-          // Note: If a new user connects who wasn't in the initial fetch,
-          // we add a placeholder. A robust implementation might fetch full user details here.
-          return [
-            ...prevUsers,
-            {
-              _id: userId,
-              name: `User ${userId}`, // Placeholder name
-              isOnline: status === "online",
-              lastSeen:
-                status === "online"
-                  ? "Online now"
-                  : `Last seen: ${timestamp}`,
-            },
-          ];
+          // A new user has connected who wasn't in the initial list.
+          // Refetch the entire list to get the new user's details.
+          fetchUsers();
+          return prevUsers; // Return current state, the fetch will update it.
         }
       });
     };
 
     socket.on("user-status-changed", handleStatusChange);
+
     return () => {
       socket.off("user-status-changed", handleStatusChange);
     };
-  }, []); // Empty dependency array ensures this effect runs only once
+  }, [fetchUsers]);
 
   // Memoize sorted user list for performance
   const sortedUsers = useMemo(() => {
@@ -117,7 +113,7 @@ const OnlineUsers = () => {
           avatar={
             <Badge
               dot
-              offset={[-4, 32]}
+              offset={[-4, 24]} // Adjusted for smaller avatar
               color={user.isOnline ? "limegreen" : "red"}
             >
               <Avatar className="user-avatar">
@@ -140,7 +136,7 @@ const OnlineUsers = () => {
     <div className="online-users-container">
       <h3 className="online-users-header">People</h3>
 
-      <Input.Search
+      <Input
         placeholder="Search users..."
         allowClear
         onChange={(e) => setSearch(e.target.value)}
