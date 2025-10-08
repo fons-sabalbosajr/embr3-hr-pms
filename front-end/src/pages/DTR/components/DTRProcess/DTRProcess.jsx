@@ -111,6 +111,8 @@ const DTRProcess = ({ currentUser }) => {
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [printerTray, setPrinterTray] = useState([]);
   const [holidaysPH, setHolidaysPH] = useState([]);
+  const [localHolidays, setLocalHolidays] = useState([]);
+  const [suspensions, setSuspensions] = useState([]);
   const [employeeTrainings, setEmployeeTrainings] = useState({});
   const [selectedRowKeys, setSelectedRowKeys] = useState([]);
 
@@ -395,8 +397,38 @@ const DTRProcess = ({ currentUser }) => {
             type: h.type,
           }));
         setHolidaysPH(filtered);
+        // Fetch local holidays and suspensions in the same window
+        try {
+          const [lh, ss] = await Promise.all([
+            axiosInstance.get(`/local-holidays`, { params: { start: start.format('YYYY-MM-DD'), end: end.format('YYYY-MM-DD') } }),
+            axiosInstance.get(`/suspensions`, { params: { start: start.format('YYYY-MM-DD'), end: end.format('YYYY-MM-DD') } }),
+          ]);
+          setLocalHolidays((lh.data?.data||[]).map(h=>({
+            date: dayjs(h.date).format('YYYY-MM-DD'),
+            endDate: h.endDate ? dayjs(h.endDate).format('YYYY-MM-DD') : null,
+            name: h.name,
+            type: 'Local Holiday',
+            location: h.location,
+            notes: h.notes,
+          })));
+          setSuspensions((ss.data?.data||[]).map(s=>({
+            date: dayjs(s.date).format('YYYY-MM-DD'),
+            endDate: s.endDate ? dayjs(s.endDate).format('YYYY-MM-DD') : null,
+            name: s.title,
+            type: 'Suspension',
+            scope: s.scope,
+            location: s.location,
+            referenceType: s.referenceType,
+            referenceNo: s.referenceNo,
+            notes: s.notes,
+          })));
+        } catch(e) {
+          // Non-fatal
+        }
       } else {
         setHolidaysPH([]);
+        setLocalHolidays([]);
+        setSuspensions([]);
       }
     }
     getHolidays();
@@ -744,7 +776,7 @@ const DTRProcess = ({ currentUser }) => {
             selectedRecord={selectedRecord}
             divisionColors={divisionColors}
             divisionAcronyms={divisionAcronyms}
-            holidaysPH={holidaysPH}
+            holidaysPH={[...holidaysPH, ...localHolidays, ...suspensions]}
             getEmployeeDayLogs={(emp, dateKey) => {
               const empKey = emp.empId;
               return dtrLogs[empKey]?.[dateKey] || null;
@@ -938,7 +970,7 @@ const DTRProcess = ({ currentUser }) => {
           dtrDays={dtrDays}
           dtrLogs={dtrLogs}
           selectedRecord={selectedRecord}
-          holidaysPH={holidaysPH}
+          holidaysPH={[...holidaysPH, ...localHolidays, ...suspensions]}
           onSaveToTray={handleAddToPrinterTray}
           onPreviewForm48={handlePrintSelected}
         />

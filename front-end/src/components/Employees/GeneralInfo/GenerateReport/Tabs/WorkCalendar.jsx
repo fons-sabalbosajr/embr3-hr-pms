@@ -14,6 +14,7 @@ import {
 } from "react-icons/fa";
 import axiosInstance from "../../../../../api/axiosInstance";
 import DailyLogsTable from "./DailyLogsTable";
+import "./WorkCalendar.css";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -216,7 +217,7 @@ const WorkCalendar = ({ employee }) => {
   };
 
   return (
-    <div>
+    <div className="work-calendar">
       {loading ? (
         <Spin size="large" />
       ) : error ? (

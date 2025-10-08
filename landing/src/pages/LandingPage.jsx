@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { Button, Card } from "antd";
+import { useNavigate } from "react-router-dom";
+import { Button } from "antd";
 import {
   ClockCircleOutlined,
   TeamOutlined,
@@ -11,11 +11,10 @@ import {
   InstagramOutlined,
 } from "@ant-design/icons";
 
-import bgImage from "../assets/bgemb.webp";
 import dashboardImg from "../assets/dashboard.PNG";
 import loginImg from "../assets/login.PNG";
 import publicRequestsImg from "../assets/public_requests.PNG";
-import processDTRImg from "../assets/processDTR.PNG";
+import processDTRImg from "../assets/processdtr.PNG";
 import logo from "../assets/emblogo.svg";
 
 import starbucks from "../assets/starbucks.PNG";
@@ -25,18 +24,21 @@ import mccafe from "../assets/McCafe.PNG";
 import timhortons from "../assets/timhortons.PNG";
 
 import "./landingpage.css";
+import DashboardPeek from "../components/DashboardPeek.jsx";
+import ScreenshotCarousel from "../components/ScreenshotCarousel.jsx";
 
 const stats = [
-  { label: "Employees Managed", value: "1000+" },
-  { label: "Attendance Accuracy", value: "up to 95%" },
-  { label: "DTR Requests Processed", value: "2400+" },
-  { label: "Customizable Functions", value: "up to 15+" },
+  { label: "People Empowered", value: "1,000+" },
+  { label: "On‑time Accuracy", value: "Up to 95%" },
+  { label: "Requests Automated", value: "2,400+" },
+  { label: "Configurable Features", value: "15+" },
 ];
 
-const sections = ["hero", "features", "stats", "announcement", "cta"];
+const sections = ["hero", "peek", "features", "gallery", "stats", "announcement", "cta"];
 
 const LandingPage = () => {
   const [activeSection, setActiveSection] = useState("hero");
+  const navigate = useNavigate();
 
   useEffect(() => {
     const handleScroll = () => {
@@ -60,6 +62,10 @@ const LandingPage = () => {
         behavior: "smooth",
       });
     }
+  };
+
+  const goToApp = () => {
+    navigate("/dtr-management-system");
   };
 
   return (
@@ -93,16 +99,12 @@ const LandingPage = () => {
         <div className="gradient-bg"></div>{" "}
         {/* Animated gradient behind the glass */}
         <div className="hero-left animate-left">
-          <h1>Daily Time Record Management System</h1>
+          <h1>Streamline Attendance. Elevate Productivity.</h1>
           <p>
-            Modern, secure, and efficient solution to manage employee
-            attendance, daily time record requests, leave applications, and
-            payroll integration. Streamline HR processes with automated reports,
-            real-time tracking, and easy access for both managers and employees.
+            A modern HR platform that automates daily time records, approvals, and insights.
+            Reduce manual work, speed up payroll, and give teams a smoother way to work.
           </p>
-          <Button className="cta-btn" onClick={() => scrollToSection("cta")}>
-            Launch App
-          </Button>
+          <Button className="cta-btn" onClick={goToApp}>Explore the Platform</Button>
         </div>
         <div className="hero-right animate-right">
           <div className="dashboard-wrapper">
@@ -110,6 +112,13 @@ const LandingPage = () => {
             <div className="dashboard-overlay"></div>
           </div>
         </div>
+      </section>
+
+      {/* Sneak Peek Section */}
+      <section id="peek" className="peek">
+        <h2 style={{ textAlign: "center", marginBottom: "1rem" }}>See it in action</h2>
+        <p className="text-muted" style={{ textAlign: "center", marginBottom: 16 }}>Real‑time metrics and recent activity at a glance</p>
+        <DashboardPeek />
       </section>
 
       {/* Stats Section */}
@@ -122,26 +131,31 @@ const LandingPage = () => {
         ))}
       </section>
 
+      {/* Gallery / Carousel */}
+      <section id="gallery" className="gallery">
+        <ScreenshotCarousel />
+      </section>
+
       <section id="features" className="features">
         {[
           {
             icon: <ClockCircleOutlined className="feature-icon" />,
-            title: "Time Tracking",
-            desc: "Accurate employee DTR tracking with real-time updates. Easily monitor attendance, late-ins, early-outs, and overtime hours. Generate automated reports for payroll and performance evaluation.",
+            title: "Smart Time Tracking",
+            desc: "Capture attendance with precision. Monitor late-ins, early-outs, and overtime in real time—then turn data into payroll‑ready reports in a click.",
             screenshot: processDTRImg,
             bgColor: "#1f2a45",
           },
           {
             icon: <TeamOutlined className="feature-icon" />,
-            title: "Employee Access",
-            desc: "Secure self-service portal for payslips, and daily time record submissions. Employees can easily view their schedules, requests, and track approvals without relying on manual forms.",
+            title: "Self‑Service Portal",
+            desc: "Give employees instant access to requests, schedules, and payslips. Fewer emails, faster approvals, happier teams.",
             screenshot: publicRequestsImg,
             bgColor: "#2a3f6b",
           },
           {
             icon: <CloudOutlined className="feature-icon" />,
-            title: "Network based now, Cloud-Based soon...",
-            desc: "Access your DTR and HR data from anywhere. Reduce paperwork and save time with digital storage. The upcoming cloud-based system ensures secure, centralized data access anytime, anywhere.",
+            title: "Cloud‑Ready Architecture",
+            desc: "Built for today—ready for tomorrow. Move from network‑based to cloud when you’re ready, with secure, centralized access anywhere.",
             screenshot: loginImg,
             bgColor: "#4b6f9a",
           },
@@ -195,10 +209,8 @@ const LandingPage = () => {
 
       {/* CTA Section */}
       <section id="cta" className="cta">
-        <h2>Ready to streamline your HR & DTR management?</h2>
-        <Button className="cta-btn" onClick={() => scrollToSection("cta")}>
-          Get Started Now
-        </Button>
+            <h2>Ready to modernize attendance and HR workflows?</h2>
+            <Button className="cta-btn" onClick={goToApp}>Get Started</Button>
       </section>
 
       {/* Footer */}

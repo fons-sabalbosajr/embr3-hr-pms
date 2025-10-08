@@ -12,7 +12,7 @@
   position: absolute;
   inset: 0;
   z-index: 0;
-  background: linear-gradient(270deg, #004b80, #9acd32, #f5d8a3, #004b80);
+  background: linear-gradient(270deg, var(--app-primary), var(--app-accent), var(--app-gold), var(--app-primary));
   background-size: 800% 800%;
   opacity: 0.9;
   animation: gradientShift 20s ease infinite;
@@ -78,7 +78,7 @@
 }
 
 .navbar button.active {
-  border-bottom: 2px solid #1890ff;
+  border-bottom: 2px solid var(--app-accent);
   color: #ffffff;
 }
 
@@ -122,10 +122,10 @@
   inset: 0;
   z-index: 0;
   border: none;
-  background: linear-gradient(135deg, #004b80, #9acd32, #f5d8a3);
+  background: linear-gradient(135deg, var(--app-primary), var(--app-accent), var(--app-gold));
   background-size: 600% 600%;
   animation: gradientShift 15s ease infinite;
-  //border-radius: 20px;
+  /* border-radius: 20px; */
   opacity: 0.3; /* subtle effect behind glass */
 }
 
@@ -167,7 +167,7 @@
   width: fit-content;
   padding: 0.65rem 1.8rem;
   font-size: 0.95rem;
-  background: #1890ff;
+  background: linear-gradient(90deg, var(--app-primary), var(--app-accent));
   color: #fff;
   border: none;
   border-radius: 8px;
@@ -176,7 +176,7 @@
 }
 
 .cta-btn:hover {
-  background: #40a9ff;
+  filter: brightness(1.05);
 }
 
 .hero-right {
@@ -272,6 +272,38 @@
   gap: 2.5rem;
   padding: 3rem 2rem;
   align-items: center;
+}
+
+/* Sneak Peek */
+.peek { padding: 2rem 1rem; }
+.peek-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+@media (max-width: 992px) {
+  .peek-grid { grid-template-columns: 1fr; }
+}
+
+/* Carousel */
+.gallery { padding: 1rem 0 3rem; }
+.carousel-wrap { max-width: 920px; }
+.carousel-slide { position: relative; }
+.carousel-slide img {
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+.carousel-caption {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  font-size: 0.9rem;
 }
 
 .feature-tile {
@@ -524,7 +556,7 @@
   padding: 4rem 2rem;
 }
 .cta .cta-btn {
-  background: linear-gradient(90deg, #1890ff, #52c41a);
+  background: linear-gradient(90deg, var(--app-primary), var(--app-accent));
   border: none;
   font-weight: bold;
   padding: 0.7rem 2rem;
@@ -542,12 +574,13 @@ footer {
   padding: 3rem 2rem;
   text-align: center;
   color: #333;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   display: flex;
   flex-direction: column;
   justify-content: center; /* vertical alignment */
   align-items: center; /* horizontal alignment */
   gap: 1.5rem;
+  box-shadow: var(--shadow-md);
 }
 
 /* Top section inside footer (logo + socials) */
@@ -572,9 +605,7 @@ footer {
   transition: color 0.2s;
 }
 
-.footer-socials a:hover {
-  color: #52c41a;
-}
+.footer-socials a:hover { color: var(--app-accent); }
 
 /* Footer text */
 footer p {

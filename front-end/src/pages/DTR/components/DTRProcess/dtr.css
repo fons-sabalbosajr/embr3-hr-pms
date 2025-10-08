@@ -1,10 +1,11 @@
 .custom-small-table .ant-table-thead > tr > th,
 .custom-small-table .ant-table-tbody > tr > td {
   font-size: 12px; /* smaller font for headers and cells */
+  color: var(--app-text-color, #141414);
 }
 
 .custom-small-table .ant-table-thead > tr > th {
-  background-color: #fafafa; /* optional, subtle header background */
+  background-color: var(--app-surface-bg, #fafafa); /* theme-aware header bg */
 }
 
 .custom-small-table .ant-table {
@@ -14,7 +15,7 @@
 }
 
 .custom-small-table .ant-table-thead > tr > th {
-  background: #f7f9fc;
+  background: var(--app-surface-bg, #f7f9fc);
   font-size: 13px;
   font-weight: 600;
   padding: 8px;
@@ -26,7 +27,7 @@
 }
 
 .custom-small-table .ant-table-tbody > tr:hover > td {
-  background-color: #fafafa;
+  background-color: var(--app-surface-hover-bg, rgba(0,0,0,0.03));
   transition: background 0.2s;
 }
 

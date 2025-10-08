@@ -1,8 +1,8 @@
 /* Main container for the Online Users component */
 .online-users-container {
-  background: #ffffff;
+  background: var(--app-surface-bg, #ffffff);
+  color: var(--app-text-color, #141414);
   border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   padding: 16px;
   height: 100%;
   display: flex;
@@ -12,43 +12,31 @@
 /* Header styling */
 .online-users-header {
   margin-bottom: 12px;
-  color: #333;
+  color: var(--app-text-color, #141414);
   font-weight: 600;
   font-size: 16px;
-}
-
-/* Search input styling */
-.online-users-search {
-  margin-bottom: 12px;
-}
-
-.online-users-search .ant-input-search-button {
-  border-radius: 0 6px 6px 0;
-}
-
-.online-users-search .ant-input {
-  border-radius: 6px;
 }
 
 /* Container for online/offline counts */
 .status-counts {
   margin-bottom: 12px;
   font-size: 12px;
-  color: #555;
+  color: var(--app-text-muted, #595959);
   display: flex;
   justify-content: space-around;
   gap: 10px;
   padding: 4px 0;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--app-border-color, rgba(0,0,0,0.12));
 }
 
 /* Wrapper for the user list to enable scrolling */
 .user-list-wrapper {
   flex: 1;
   overflow-y: auto;
+  max-height: 300px; /* Adjust as needed */
   /* Custom scrollbar styling */
   scrollbar-width: thin;
-  scrollbar-color: #cccccc #f0f0f0;
+  scrollbar-color: var(--app-border-color, #cccccc) var(--app-surface-bg, #f0f0f0);
 }
 
 .user-list-wrapper::-webkit-scrollbar {
@@ -56,13 +44,13 @@
 }
 
 .user-list-wrapper::-webkit-scrollbar-track {
-  background: #f0f0f0;
+  background: var(--app-surface-bg, #f0f0f0);
 }
 
 .user-list-wrapper::-webkit-scrollbar-thumb {
-  background-color: #cccccc;
+  background-color: var(--app-border-color, #cccccc);
   border-radius: 10px;
-  border: 2px solid #f0f0f0;
+  border: 2px solid var(--app-surface-bg, #f0f0f0);
 }
 
 /* Individual user list item */
@@ -87,22 +75,23 @@
 
 /* Hover effect for all list items */
 .user-list-item:hover {
-  background-color: rgba(0, 0, 0, 0.03) !important;
+  background-color: var(--app-surface-hover-bg, rgba(0,0,0,0.03)) !important;
 }
 
 /* Special styling for the current user's item */
 .current-user-item {
-  background-color: rgba(24, 144, 255, 0.1) !important;
+  /* Tint with primary color */
+  background-color: color-mix(in srgb, var(--ant-primary-color, #1677ff) 15%, transparent) !important;
 }
 
 /* Hover effect for the current user's item */
 .current-user-item:hover {
-  background-color: rgba(24, 144, 255, 0.15) !important;
+  background-color: color-mix(in srgb, var(--ant-primary-color, #1677ff) 22%, transparent) !important;
 }
 
 /* User avatar */
 .user-avatar {
-  background-color: #1890ff;
+  background-color: var(--ant-primary-color, #1677ff);
   font-size: 12px !important; /* REDUCED */
   font-weight: bold;
   width: 28px !important; /* ADDED */
@@ -114,7 +103,7 @@
 .user-title {
   font-weight: 400;
   font-size: 12px; /* REDUCED */
-  color: #333;
+  color: var(--app-text-color, #141414);
   line-height: 1.3; /* ADDED */
 }
 
@@ -124,7 +113,7 @@
 
 /* "(You)" indicator */
 .you-indicator {
-  color: #1890ff;
+  color: var(--ant-primary-color, #1677ff);
   font-size: 11px; /* REDUCED */
   font-weight: normal;
 }
@@ -132,6 +121,6 @@
 /* Last seen description */
 .user-description {
   font-size: 10px; /* REDUCED */
-  color: #888;
+  color: var(--app-text-muted, #888);
   line-height: 1.3; /* ADDED */
 }

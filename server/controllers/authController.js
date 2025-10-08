@@ -107,7 +107,8 @@ export const login = async (req, res) => {
       return res.status(403).json({ message: "Email not verified" });
     }
 
-    user.isOnline = true;
+  user.isOnline = true;
+  user.lastSeenAt = undefined;
     await user.save();
 
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
@@ -380,12 +381,13 @@ export const logout = async (req, res) => {
   try {
     const { userId } = req.body;
     if (userId) {
-      await User.findByIdAndUpdate(userId, { isOnline: false });
+      const lastSeenAt = new Date();
+      await User.findByIdAndUpdate(userId, { isOnline: false, lastSeenAt });
 
       // ✅ Tell all clients exactly who logged out
       const io = getSocketInstance();
       if (io) {
-        io.emit("user-status-changed", { userId, status: "offline" });
+        io.emit("user-status-changed", { userId, status: "offline", lastSeenAt });
       }
     }
     res.status(200).json({ message: "Logout successful." });

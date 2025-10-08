@@ -11,6 +11,8 @@
   align-items: center;
   height: 64px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.06);
+  background: var(--app-header-bg, #ffffff);
+  color: var(--app-header-fg, #000);
 }
 
 /* Sidebar (Sider) */
@@ -21,6 +23,26 @@
   height: 100vh;
   overflow-y: auto;
   z-index: 1000;
+  background: var(--app-sider-bg, #001529);
+}
+
+/* Sider collapse/expand trigger at the bottom */
+.ant-layout-sider-trigger {
+  background: var(--app-sider-trigger-bg, var(--app-sider-bg, #001529)) !important;
+  color: var(--app-menu-item-color, #fff) !important;
+  border-top: none !important;
+  box-shadow: none !important;
+}
+.ant-layout-sider-trigger:hover,
+.ant-layout-sider-trigger:focus,
+.ant-layout-sider-trigger:active {
+  background: var(--app-sider-trigger-hover-bg, var(--app-sider-bg, #001529)) !important;
+  color: var(--app-menu-item-color, #fff) !important;
+}
+
+/* Ensure trigger icon inherits the correct color */
+.ant-layout-sider-trigger .anticon {
+  color: inherit !important;
 }
 
 /* Logo Area */
@@ -47,12 +69,21 @@
   font-weight: bold;
   font-size: 14px;
 }
+.ant-layout-sider .ant-menu .anticon {
+  color: inherit !important;
+}
+.ant-layout-sider .ant-menu-item .anticon,
+.ant-layout-sider .ant-menu-submenu-title .anticon {
+  color: inherit !important;
+}
 
 /* Main Content Styling */
 .content-wrapper {
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   min-height: 100%;
+  background: var(--app-surface-bg, #fff);
+  color: var(--app-text-color, #141414);
 }
 
 /* Footer */
@@ -60,11 +91,27 @@
   padding: 8px 16px;
   font-size: 13px;
   line-height: 1.2;
+  background: var(--app-content-bg, #f5f5f5);
+  color: var(--app-text-color, #141414);
 }
 
-.ant-layout-content {
-  margin-bottom: 10px !important;
+.ant-layout-content { margin-bottom: 10px !important; }
+
+/* Make HomePage main layout fill viewport height so footer stays at bottom */
+.homepage-root-layout {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--app-content-bg, #f5f5f5);
 }
+
+.homepage-root-layout > .ant-layout { /* inner layout (Header/Content/Footer) */
+  min-height: 100vh;
+  background: transparent; /* outer handles the bg */
+}
+
+.homepage-root-layout .ant-layout-content { flex: 1 0 auto; }
+.homepage-root-layout .ant-layout-footer { flex-shrink: 0; }
 
 /* Icon Button Container (Bell, Message, etc.) */
 .icon-container {
@@ -82,6 +129,8 @@
 .user-popover .ant-popover-inner {
   padding: 12px 16px;
   width: 220px;
+  background: var(--app-surface-bg, #ffffff);
+  color: var(--app-text-color, #141414);
 }
 
 .popover-content {
@@ -112,7 +161,7 @@
 }
 
 .popover-item:hover {
-  background-color: #f5f5f5;
+  background-color: var(--app-surface-hover-bg, rgba(0,0,0,0.03));
 }
 
 .popover-item.logout {
@@ -147,7 +196,7 @@
 
 .header .icon-trigger {
   font-size: 18px;
-  color: #fff; /* white for dark header */
+  color: var(--app-header-fg, #000);
   cursor: pointer;
   transition: color 0.2s ease;
 }
@@ -158,37 +207,60 @@
 
 /* Avatar inside dark header */
 .header .user-avatar {
-  background-color: #58a83e; /* subtle dark gray background */
-  color: #fff;            /* white text/icon */
+  background-color: #58a83e;
+  color: var(--app-header-fg, #000);
   cursor: pointer;
   transition: background-color 0.2s ease;
 }
 
 .header .user-avatar:hover {
-  background-color: #555; /* slightly lighter on hover */
+  filter: brightness(1.1);
 }
 
-/* Default style: red text */
-.developer-menu-item {
-  color: #ff4d4f !important; 
-  font-weight: 600;
-}
+/* Developer Settings: always danger-styled */
+.developer-menu-item { font-weight: 600; color: #ff4d4f !important; }
 
-/* Hover: red background with white text */
+/* Hover: subtle red tint with red text */
 .developer-menu-item:hover {
-  background-color: #ff4d4f !important;
-  color: #fff !important;
+  background-color: rgba(255,77,79,0.15) !important;
+  color: #ff4d4f !important;
 }
 
-/* Selected (active) state: fixed red background + white text */
+/* Selected (active): stronger red tint with red text */
 .ant-menu-item-selected.developer-menu-item {
-  background-color: #ff4d4f !important;
-  color: #fff !important;
+  background-color: rgba(255,77,79,0.25) !important;
+  color: #ff4d4f !important;
 }
 
 /* Make sure inner text follows the same color rules */
 .developer-menu-item .ant-menu-title-content {
   color: inherit !important;
+}
+
+/* Apply CSS variables to the whole menu to adapt colors */
+.ant-layout-sider .ant-menu {
+  background: var(--app-menu-bg, #001529) !important;
+  color: var(--app-menu-item-color, #fff) !important;
+}
+.ant-layout-sider .ant-menu-item,
+.ant-layout-sider .ant-menu-submenu-title {
+  color: var(--app-menu-item-color, #fff) !important;
+}
+.ant-layout-sider .ant-menu-item:hover,
+.ant-layout-sider .ant-menu-submenu-title:hover {
+  background: var(--app-menu-item-hover-bg, rgba(255,255,255,0.12)) !important;
+}
+.ant-layout-sider .ant-menu-item-selected {
+  background: var(--app-menu-item-selected-bg, rgba(255,255,255,0.2)) !important;
+  color: var(--app-menu-item-color, #fff) !important;
+}
+.ant-layout-sider .ant-menu-submenu .ant-menu {
+  background: var(--app-submenu-bg, #000f1f) !important;
+}
+
+/* Popup (overlay) submenu background for collapsed sider */
+.ant-menu-submenu-popup .ant-menu {
+  background: var(--app-submenu-bg, #000f1f) !important;
 }
 
 

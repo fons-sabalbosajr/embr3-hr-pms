@@ -15,6 +15,7 @@ import {
   Popover,
   Dropdown,
   Menu,
+  Popconfirm,
 } from "antd";
 import { PlusOutlined, EditOutlined, DeleteOutlined } from "@ant-design/icons";
 import axiosInstance from "../../../api/axiosInstance";
@@ -324,13 +325,20 @@ const Trainings = () => {
               onClick={() => openModal(record)}
               type="primary"
             />
-            <Button
-              icon={<DeleteOutlined />}
-              size="small"
-              danger
-              onClick={() => handleDelete(record._id)}
-              type="primary"
-            />
+            <Popconfirm
+              title="Delete this training?"
+              description="This action cannot be undone."
+              okText="Delete"
+              okButtonProps={{ danger: true }}
+              onConfirm={() => handleDelete(record._id)}
+            >
+              <Button
+                icon={<DeleteOutlined />}
+                size="small"
+                danger
+                type="primary"
+              />
+            </Popconfirm>
           </Space>
         </div>
       ),

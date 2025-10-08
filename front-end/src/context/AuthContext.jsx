@@ -1,4 +1,5 @@
 import React, { createContext, useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   secureGet,
   secureStore,
@@ -10,6 +11,7 @@ import socket from "../../utils/socket";
 const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
+  const navigate = useNavigate();
   const [user, setUser] = useState(() => secureGet("user"));
   const [token, setToken] = useState(() => secureGet("token"));
 
@@ -25,10 +27,19 @@ export const AuthProvider = ({ children }) => {
     if (user) {
       socket.connect(); // Connect the socket
       socket.emit("store-user", user); // Tell the server who is connected
+      // When socket reconnects (e.g., network hiccup), re-announce the user
+      const onConnect = () => {
+        socket.emit("store-user", user);
+      };
+      socket.on("connect", onConnect);
+      // Clean listener on effect cleanup
+      return () => {
+        socket.off("connect", onConnect);
+        socket.disconnect(); // Disconnect on logout
+      };
     } else {
       socket.disconnect(); // Disconnect on logout
     }
-
     return () => {
       socket.disconnect();
     };
@@ -70,6 +81,10 @@ export const AuthProvider = ({ children }) => {
     setToken(null);
     setUser(null);
     delete axiosInstance.defaults.headers.common["Authorization"];
+
+    // ✅ Always redirect to login page after logout
+    // Note: BrowserRouter is mounted with basename="/hrpms", so "/auth" resolves to "/hrpms/auth"
+    navigate("/auth", { replace: true });
   };
 
   const updateCurrentUser = (updatedUser) => {

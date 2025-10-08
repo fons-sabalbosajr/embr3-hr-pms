@@ -1,7 +1,65 @@
+/* Modal container theming */
+.view-dtr-modal :where(.ant-modal-content) {
+  background: var(--app-surface-bg);
+  color: var(--app-text-color);
+}
+
+.view-dtr-modal :where(.ant-modal-content, .ant-modal-body, .ant-typography, .ant-divider) {
+  color: var(--app-text-color);
+}
+
+/* Table theming */
+.view-dtr-modal :where(.ant-table) {
+  background: var(--app-surface-bg);
+  color: var(--app-text-color);
+}
+
+.view-dtr-modal :where(.ant-table-thead > tr > th) {
+  background: var(--app-surface-bg);
+  color: var(--app-text-color);
+  border-color: var(--app-border-color);
+}
+
+.view-dtr-modal :where(.ant-table-tbody > tr > td) {
+  background: var(--app-surface-bg);
+  color: var(--app-text-color);
+  border-color: var(--app-border-color);
+}
+
+.view-dtr-modal :where(.ant-table-tbody > tr:hover > td) {
+  background: var(--app-surface-hover-bg);
+}
+
+/* Special rows */
 .weekend-row {
-  background-color: #d8d8d8; /* light gray for weekends */
+  background-color: var(--dtr-weekend-row-bg, rgba(255,255,255,0.06)); /* theme-aware weekend */
 }
 
 .holiday-row {
-  background-color: #ffe0e0; /* A light red/pink for holidays */
+  background-color: var(--dtr-holiday-row-bg, rgba(250,173,20,0.18)); /* theme-aware holiday */
+}
+
+/* Training rows */
+.training-row {
+  background-color: var(--dtr-training-row-bg, rgba(114,46,209,0.12));
+}
+
+/* Special cells for merged states */
+.view-dtr-modal :where(.weekend-cell) {
+  background-color: var(--dtr-weekend-row-bg, rgba(255,255,255,0.06)) !important;
+  color: var(--app-text-color);
+  font-weight: 600;
+}
+
+.view-dtr-modal :where(.holiday-cell) {
+  background-color: var(--dtr-holiday-row-bg, rgba(250,173,20,0.18)) !important;
+  color: var(--app-text-color);
+  font-weight: 600;
+}
+
+.view-dtr-modal :where(.training-cell) {
+  background-color: var(--dtr-training-row-bg, rgba(114,46,209,0.12)) !important;
+  color: var(--dtr-training-text-color, #722ed1) !important;
+  font-weight: 600;
+  font-size: 11px;
 }

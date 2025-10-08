@@ -20,6 +20,8 @@ const settingsSchema = new mongoose.Schema({
   general: {
     appName: { type: String, default: "EMB3 HR PMS" },
     themeColor: { type: String, default: "#1890ff" }, // Ant Design's default primary color
+    headerColor: { type: String, default: "#ffffff" }, // Page header background
+    siderColor: { type: String, default: "#001529" }, // Sider background (AntD default dark)
   },
 
   // Security Settings

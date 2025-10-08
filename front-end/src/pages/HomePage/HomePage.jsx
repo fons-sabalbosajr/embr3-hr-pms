@@ -41,6 +41,7 @@ import ImportDTRModal from "../../components/DTR/ImportDTRModal";
 import DTRLogs from "../DTR/DTRLogs/DTRLogs";
 import DTRProcess from "../DTR/components/DTRProcess/DTRProcess";
 import DTRReports from "../DTR/DTRReports/DTRReports";
+import Holidays from "../Holidays/Holidays";
 import RecordConfigSettings from "../../components/Settings/RecordConfigSettings/RecordConfigSettings";
 import DeveloperSettings from "../../components/Settings/DevSettings/DevSettings";
 import ProtectedRoute from "../../components/ProtectedRoute";
@@ -49,7 +50,6 @@ import FeatureModal from "./components/FeatureModal";
 import { NotificationsContext } from "../../context/NotificationsContext";
 import socket from "../../../utils/socket";
 
-import io from "socket.io-client";
 import "./hompage.css";
 
 const { Text } = Typography;
@@ -120,34 +120,12 @@ const HomePage = () => {
     fetchData();
   }, []);
 
-  // Socket.io real-time updates
-  useEffect(() => {
-    const socket = io(import.meta.env.VITE_SOCKET_URL, {
-      path: "/socket.io/",
-      withCredentials: true,
-      reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000,
-    });
-
-    socket.on("newNotification", (data) => {
-      setNotifications((prev) => [
-        { ...data, id: data._id || Date.now() },
-        ...prev,
-      ]);
-    });
-
-    socket.on("newDTRMessage", (data) => {
-      setMessages((prev) => [{ ...data, id: data._id || Date.now() }, ...prev]);
-    });
-
-    return () => socket.disconnect();
-  }, []);
+  // Socket.io connection is managed by AuthContext; listeners are attached above.
 
   const handleLogout = () => {
     message.success("Logging out...");
+    // AuthContext.logout will handle redirect to /auth
     logout();
-    navigate("/auth");
   };
 
   const IDLE_TIMEOUT = 10 * 60 * 1000;
@@ -176,28 +154,28 @@ const HomePage = () => {
       {
         key: "/",
         icon: <DashboardOutlined />,
-        label: "Dashboard",
+            label: "Overview",
         permissions: ["canViewDashboard"],
       },
       {
         key: "employees",
         icon: <TeamOutlined />,
-        label: "Employees",
+            label: "Personnel",
         permissions: ["canViewEmployees"],
         children: [
           {
             key: "/employeeinfo",
-            label: "General Info",
+                label: "Employee Profile",
             permissions: ["canViewEmployees"],
           },
           {
             key: "/trainings",
-            label: "Trainings",
+                label: "Training Records",
             permissions: ["canViewTrainings"],
           },
           {
             key: "/benefitsinfo",
-            label: "Salary Info",
+                label: "Compensation",
             permissions: ["canViewPayroll"],
           },
         ],
@@ -205,41 +183,46 @@ const HomePage = () => {
       {
         key: "dtr",
         icon: <FieldTimeOutlined />,
-        label: "Daily Time Record",
+            label: "Timekeeping",
         permissions: ["canViewDTR"],
         children: [
-          { key: "/dtr/logs", label: "DTR Logs", permissions: ["canViewDTR"] },
+              { key: "/dtr/logs", label: "Biometric Logs", permissions: ["canViewDTR"] },
           {
             key: "/dtr/process",
-            label: "Process DTR",
+                label: "Generate DTR",
             permissions: ["canProcessDTR"],
           },
           {
             key: "/dtr/reports",
-            label: "Report Management",
+                label: "DTR Reports",
             permissions: ["canViewDTR"],
           },
+              {
+                key: "/dtr/holidays",
+                label: "Holidays & Suspensions",
+                permissions: ["canViewDTR"],
+              },
         ],
       },
       {
         key: "settings",
         icon: <SettingOutlined />,
-        label: "Settings",
+            label: "Administration",
         permissions: ["canAccessSettings"],
         children: [
           {
             key: "/settings/account",
-            label: "Account Settings",
+                label: "Account Preferences",
             permissions: ["canAccessSettings"],
           },
           {
             key: "/settings/deductions",
-            label: "Deduction Settings",
+                label: "Deductions",
             permissions: ["canChangeDeductions"],
           },
           {
             key: "/settings/access",
-            label: "User Access Settings",
+                label: "User Access",
             permissions: ["canManageUsers"],
           },
           // {
@@ -249,7 +232,7 @@ const HomePage = () => {
           // },
           {
             key: "/settings/backup",
-            label: "Backup Data",
+                label: "Backup",
             permissions: ["canPerformBackup"],
           },
           {
@@ -488,6 +471,7 @@ const HomePage = () => {
 
   return (
     <Layout
+      className="homepage-root-layout"
       style={{
         marginLeft: collapsed ? 80 : 220,
         transition: "margin-left 0.2s",
@@ -500,6 +484,7 @@ const HomePage = () => {
         onCollapse={setCollapsed}
         collapsedWidth={80}
         className="sider"
+        style={{ background: 'var(--app-sider-bg, #001529)' }}
       >
         <div className={`logo-container ${collapsed ? "collapsed" : ""}`}>
           <Tooltip title="EMBR3 DTR Management System" placement="right">
@@ -549,8 +534,8 @@ const HomePage = () => {
         />
       )}
 
-      <Layout>
-        <Header className="header">
+  <Layout>
+  <Header className="header" style={{ background: 'var(--app-header-bg, #ffffff)' }}>
           <div
             style={{
               display: "flex",
@@ -598,7 +583,7 @@ const HomePage = () => {
           </div>
         </Header>
 
-        <Content style={{ margin: "16px", paddingBottom: 0 }}>
+  <Content style={{ margin: "16px", paddingBottom: 0 }}>
           <div className="content-wrapper">
             <Routes>
               <Route
@@ -638,6 +623,14 @@ const HomePage = () => {
                 element={
                   <ProtectedRoute requiredPermissions={["canViewDTR"]}>
                     <DTRReports />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/dtr/holidays"
+                element={
+                  <ProtectedRoute requiredPermissions={["canViewDTR"]}>
+                    <Holidays />
                   </ProtectedRoute>
                 }
               />

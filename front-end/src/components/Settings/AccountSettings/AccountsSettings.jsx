@@ -7,12 +7,15 @@ import {
   Row,
   Col,
   Radio,
+  Segmented,
+  Space,
   notification,
   Spin,
   Typography,
 } from "antd";
 import axiosInstance from "../../../api/axiosInstance";
 import { useTheme } from "../../../context/ThemeContext";
+import "./accountsettings.css";
 import useAuth from "../../../hooks/useAuth";
 
 const { Title } = Typography;
@@ -22,14 +25,11 @@ const AccountsSettings = () => {
   const [profileForm] = Form.useForm();
   const [passwordForm] = Form.useForm();
   const { user, updateCurrentUser } = useAuth();
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme, userPrimaryPreset, setUserPrimaryPreset, applyPresetToChrome, setApplyPresetToChrome } = useTheme();
 
   useEffect(() => {
     if (user) {
       profileForm.setFieldsValue({ name: user.name, username: user.username });
-      if (user.theme) {
-        setTheme(user.theme);
-      }
     }
   }, [user, profileForm, setTheme]);
 
@@ -66,19 +66,35 @@ const AccountsSettings = () => {
     }
   };
 
-  const handleThemeChange = async (e) => {
-    const newTheme = e.target.value;
-    setTheme(newTheme);
-    setLoading(true);
-    try {
-      const res = await axiosInstance.put("/users/preferences", { theme: newTheme });
-      updateCurrentUser(res.data);
-      notification.success({ message: "Theme updated!" });
-    } catch (error) {
-      notification.error({ message: error.response?.data?.message || "Failed to save theme preference." });
-    } finally {
-      setLoading(false);
-    }
+  // Theme presets (fixed, no custom pickers)
+  const colorPresets = [
+    { key: 'default', label: 'Default' },
+    { key: 'blue', label: 'Blue' },
+    { key: 'green', label: 'Green' },
+    { key: 'purple', label: 'Purple' },
+    { key: 'yellow', label: 'Yellow' },
+    { key: 'red', label: 'Red' },
+    { key: 'orange', label: 'Orange' },
+    { key: 'cyan', label: 'Cyan' },
+    { key: 'magenta', label: 'Magenta' },
+    { key: 'geekblue', label: 'Geek Blue' },
+    { key: 'gold', label: 'Gold' },
+    { key: 'lime', label: 'Lime' },
+  ];
+
+  const presetColorMap = {
+    default: undefined,
+    blue: '#1677ff',
+    green: '#52c41a',
+    purple: '#722ed1',
+    yellow: '#fadb14',
+    red: '#ff4d4f',
+    orange: '#fa8c16',
+    cyan: '#13c2c2',
+    magenta: '#eb2f96',
+    geekblue: '#2f54eb',
+    gold: '#faad14',
+    lime: '#a0d911',
   };
 
   return (
@@ -125,23 +141,75 @@ const AccountsSettings = () => {
           </Card>
         </Col>
 
-        {/* Theme Preferences Card */}
-        <Col xs={24} md={24}>
-            <Card title="Theme Preferences">
-                 <Row align="middle" justify="space-between">
-                    <Col>
-                        <Title level={5}>Application Theme</Title>
-                        <Typography.Text type="secondary">Choose a theme for the application.</Typography.Text>
-                    </Col>
-                    <Col>
-                        <Radio.Group onChange={handleThemeChange} value={theme}>
-                            <Radio.Button value="light">Light</Radio.Button>
-                            <Radio.Button value="dark">Dark</Radio.Button>
-                            <Radio.Button value="compact">Compact</Radio.Button>
-                        </Radio.Group>
-                    </Col>
-                </Row>
-            </Card>
+        {/* Theme Preferences (User-level, fixed presets) */}
+        <Col xs={24}>
+          <Card title="Theme Preferences" className="theme-preferences-card">
+            <Row gutter={[16, 16]}>
+              <Col xs={24} md={12}>
+                <Form layout="vertical">
+                  <Form.Item label="Mode">
+                    <Segmented
+                      block
+                      options={[
+                        { label: 'Light', value: 'light' },
+                        { label: 'Dark', value: 'dark' },
+                      ]}
+                      value={theme}
+                      onChange={(val) => setTheme(val)}
+                    />
+                  </Form.Item>
+                  <Form.Item label="Primary color preset">
+                    <Radio.Group
+                      value={userPrimaryPreset}
+                      onChange={(e) => setUserPrimaryPreset(e.target.value)}
+                      className="preset-grid"
+                    >
+                      {colorPresets.map((p) => {
+                        const color = presetColorMap[p.key];
+                        return (
+                          <Radio key={p.key} value={p.key} className="preset-item">
+                            <div
+                              className="preset-swatch"
+                              style={{
+                                background: color || 'transparent',
+                                borderColor: color ? 'transparent' : 'var(--app-menu-item-color, #999)'
+                              }}
+                              aria-label={`Preset ${p.label}`}
+                            />
+                            <div className="preset-label">{p.label}</div>
+                          </Radio>
+                        );
+                      })}
+                    </Radio.Group>
+                  </Form.Item>
+                  <Form.Item>
+                    <Radio.Group
+                      value={applyPresetToChrome ? 'on' : 'off'}
+                      onChange={(e) => setApplyPresetToChrome(e.target.value === 'on')}
+                    >
+                      <Radio value="off">Apply to content only</Radio>
+                      <Radio value="on">Also apply to Header & Sider</Radio>
+                    </Radio.Group>
+                  </Form.Item>
+                </Form>
+              </Col>
+              <Col xs={24} md={12}>
+                <Card size="small" title="Preview" className="theme-preview-card">
+                  <Space direction="vertical">
+                    <Space>
+                      <Button type="primary">Primary</Button>
+                      <Button type="default">Default</Button>
+                      <Button type="dashed">Dashed</Button>
+                    </Space>
+                    <Space>
+                      <a>Link</a>
+                      <Button type="link">Link Button</Button>
+                    </Space>
+                  </Space>
+                </Card>
+              </Col>
+            </Row>
+          </Card>
         </Col>
       </Row>
     </Spin>

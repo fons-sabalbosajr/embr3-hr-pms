@@ -1,0 +1,51 @@
+.work-calendar .fc {
+  color: var(--app-text-color, #141414);
+}
+
+.work-calendar .fc .fc-toolbar-title {
+  color: var(--app-text-color, #141414);
+}
+
+.work-calendar .fc-theme-standard .fc-scrollgrid,
+.work-calendar .fc-theme-standard td,
+.work-calendar .fc-theme-standard th {
+  border-color: var(--app-border-color, rgba(0,0,0,0.12));
+}
+
+.work-calendar .fc .fc-col-header-cell,
+.work-calendar .fc .fc-daygrid-day {
+  background: var(--app-surface-bg, #ffffff);
+}
+
+.work-calendar .fc .fc-col-header-cell-cushion,
+.work-calendar .fc .fc-daygrid-day-number {
+  color: var(--app-text-color, #141414);
+}
+
+.work-calendar .fc .fc-day-today {
+  background: color-mix(in srgb, var(--ant-primary-color, #1677ff) 12%, transparent);
+}
+
+.work-calendar .fc .fc-daygrid-day-frame:hover {
+  background: var(--app-surface-hover-bg, rgba(0,0,0,0.03));
+}
+
+.work-calendar .fc .fc-button {
+  background-color: var(--ant-primary-color, #1677ff);
+  border-color: var(--ant-primary-color, #1677ff);
+  color: #fff;
+}
+.work-calendar .fc .fc-button:disabled {
+  filter: grayscale(0.2);
+  opacity: 0.6;
+}
+.work-calendar .fc .fc-button:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.work-calendar .fc .fc-event,
+.work-calendar .fc .fc-event .fc-event-main {
+  background-color: var(--ant-primary-color, #1677ff);
+  border-color: var(--ant-primary-color, #1677ff);
+  color: #fff;
+}
