@@ -20,6 +20,9 @@ import settingsRoutes from "./routes/settingsRoutes.js";
 import deductionTypeRoutes from "./routes/deductionTypeRoutes.js";
 import payslipRequestRoutes from "./routes/payslipRequestRoutes.js";
 import dtrGenerationLogRoutes from "./routes/dtrGenerationLogRoutes.js";
+import devRoutes from "./routes/devRoutes.js";
+import localHolidayRoutes from "./routes/localHolidayRoutes.js";
+import suspensionRoutes from "./routes/suspensionRoutes.js";
 
 // Import the socket initializer
 import { initSocket } from "./socket.js";
@@ -53,6 +56,16 @@ app.use("/api/employee-salaries", employeeSalaryRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/deduction-types", deductionTypeRoutes);
 app.use("/api/payslip-requests", payslipRequestRoutes);
+app.use("/api/dev", devRoutes);
+app.use("/api/local-holidays", localHolidayRoutes);
+app.use("/api/suspensions", suspensionRoutes);
+
+// --- Redirect root to public base URL login (useful when app is hosted under /hrpms)
+app.get(["/", "/index.html"], (req, res) => {
+  // If the front-end is served behind a reverse proxy with base /hrpms,
+  // direct visits to / should land on /hrpms/auth
+  res.redirect(302, "/hrpms/auth");
+});
 
 // --- Start Server ---
 connectDB().then(async () => {

@@ -1,54 +1,36 @@
+/* Design tokens aligned with front-end */
+:root {
+  /* Brand */
+  --app-primary: #004b80; /* EMB Blue */
+  --app-accent: #52c41a;  /* EMB Green (matches AntD success) */
+  --app-gold: #f5d8a3;    /* Accent gold */
+
+  /* Surfaces & text (shared with front-end) */
+  --app-content-bg: #f5f5f5;
+  --app-surface-bg: #ffffff;
+  --app-text-color: #141414;
+  --app-text-muted: #595959;
+  --app-border-color: rgba(0,0,0,0.12);
+
+  /* Effects */
+  --radius-lg: 12px;
+  --radius-md: 8px;
+  --shadow-md: 0 6px 16px rgba(0,0,0,0.15);
+  --shadow-lg: 0 8px 25px rgba(0,0,0,0.18);
+  --glass-bg: rgba(255,255,255,0.12);
+}
+
+html, body, #root {
+  min-height: 100%;
+  background: var(--app-content-bg);
+  color: var(--app-text-color);
+}
+
 body {
   margin: 0;
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-  background: #f8f9fa;
-  color: #333;
 }
 
-.landing-container {
-  text-align: center;
-}
-
-.hero {
-  background: linear-gradient(135deg, #004b80, #9acd32, #f5d8a3);
-  color: white;
-  padding: 4rem 2rem;
-}
-
-.hero h1 {
-  font-size: 2.5rem;
-  margin-bottom: 1rem;
-}
-
-.features {
-  display: flex;
-  justify-content: center;
-  gap: 1.5rem;
-  padding: 3rem 2rem;
-  flex-wrap: wrap;
-}
-
-.feature-card {
-  width: 300px;
-  text-align: center;
-  padding: 1.5rem;
-  border-radius: 12px;
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
-}
-
-.cta {
-  background: #004b80;
-  color: white;
-  padding: 3rem 2rem;
-}
-
-.cta h2 {
-  margin-bottom: 1rem;
-}
-
-footer {
-  background: #111;
-  color: #aaa;
-  padding: 1rem;
-  margin-top: 2rem;
-}
+/* Utility */
+.text-muted { color: var(--app-text-muted); }
+.container { max-width: 1200px; margin-inline: auto; padding-inline: 1rem; }

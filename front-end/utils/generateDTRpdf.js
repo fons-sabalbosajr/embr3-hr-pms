@@ -1,9 +1,16 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc";
+import timezone from "dayjs/plugin/timezone";
 import { fetchPhilippineHolidays } from "../src/api/holidayPH";
 import axios from "axios";
+import axiosInstance from "../src/api/axiosInstance";
 import { getSignatoryEmployees } from "../src/api/employeeAPI.js";
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
+const LOCAL_TZ = "Asia/Manila";
 
 async function fetchEmployeeTrainings(empId) {
   try {
@@ -76,8 +83,8 @@ export async function generateDTRPdf({
     25
   );
 
-  const start = dayjs(selectedRecord.DTR_Cut_Off.start);
-  const end = dayjs(selectedRecord.DTR_Cut_Off.end);
+  const start = dayjs.tz(selectedRecord.DTR_Cut_Off.start, LOCAL_TZ);
+  const end = dayjs.tz(selectedRecord.DTR_Cut_Off.end, LOCAL_TZ);
 
   let cutOffText;
   if (start.isSame(end, "month")) {
@@ -111,28 +118,62 @@ export async function generateDTRPdf({
     { header: "Work Status", dataKey: "status" },
   ];
 
-  // ---------- Fetch Holidays & Trainings ----------
-  const year = dayjs(selectedRecord.DTR_Cut_Off.start).year();
-  const holidays = await fetchPhilippineHolidays(year);
+  // ---------- Fetch Holidays (PH + Local) & Suspensions & Trainings ----------
+  const year = dayjs.tz(selectedRecord.DTR_Cut_Off.start, LOCAL_TZ).year();
+  const holidaysPH = await fetchPhilippineHolidays(year);
   const trainings = await fetchEmployeeTrainings(employee.empId);
   const signatoriesRes = await getSignatoryEmployees();
   const signatories = signatoriesRes.data;
 
+  // Local holidays and suspensions within cut-off
+  let localHolidays = [];
+  let suspensions = [];
+  try {
+    const start = dayjs(selectedRecord.DTR_Cut_Off.start).format("YYYY-MM-DD");
+    const end = dayjs(selectedRecord.DTR_Cut_Off.end).format("YYYY-MM-DD");
+    const [lhRes, sRes] = await Promise.all([
+      axiosInstance.get(`/local-holidays`, { params: { start, end } }),
+      axiosInstance.get(`/suspensions`, { params: { start, end } }),
+    ]);
+    localHolidays = (lhRes.data?.data || []).map((h) => ({
+      date: dayjs(h.date).format("YYYY-MM-DD"),
+      endDate: h.endDate ? dayjs(h.endDate).format("YYYY-MM-DD") : null,
+      name: h.name,
+      type: "Local Holiday",
+    }));
+    suspensions = (sRes.data?.data || []).map((s) => ({
+      date: dayjs(s.date).format("YYYY-MM-DD"),
+      endDate: s.endDate ? dayjs(s.endDate).format("YYYY-MM-DD") : null,
+      name: s.title,
+      type: "Suspension",
+    }));
+  } catch {}
+
+  const allHolidays = [
+    ...holidaysPH.map((h) => ({
+      date: h.date,
+      name: h.localName,
+      type: h.type,
+    })),
+    ...localHolidays,
+    ...suspensions,
+  ];
+
   // ---------- Build Rows for the entire calendar month ----------
   const rows = [];
-  const referenceDate = dayjs(selectedRecord.DTR_Cut_Off.start);
+  const referenceDate = dayjs.tz(selectedRecord.DTR_Cut_Off.start, LOCAL_TZ);
   const startOfMonth = referenceDate.startOf("month");
   const endOfMonth = referenceDate.endOf("month");
 
-  const cutOffStart = dayjs(selectedRecord.DTR_Cut_Off.start);
-  const cutOffEnd = dayjs(selectedRecord.DTR_Cut_Off.end);
+  const cutOffStart = dayjs.tz(selectedRecord.DTR_Cut_Off.start, LOCAL_TZ);
+  const cutOffEnd = dayjs.tz(selectedRecord.DTR_Cut_Off.end, LOCAL_TZ);
 
   let currentDate = startOfMonth.clone();
 
   while (currentDate.isSameOrBefore(endOfMonth, "day")) {
-    const dateKey = currentDate.format("YYYY-MM-DD");
+    const dateKey = currentDate.tz(LOCAL_TZ).format("YYYY-MM-DD");
     const dayNum = currentDate.date();
-    const dayOfWeek = currentDate.day();
+    const dayOfWeek = currentDate.tz(LOCAL_TZ).day();
 
     let dayLogs = {};
     const ids = [employee.empId, ...(employee.alternateEmpIds || [])].filter(
@@ -147,12 +188,25 @@ export async function generateDTRPdf({
 
     let status = "";
     const training = getTrainingOnDay(trainings, dateKey);
-    const holiday = holidays.find((h) => h.date === dateKey);
+    const holiday = allHolidays.find((h) => {
+      const start = dayjs.tz(h.date, LOCAL_TZ).format("YYYY-MM-DD");
+      if (h.endDate) {
+        const end = dayjs.tz(h.endDate, LOCAL_TZ).format("YYYY-MM-DD");
+        return (
+          dayjs.tz(dateKey, LOCAL_TZ).isSameOrAfter(start, "day") &&
+          dayjs.tz(dateKey, LOCAL_TZ).isSameOrBefore(end, "day")
+        );
+      }
+      return start === dateKey;
+    });
 
     if (training) {
       status = `${training.name} (${training.iisTransaction})`;
     } else if (holiday) {
-      status = holiday.localName || "Holiday";
+      status =
+        holiday.type === "Suspension"
+          ? `Suspension: ${holiday.name}`
+          : holiday.name || "Holiday";
     } else if (dayOfWeek === 0) {
       status = "Sunday";
     } else if (dayOfWeek === 6) {
@@ -218,16 +272,18 @@ export async function generateDTRPdf({
     didParseCell: function (data) {
       if (data.section === "body") {
         const row = rows[data.row.index];
-        const mergeRowText = (text) => {
+        const SPECIAL_FONT_SIZE = 9; // emphasize weekends/holidays/suspensions
+        const statusColIndex = columns.findIndex((c) => c.dataKey === "status");
+        const mergeRowText = (text, fontSize = 7) => {
           const normalizedText = text.replace(/\s+/g, " "); // remove extra spaces
           if (data.column.index === 1) {
             data.cell.colSpan = columns.length - 1; // span all remaining columns
             data.cell.styles.halign = "center";
             data.cell.styles.valign = "middle";
-            data.cell.styles.fontSize = 7; // readable size
+            data.cell.styles.fontSize = fontSize; // size according to row type
             data.cell.styles.cellPadding = 1; // minimal padding
             data.cell.styles.overflow = "linebreak"; // wrap text
-            data.cell.styles.minCellHeight = 7; // adjust row height
+            data.cell.styles.minCellHeight = 7; // adjust row height slightly taller
             data.cell.text = [normalizedText]; // wrap text properly
           } else if (data.column.index > 1) {
             data.cell.text = "";
@@ -237,20 +293,29 @@ export async function generateDTRPdf({
 
         // Merge training rows
         if (row.isTraining && !row.hasLogs) {
-          mergeRowText(row.status);
+          mergeRowText(row.status, 7); // keep training at regular merged size
         }
 
         // Merge holiday/weekend rows
         if ((row.isHoliday || row.isWeekend) && !row.hasLogs) {
-          mergeRowText(row.status);
+          mergeRowText(row.status, SPECIAL_FONT_SIZE); // larger for emphasis
+        }
+
+        // Non-merged rows: bump font size of status cell for special days
+        if (
+          row &&
+          row.hasLogs &&
+          data.column.index === statusColIndex &&
+          (row.isHoliday || row.isWeekend || (row.status || "").startsWith("Suspension"))
+        ) {
+          data.cell.styles.fontSize = SPECIAL_FONT_SIZE;
         }
       }
     },
   });
 
   // ---------- Dynamic Certification & Signatures ----------
-  let tableBottom = doc.lastAutoTable.finalY;
-  let certY = tableBottom + 5;
+  let certY = doc.lastAutoTable.finalY + 9;
 
   doc.setFontSize(8);
   doc.text(
@@ -396,7 +461,7 @@ export async function generateBatchDTRPdf(printerTray) {
     ];
 
     const year = dayjs(selectedRecord.DTR_Cut_Off.start).year();
-    const holidays = await fetchPhilippineHolidays(year);
+    const holidaysPH = await fetchPhilippineHolidays(year);
     const trainings = await fetchEmployeeTrainings(employee.empId);
 
     const rows = [];
@@ -406,6 +471,44 @@ export async function generateBatchDTRPdf(printerTray) {
 
     const cutOffStart = dayjs(selectedRecord.DTR_Cut_Off.start);
     const cutOffEnd = dayjs(selectedRecord.DTR_Cut_Off.end);
+
+    // Local holidays and suspensions within cut-off
+    let localHolidays = [];
+    let suspensions = [];
+    try {
+      const start = cutOffStart.format("YYYY-MM-DD");
+      const end = cutOffEnd.format("YYYY-MM-DD");
+      const [lhRes, sRes] = await Promise.all([
+        axiosInstance.get(`/local-holidays`, { params: { start, end } }),
+        axiosInstance.get(`/suspensions`, { params: { start, end } }),
+      ]);
+      localHolidays = (lhRes.data?.data || []).map((h) => ({
+        date: dayjs(h.date).format("YYYY-MM-DD"),
+        endDate: h.endDate ? dayjs(h.endDate).format("YYYY-MM-DD") : null,
+        name: h.name,
+        type: "Local Holiday",
+        location: h.location,
+      }));
+      suspensions = (sRes.data?.data || []).map((s) => ({
+        date: dayjs(s.date).format("YYYY-MM-DD"),
+        endDate: s.endDate ? dayjs(s.endDate).format("YYYY-MM-DD") : null,
+        name: s.title,
+        type: "Suspension",
+        scope: s.scope,
+        location: s.location,
+        referenceNo: s.referenceNo,
+      }));
+    } catch {}
+
+    const allHolidays = [
+      ...holidaysPH.map((h) => ({
+        date: h.date,
+        name: h.localName,
+        type: h.type,
+      })),
+      ...localHolidays,
+      ...suspensions,
+    ];
 
     let currentDate = startOfMonth.clone();
 
@@ -417,12 +520,25 @@ export async function generateBatchDTRPdf(printerTray) {
       let status = "";
 
       const training = getTrainingOnDay(trainings, dateKey);
-      const holiday = holidays.find((h) => h.date === dateKey);
+      const holiday = allHolidays.find((h) => {
+        const start = dayjs(h.date).format("YYYY-MM-DD");
+        if (h.endDate) {
+          const end = dayjs(h.endDate).format("YYYY-MM-DD");
+          return (
+            dayjs(dateKey).isSameOrAfter(start, "day") &&
+            dayjs(dateKey).isSameOrBefore(end, "day")
+          );
+        }
+        return start === dateKey;
+      });
 
       if (training) {
         status = `${training.name} (${training.iisTransaction})`;
       } else if (holiday) {
-        status = holiday.localName || "Holiday";
+        status =
+          holiday.type === "Suspension"
+            ? `Suspension: ${holiday.name}`
+            : holiday.name || "Holiday";
       } else if (dayOfWeek === 0) {
         status = "Sunday";
       } else if (dayOfWeek === 6) {
@@ -501,16 +617,18 @@ export async function generateBatchDTRPdf(printerTray) {
         if (data.section === "body") {
           const row = rows[data.row.index];
           if (!row) return;
-          const mergeRowText = (text) => {
+          const SPECIAL_FONT_SIZE = 11; // emphasize weekends/holidays/suspensions
+          const statusColIndex = columns.findIndex((c) => c.dataKey === "status");
+          const mergeRowText = (text, fontSize = 7) => {
             const normalizedText = text.replace(/\s+/g, " ");
             if (data.column.index === 1) {
               data.cell.colSpan = columns.length - 1;
               data.cell.styles.halign = "center";
               data.cell.styles.valign = "middle";
-              data.cell.styles.fontSize = 7;
+              data.cell.styles.fontSize = fontSize; // size according to row type
               data.cell.styles.cellPadding = 1;
               data.cell.styles.overflow = "linebreak";
-              data.cell.styles.minCellHeight = 7;
+              data.cell.styles.minCellHeight = 8;
               data.cell.text = [normalizedText];
             } else if (data.column.index > 1) {
               data.cell.text = "";
@@ -519,14 +637,25 @@ export async function generateBatchDTRPdf(printerTray) {
           };
 
           if (row.isTraining && !row.hasLogs) {
-            mergeRowText(row.status);
+            mergeRowText(row.status, 7); // keep training at regular merged size
           }
           if ((row.isHoliday || row.isWeekend) && !row.hasLogs) {
-            mergeRowText(row.status);
+            mergeRowText(row.status, SPECIAL_FONT_SIZE); // larger for emphasis
+          }
+
+          // Non-merged rows: bump font size of status cell for special days
+          if (
+            row.hasLogs &&
+            data.column.index === statusColIndex &&
+            (row.isHoliday || row.isWeekend || (row.status || "").startsWith("Suspension"))
+          ) {
+            data.cell.styles.fontSize = SPECIAL_FONT_SIZE;
           }
         }
       },
     });
+
+    // (Legend removed by request)
 
     let tableBottom = doc.lastAutoTable.finalY;
     let certY = tableBottom + 5;
@@ -534,7 +663,7 @@ export async function generateBatchDTRPdf(printerTray) {
     doc.setFontSize(8);
     doc.text(
       "I hereby certify on my honor that the above is a true and correct report of work\nperformed,record of which was made daily at the time and\ndeparture from office.",
-     centerX,
+      centerX,
       certY,
       { align: "center" }
     );

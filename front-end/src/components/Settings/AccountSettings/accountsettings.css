@@ -1,0 +1,37 @@
+.theme-preferences-card .preset-grid {
+	display: grid !important;
+	grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+	gap: 12px;
+}
+
+.theme-preferences-card .preset-item {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 6px 8px;
+	border-radius: 8px;
+}
+
+.theme-preferences-card .ant-radio-wrapper.preset-item .ant-radio {
+	display: none; /* hide default bullet, we'll use swatch */
+}
+
+.theme-preferences-card .preset-swatch {
+	width: 20px;
+	height: 20px;
+	border-radius: 4px;
+	border: 1px solid transparent;
+	box-shadow: 0 0 0 1px rgba(0,0,0,0.05) inset;
+}
+
+.theme-preferences-card .ant-radio-wrapper.preset-item.ant-radio-wrapper-checked {
+	background: rgba(0,0,0,0.04);
+}
+
+.theme-preferences-card .preset-label {
+	font-size: 12px;
+}
+
+.theme-preview-card .ant-space {
+	width: 100%;
+}

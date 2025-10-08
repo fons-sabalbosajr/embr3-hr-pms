@@ -61,6 +61,7 @@ const userSchema = new mongoose.Schema(
 
     theme: { type: String, default: "light" },
     isOnline: { type: Boolean, default: false },
+    lastSeenAt: { type: Date },
   },
   { timestamps: true }
 );

@@ -9,7 +9,7 @@ const Unauthorized = () => {
 
   const handleLogout = () => {
     logout();
-    navigate('/auth');
+  navigate('/auth');
   };
 
   const handleContactAdmin = () => {

@@ -25,32 +25,43 @@ const DTRDayTiles = ({
         const dayOfWeek = dateObj.day();
         const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
 
-        // Check if holiday
-        const holiday = holidaysPH.find((h) => h.date === dateKey);
+        // Check if holiday or suspension (supports ranges)
+        const holiday = holidaysPH.find((h) => {
+          if (!h) return false;
+          const start = dayjs(h.date).format("YYYY-MM-DD");
+          if (h.endDate) {
+            const end = dayjs(h.endDate).format("YYYY-MM-DD");
+            return (
+              dayjs(dateKey).isSameOrAfter(start, "day") &&
+              dayjs(dateKey).isSameOrBefore(end, "day")
+            );
+          }
+          return start === dateKey;
+        });
 
         // Check if training
         const training = getTrainingDetailsOnDay(emp, dateKey);
         const isTrainingDay = !!training;
 
-        const weekendBg = "#ffe6e6";
-        const holidayBg = "#ffe066";
-        const trainingBg = "#e6e6ff";
+        const weekendBg = "var(--dtr-weekend-bg, rgba(255,230,230,0.3))";
+        const holidayBg = "var(--dtr-holiday-bg, rgba(250,173,20,0.18))";
+        const trainingBg = "var(--dtr-training-bg, rgba(114,46,209,0.12))";
         const workedWeekendStyle = {
-          border: "2px solid #fa541c",
-          backgroundColor: "#fff2e8",
+          border: "2px solid var(--dtr-worked-weekend-border, #fa541c)",
+          backgroundColor: "var(--dtr-worked-weekend-bg, rgba(250,84,28,0.15))",
         };
         const holidayStyle = {
-          border: "2px solid #faad14",
+          border: "2px solid var(--dtr-holiday-border, #faad14)",
           backgroundColor: holidayBg,
         };
         const trainingStyle = {
-          border: "2px solid #722ed1",
+          border: "2px solid var(--dtr-training-border, #722ed1)",
           backgroundColor: trainingBg,
         };
 
         const tileStyle = {
           width: 45,
-          minHeight: 35,
+          minHeight: 48,
           background: isTrainingDay
             ? trainingBg
             : holiday
@@ -58,13 +69,13 @@ const DTRDayTiles = ({
             : isWeekend
             ? weekendBg
             : hasLogs
-            ? "#d6f5d6"
-            : "#f1f1f1",
-          border: "1px solid #d9d9d9",
+            ? "var(--dtr-haslogs-bg, rgba(82,196,26,0.18))"
+            : "var(--dtr-empty-bg, rgba(255,255,255,0.06))",
+          border: "1px solid var(--app-border-color, rgba(0,0,0,0.12))",
           borderRadius: 4,
           padding: 4,
           fontSize: 10,
-          color: "#000",
+          color: "var(--app-text-color, #141414)",
           flexShrink: 0,
           display: "flex",
           flexDirection: "column",
@@ -92,6 +103,77 @@ const DTRDayTiles = ({
                 }}
               >
                 <CalendarFilled style={{ color: "#faad14" }} /> {holiday.name}
+              </div>
+            )}
+            {holiday && (
+              <div style={{ marginTop: 6, color: "var(--app-text-color)" }}>
+                {holiday.type === "Suspension" ? (
+                  <>
+                    {holiday.scope && (
+                      <div>
+                        <strong>Scope:</strong> {holiday.scope}
+                      </div>
+                    )}
+                    {holiday.location && (
+                      <div>
+                        <strong>Location:</strong> {holiday.location}
+                      </div>
+                    )}
+                    {(holiday.referenceType || holiday.referenceNo) && (
+                      <div>
+                        <strong>Reference:</strong>{" "}
+                        {holiday.referenceType || ""}{" "}
+                        {holiday.referenceNo ? (
+                          holiday.referenceNo.startsWith("http") ? (
+                            <a
+                              href={holiday.referenceNo}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              {holiday.referenceNo}
+                            </a>
+                          ) : (
+                            holiday.referenceNo
+                          )
+                        ) : (
+                          ""
+                        )}
+                      </div>
+                    )}
+                    {holiday.endDate && (
+                      <div>
+                        <strong>Effective:</strong>{" "}
+                        {dayjs(holiday.date).format("YYYY-MM-DD")} →{" "}
+                        {dayjs(holiday.endDate).format("YYYY-MM-DD")}
+                      </div>
+                    )}
+                    {holiday.notes && (
+                      <div style={{ whiteSpace: "pre-wrap" }}>
+                        <strong>Notes:</strong> {holiday.notes}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    {holiday.location && (
+                      <div>
+                        <strong>Location:</strong> {holiday.location}
+                      </div>
+                    )}
+                    {holiday.endDate && (
+                      <div>
+                        <strong>Effective:</strong>{" "}
+                        {dayjs(holiday.date).format("YYYY-MM-DD")} →{" "}
+                        {dayjs(holiday.endDate).format("YYYY-MM-DD")}
+                      </div>
+                    )}
+                    {holiday.notes && (
+                      <div style={{ whiteSpace: "pre-wrap" }}>
+                        <strong>Notes:</strong> {holiday.notes}
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             )}
             {isTrainingDay && (
@@ -203,7 +285,14 @@ const DTRDayTiles = ({
                     );
                   })
               : !isTrainingDay && (
-                  <div style={{ color: "#bbb", fontSize: 11 }}>No Data</div>
+                  <div
+                    style={{
+                      color: "var(--app-text-muted, #9ca3af)",
+                      fontSize: 11,
+                    }}
+                  >
+                    No Data
+                  </div>
                 )}
           </div>
         );
@@ -212,7 +301,7 @@ const DTRDayTiles = ({
           <Popover
             key={dayNum}
             content={popoverContent}
-            trigger="hover"
+            trigger="click"
             placement="top"
           >
             <div style={tileStyle}>
@@ -224,14 +313,16 @@ const DTRDayTiles = ({
                 <div
                   style={{
                     fontWeight: "normal",
-                    fontSize: 10,
-                    color: "#555",
+                    fontSize: (isWeekend || holiday) ? 14 : 10,
+                    color: "var(--app-text-muted, #595959)",
                   }}
                 >
                   {dateObj.format("ddd")}
                 </div>
                 {holiday && (
-                  <span style={{ fontSize: 8, color: "#faad14" }}>Holiday</span>
+                  <span style={{ fontSize: 8, color: "#faad14" }}>
+                    {holiday.type === "Suspension" ? "No work" : "Holiday"}
+                  </span>
                 )}
                 {isTrainingDay && (
                   <span

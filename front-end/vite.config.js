@@ -7,7 +7,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd());
 
   return {
-    base: "/hrpms", // 👈 important for Nginx subpath
+    base: "/hrpms/", // 👈 include trailing slash to avoid Vite base warning and ensure correct asset paths
     plugins: [react()],
     server: {
       host: env.VITE_HOST || "localhost",

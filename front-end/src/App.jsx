@@ -1,7 +1,6 @@
 // client/src/App.jsx
 import { Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
-import { ThemeProvider } from "./context/ThemeContext";
 import useAuth from "./hooks/useAuth";
 
 import AuthPage from "./pages/AuthPage/AuthPage";
@@ -44,11 +43,7 @@ const AppRoutes = () => {
 };
 
 const App = () => (
-  <ThemeProvider>
-    <AuthProvider>
-      <AppRoutes />
-    </AuthProvider>
-  </ThemeProvider>
+  <AppRoutes />
 );
 
 export default App;

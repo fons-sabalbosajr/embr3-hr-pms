@@ -72,10 +72,17 @@ const ViewDTR = ({
       const rows = [];
       const trainingsCache = {};
 
-      // Build a holiday lookup map for faster access
+      // Build a holiday/suspension lookup map; expand ranges
       const holidayMap = {};
       holidaysPH.forEach((h) => {
-        holidayMap[dayjs(h.date).format("YYYY-MM-DD")] = h.name;
+        const start = dayjs(h.date);
+        const end = h.endDate ? dayjs(h.endDate) : start;
+        let d = start.clone();
+        const label = h.type === 'Suspension' ? `Suspension: ${h.name}` : (h.name || 'Holiday');
+        while (d.isSameOrBefore(end, 'day')) {
+          holidayMap[d.format('YYYY-MM-DD')] = label;
+          d = d.add(1, 'day');
+        }
       });
       //console.log("ViewDTR: holidayMap generated:", holidayMap);
 
@@ -243,7 +250,7 @@ const ViewDTR = ({
         trainingsCache[dateKey] = training ? training.mergedName : null;
 
         // Check if holiday
-        const holidayLabel = holidayMap[dateKey] || "";
+  const holidayLabel = holidayMap[dateKey] || "";
         const isHoliday = !!holidayLabel;
         //console.log(`ViewDTR: Date ${dateKey}, isHoliday: ${isHoliday}, holidayLabel: ${holidayLabel}`);
 
@@ -334,7 +341,8 @@ const ViewDTR = ({
                 children: record.weekendLabel,
                 props: {
                   colSpan: 5,
-                  style: { textAlign: "center", backgroundColor: "#f5f5f5" },
+                  style: { textAlign: "center" },
+                  className: "weekend-cell",
                 },
               };
             }
@@ -346,6 +354,7 @@ const ViewDTR = ({
                   style: {
                     textAlign: "center",
                   },
+                  className: "holiday-cell",
                 },
               };
             }
@@ -356,11 +365,8 @@ const ViewDTR = ({
                   colSpan: 5,
                   style: {
                     textAlign: "center",
-                    backgroundColor: "#e6e6ff",
-                    color: "#722ed1",
-                    fontWeight: "bold",
-                    fontSize: "11px",
                   },
+                  className: "training-cell",
                 },
               };
             }
@@ -435,6 +441,7 @@ const ViewDTR = ({
       onCancel={onClose}
       footer={null}
       width={750}
+      className="view-dtr-modal"
     >
       <div
         style={{
