@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from "react";
+import { useLocation } from "react-router-dom";
 import {
   Typography,
   Spin,
@@ -115,6 +116,7 @@ const DTRProcess = ({ currentUser }) => {
   const [suspensions, setSuspensions] = useState([]);
   const [employeeTrainings, setEmployeeTrainings] = useState({});
   const [selectedRowKeys, setSelectedRowKeys] = useState([]);
+  const location = useLocation();
 
   const fetchEmployees = async () => {
     try {
@@ -127,6 +129,19 @@ const DTRProcess = ({ currentUser }) => {
       setFilteredEmployees(sortedData);
 
       await fetchDtrLogs(sortedData);
+      // Apply deep-link empId filter if present in query params
+      const params = new URLSearchParams(location.search);
+      const empIdParam = params.get('empId');
+      if (empIdParam) {
+        setSearchText(empIdParam);
+        setFilteredEmployees(
+          sortedData.filter((e) =>
+            [e.empId, e.empNo, e.name, e.normalizedName]
+              .filter(Boolean)
+              .some((v) => String(v).toLowerCase().includes(empIdParam.toLowerCase()))
+          )
+        );
+      }
     } catch (err) {
       console.error("Failed to fetch employees:", err);
       message.error("Unable to load employees");
