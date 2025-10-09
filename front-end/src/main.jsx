@@ -13,7 +13,8 @@ import { App as AntApp } from "antd";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    <BrowserRouter basename="/hrpms">
+  {/* Use the Vite injected BASE_URL so dev ('/') and prod ('/hrpms/') both work without manual edits */}
+  <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, "")}>
       <ThemeProvider>
         <AuthProvider>
           <NotificationsProvider>

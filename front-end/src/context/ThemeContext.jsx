@@ -88,7 +88,7 @@ export const ThemeProvider = ({ children }) => {
     }
   }, [applyPresetToChrome, userPrimaryPreset]);
 
-  // Load settings from backend (requires auth). This will run once the axiosInstance has Authorization set by AuthContext.
+  // Load settings from backend (requires auth). Guard so we don't hammer endpoint unauthenticated.
   useEffect(() => {
     let mounted = true;
     const load = async () => {
@@ -98,10 +98,13 @@ export const ThemeProvider = ({ children }) => {
         setAppSettings(res.data);
         applyCssVars(res.data);
       } catch (e) {
-        // Non-fatal if not available yet (e.g., not authenticated)
+        // Non-fatal if not available yet (e.g., not authenticated). Don't retry here; AuthContext change will trigger when token set.
       }
     };
-    load();
+    // Only attempt if we appear authenticated (token in secure storage)
+    if (localStorage.getItem('token')) {
+      load();
+    }
     // Listen for updates from DevSettings to re-apply immediately
     const onUpdated = () => load();
     window.addEventListener('app-settings-updated', onUpdated);

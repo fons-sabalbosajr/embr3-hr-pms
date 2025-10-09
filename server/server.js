@@ -60,12 +60,7 @@ app.use("/api/dev", devRoutes);
 app.use("/api/local-holidays", localHolidayRoutes);
 app.use("/api/suspensions", suspensionRoutes);
 
-// --- Redirect root to public base URL login (useful when app is hosted under /hrpms)
-app.get(["/", "/index.html"], (req, res) => {
-  // If the front-end is served behind a reverse proxy with base /hrpms,
-  // direct visits to / should land on /hrpms/auth
-  res.redirect(302, "/hrpms/auth");
-});
+// (Removed redirect of '/' to '/hrpms/auth' to avoid redirect loops during local dev with Vite base handling.)
 
 // --- Start Server ---
 connectDB().then(async () => {

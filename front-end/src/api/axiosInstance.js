@@ -19,16 +19,25 @@ axiosInstance.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Handle 401 → auto logout + redirect to /auth
+// Handle 401 → auto logout + redirect to auth screen (respecting Vite base path)
 axiosInstance.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response && error.response.status === 401) {
       secureRemove("token");
-      message.error("Session expired. Please log in again.");
-      setTimeout(() => {
-        window.location.replace("/auth"); // ✅ no history dependency
-      }, 1000);
+      // Avoid spamming message if multiple concurrent 401s
+      if (!window.__SESSION_EXPIRED_SHOWN__) {
+        window.__SESSION_EXPIRED_SHOWN__ = true;
+        message.error("Session expired. Please log in again.");
+      }
+      const base = (import.meta.env.BASE_URL || "/").replace(/\/$/, "");
+      const authPath = `${base}/auth` || "/auth";
+      // Prevent redirect loop if we're already on auth page
+      if (!window.location.pathname.endsWith("/auth")) {
+        setTimeout(() => {
+          window.location.replace(authPath);
+        }, 500);
+      }
     }
     return Promise.reject(error);
   }

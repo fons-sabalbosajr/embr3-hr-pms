@@ -313,7 +313,7 @@ const DTRDayTiles = ({
                 <div
                   style={{
                     fontWeight: "normal",
-                    fontSize: (isWeekend || holiday) ? 14 : 10,
+                    fontSize: isWeekend ? 8 : 10,
                     color: "var(--app-text-muted, #595959)",
                   }}
                 >

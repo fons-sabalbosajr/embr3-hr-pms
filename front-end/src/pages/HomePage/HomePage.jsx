@@ -9,6 +9,9 @@ import {
   Divider,
   Button,
   message,
+  Modal,
+  Descriptions,
+  Tag,
 } from "antd";
 import {
   UserOutlined,
@@ -65,6 +68,13 @@ const HomePage = () => {
   const [isFeatureModalOpen, setIsFeatureModalOpen] = useState(false);
   const { notifications, setNotifications, messages, setMessages } =
     useContext(NotificationsContext);
+  const [selectedNotification, setSelectedNotification] = useState(null);
+  const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
+  const [selectedMessage, setSelectedMessage] = useState(null);
+  const [isMessageModalOpen, setIsMessageModalOpen] = useState(false);
+  const [employeeDetails, setEmployeeDetails] = useState(null);
+  const [employeeLoading, setEmployeeLoading] = useState(false);
+  const [employeeError, setEmployeeError] = useState(null);
 
   useEffect(() => {
     localStorage.setItem("notifications", JSON.stringify(notifications));
@@ -114,6 +124,7 @@ const HomePage = () => {
           }))
         );
       } catch (err) {
+        // Initial load failures are non-fatal; UI can still function with empty lists
         console.error("Failed to load initial data:", err);
       }
     };
@@ -265,6 +276,90 @@ const HomePage = () => {
   };
 
   // ---- Notifications Popover ----
+  const openNotificationModal = async (n) => {
+    // Mark read (optimistic) and open modal
+    try {
+      if (!n.read) {
+        await axiosInstance.put(`/payslip-requests/${n.id}/read`);
+        setNotifications((prev) =>
+          prev.map((notif) =>
+            notif.id === n.id ? { ...notif, read: true } : notif
+          )
+        );
+      }
+    } catch (error) {
+      // Non-fatal; still show modal
+      message.error("Failed to update notification status");
+    }
+    setSelectedNotification(n);
+    setIsNotificationModalOpen(true);
+
+    // Fetch employee details if employeeId present
+    if (n.employeeId) {
+      setEmployeeLoading(true);
+      setEmployeeError(null);
+      setEmployeeDetails(null);
+      try {
+        const { data } = await axiosInstance.get(`/employees/by-emp-id/${encodeURIComponent(n.employeeId)}`);
+        if (data?.success) {
+          setEmployeeDetails(data.data);
+        } else {
+          setEmployeeError(data?.message || 'Employee not found');
+        }
+      } catch (err) {
+        setEmployeeError("Failed to load employee details");
+      } finally {
+        setEmployeeLoading(false);
+      }
+    } else {
+      setEmployeeDetails(null);
+    }
+  };
+
+  // ---- Messages Modal Logic ----
+  const openMessageModal = async (m) => {
+    // Mark as read (optimistic) then open modal
+    try {
+      if (!m.read) {
+        await axiosInstance.put(`/dtrlogs/${m._id || m.id}/read`);
+        setMessages((prev) =>
+          prev.map((msg) =>
+            (msg._id || msg.id) === (m._id || m.id)
+              ? { ...msg, read: true }
+              : msg
+          )
+        );
+      }
+    } catch (error) {
+      message.error("Failed to update message status");
+    }
+    setSelectedMessage(m);
+    setIsMessageModalOpen(true);
+
+    // Fetch employee details if employeeId present
+    if (m.employeeId) {
+      setEmployeeLoading(true);
+      setEmployeeError(null);
+      setEmployeeDetails(null);
+      try {
+        const { data } = await axiosInstance.get(
+          `/employees/by-emp-id/${encodeURIComponent(m.employeeId)}`
+        );
+        if (data?.success) {
+          setEmployeeDetails(data.data);
+        } else {
+          setEmployeeError(data?.message || "Employee not found");
+        }
+      } catch (err) {
+        setEmployeeError("Failed to load employee details");
+      } finally {
+        setEmployeeLoading(false);
+      }
+    } else {
+      setEmployeeDetails(null);
+    }
+  };
+
   const notificationContent = hasAccess("canViewNotifications") && (
     <div style={{ maxHeight: 350, overflowY: "auto", width: 320 }}>
       <div
@@ -317,17 +412,9 @@ const HomePage = () => {
             <Button
               size="small"
               type="link"
-              onClick={async () => {
-                try {
-                  await axiosInstance.put(`/payslip-requests/${n.id}/read`);
-                  setNotifications((prev) =>
-                    prev.map((notif) =>
-                      notif.id === n.id ? { ...notif, read: true } : notif
-                    )
-                  );
-                } catch (error) {
-                  message.error("Failed to mark notification as read");
-                }
+              onClick={(e) => {
+                e.stopPropagation(); // prevent popover internal event bubbling issues
+                openNotificationModal(n);
               }}
             >
               View
@@ -343,6 +430,246 @@ const HomePage = () => {
         </Text>
       )}
     </div>
+  );
+
+  const notificationModal = (
+    <Modal
+      open={isNotificationModalOpen}
+      title={
+        selectedNotification
+          ? `Payslip Request - ${selectedNotification.employeeId}`
+          : "Notification"
+      }
+      onCancel={() => setIsNotificationModalOpen(false)}
+      footer={[
+        <Button key="close" onClick={() => setIsNotificationModalOpen(false)}>
+          Close
+        </Button>,
+        selectedNotification && (
+          <Button
+            key="process"
+            type="primary"
+            onClick={() => {
+              // Determine target route
+              const notif = selectedNotification;
+              let target = null;
+              // Simple heuristic: payslip requests go to benefits/payroll page, others maybe DTR
+              if (notif.period || notif.reason === 'payslip' || /payslip/i.test(notif.type || '')) {
+                const empQ = notif.employeeId ? `&empId=${encodeURIComponent(notif.employeeId)}` : '';
+                target = `/dtr/reports?payslip=1${empQ}`;
+              } else if (/dtr/i.test(notif.type || '') || notif.dtrId) {
+                target = '/dtr/process';
+              }
+              if (!target) {
+                // default fallback
+                target = '/dtr/reports';
+              }
+              setIsNotificationModalOpen(false);
+              navigate(target);
+            }}
+          >
+            Process Request
+          </Button>
+        )
+      ]}
+    >
+      {selectedNotification && (
+        <Descriptions
+          size="small"
+          column={1}
+          bordered
+          labelStyle={{ width: 130 }}
+          contentStyle={{ background: "transparent" }}
+        >
+          {selectedNotification.employeeName && (
+            <Descriptions.Item label="Employee">
+              {selectedNotification.employeeName} ({selectedNotification.employeeId})
+            </Descriptions.Item>
+          )}
+          {!selectedNotification.employeeName && selectedNotification.employeeId && (
+            <Descriptions.Item label="Employee">
+              {selectedNotification.employeeId}
+            </Descriptions.Item>
+          )}
+          {employeeLoading && (
+            <Descriptions.Item label="Employee Details">
+              Loading...
+            </Descriptions.Item>
+          )}
+          {employeeError && (
+            <Descriptions.Item label="Employee Details">
+              <span style={{ color: 'red' }}>{employeeError}</span>
+            </Descriptions.Item>
+          )}
+          {employeeDetails && (
+            <>
+              <Descriptions.Item label="Full Name">
+                {employeeDetails.fullName || employeeDetails.name || `${employeeDetails.firstName || ''} ${employeeDetails.lastName || ''}`.trim()}
+              </Descriptions.Item>
+              {employeeDetails.position && (
+                <Descriptions.Item label="Position">
+                  {employeeDetails.position}
+                </Descriptions.Item>
+              )}
+              {employeeDetails.division && (
+                <Descriptions.Item label="Division">
+                  {employeeDetails.division}
+                </Descriptions.Item>
+              )}
+              {(employeeDetails.sectionOrUnit || employeeDetails.section || employeeDetails.unit) && (
+                <Descriptions.Item label="Section / Unit">
+                  {employeeDetails.sectionOrUnit || employeeDetails.section || employeeDetails.unit}
+                </Descriptions.Item>
+              )}
+              {employeeDetails.employmentStatus && (
+                <Descriptions.Item label="Employment Status">
+                  {employeeDetails.employmentStatus}
+                </Descriptions.Item>
+              )}
+              {employeeDetails.empType && !employeeDetails.employmentStatus && (
+                <Descriptions.Item label="Employment Type">
+                  {employeeDetails.empType}
+                </Descriptions.Item>
+              )}
+            </>
+          )}
+          {selectedNotification.reason && (
+            <Descriptions.Item label="Reason">
+              {selectedNotification.reason}
+            </Descriptions.Item>
+          )}
+          {selectedNotification.period && (
+            <Descriptions.Item label="Period">
+              {selectedNotification.period}
+            </Descriptions.Item>
+          )}
+          {selectedNotification.createdAt && (
+            <Descriptions.Item label="Requested At">
+              {new Date(selectedNotification.createdAt).toLocaleString()}
+            </Descriptions.Item>
+          )}
+          <Descriptions.Item label="Status">
+            <Tag color={selectedNotification.read ? "green" : "blue"}>
+              {selectedNotification.read ? "Read" : "Unread"}
+            </Tag>
+          </Descriptions.Item>
+          {selectedNotification.notes && (
+            <Descriptions.Item label="Notes">
+              {selectedNotification.notes}
+            </Descriptions.Item>
+          )}
+          {selectedNotification._id && (
+            <Descriptions.Item label="Internal ID">
+              {selectedNotification._id}
+            </Descriptions.Item>
+          )}
+        </Descriptions>
+      )}
+    </Modal>
+  );
+
+  // ---- Message Modal (missing render previously) ----
+  const messageModal = (
+    <Modal
+      open={isMessageModalOpen}
+      title={
+        selectedMessage
+          ? `DTR Log - ${selectedMessage.employeeId || selectedMessage._id}`
+          : "Message"
+      }
+      onCancel={() => setIsMessageModalOpen(false)}
+      footer={[
+        <Button key="close" onClick={() => setIsMessageModalOpen(false)}>
+          Close
+        </Button>,
+        selectedMessage?.employeeId && (
+          <Button
+            key="process"
+            type="primary"
+            onClick={() => {
+              const empId = selectedMessage.employeeId;
+              setIsMessageModalOpen(false);
+              navigate(`/dtr/process?empId=${encodeURIComponent(empId)}`);
+            }}
+          >
+            Process DTR
+          </Button>
+        ),
+      ]}
+    >
+      {selectedMessage && (
+        <Descriptions
+          size="small"
+          column={1}
+          bordered
+          labelStyle={{ width: 130 }}
+          contentStyle={{ background: "transparent" }}
+        >
+          {selectedMessage.employeeId && (
+            <Descriptions.Item label="Employee ID">
+              {selectedMessage.employeeId}
+            </Descriptions.Item>
+          )}
+          {employeeLoading && (
+            <Descriptions.Item label="Employee Details">
+              Loading...
+            </Descriptions.Item>
+          )}
+          {employeeError && (
+            <Descriptions.Item label="Employee Details">
+              <span style={{ color: 'red' }}>{employeeError}</span>
+            </Descriptions.Item>
+          )}
+          {employeeDetails && (
+            <>
+              <Descriptions.Item label="Full Name">
+                {employeeDetails.fullName || employeeDetails.name || `${employeeDetails.firstName || ''} ${employeeDetails.lastName || ''}`.trim()}
+              </Descriptions.Item>
+              {employeeDetails.position && (
+                <Descriptions.Item label="Position">
+                  {employeeDetails.position}
+                </Descriptions.Item>
+              )}
+            </>
+          )}
+          {selectedMessage.type && (
+            <Descriptions.Item label="Type">
+              {selectedMessage.type}
+            </Descriptions.Item>
+          )}
+          {selectedMessage.logType && (
+            <Descriptions.Item label="Log Type">
+              {selectedMessage.logType}
+            </Descriptions.Item>
+          )}
+          {selectedMessage.message && (
+            <Descriptions.Item label="Message">
+              {selectedMessage.message}
+            </Descriptions.Item>
+          )}
+          {selectedMessage.reason && (
+            <Descriptions.Item label="Reason">
+              {selectedMessage.reason}
+            </Descriptions.Item>
+          )}
+          {selectedMessage.createdAt && (
+            <Descriptions.Item label="Logged At">
+              {new Date(selectedMessage.createdAt).toLocaleString()}
+            </Descriptions.Item>
+          )}
+          <Descriptions.Item label="Status">
+            <Tag color={selectedMessage.read ? "green" : "blue"}>
+              {selectedMessage.read ? "Read" : "Unread"}
+            </Tag>
+          </Descriptions.Item>
+          {selectedMessage._id && (
+            <Descriptions.Item label="Internal ID">
+              {selectedMessage._id}
+            </Descriptions.Item>
+          )}
+        </Descriptions>
+      )}
+    </Modal>
   );
 
   // ---- Messages Popover ----
@@ -406,27 +733,7 @@ const HomePage = () => {
             <Button
               size="small"
               type="link"
-              onClick={async () => {
-                try {
-                  // ✅ Optimistic update
-                  setMessages((prev) =>
-                    prev.map((msg) =>
-                      msg._id === m._id ? { ...msg, read: true } : msg
-                    )
-                  );
-
-                  // ✅ Persist to backend
-                  await axiosInstance.put(`/dtrlogs/${m._id}/read`);
-
-                  // ✅ Refresh list
-                  const { data } = await axiosInstance.get("/dtrlogs");
-                  if (data.success) {
-                    setMessages(data.data);
-                  }
-                } catch (error) {
-                  message.error("Failed to mark message as read");
-                }
-              }}
+              onClick={() => openMessageModal(m)}
             >
               View
             </Button>
@@ -477,6 +784,8 @@ const HomePage = () => {
         transition: "margin-left 0.2s",
       }}
     >
+      {notificationModal}
+      {messageModal}
       <Sider
         width={220}
         collapsible

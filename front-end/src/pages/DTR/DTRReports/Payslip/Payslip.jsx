@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import {
   Input,
   Select,
@@ -36,6 +37,7 @@ const Payslip = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isAddSalaryModalOpen, setIsAddSalaryModalOpen] = useState(false);
   const [combinedData, setCombinedData] = useState([]);
+  const location = useLocation();
   const [searchKeyword, setSearchKeyword] = useState("");
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [activeTab, setActiveTab] = useState("Regular");
@@ -69,6 +71,17 @@ const Payslip = () => {
   useEffect(() => {
     fetchCombinedData();
   }, []);
+
+  // Prefill search if query param provided (empId or search)
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const empIdParam = params.get('empId');
+    const searchParam = params.get('search');
+    const prefill = empIdParam || searchParam;
+    if (prefill) {
+      setSearchKeyword(prefill);
+    }
+  }, [location.search]);
 
   const fetchCombinedData = async () => {
     try {
