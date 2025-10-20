@@ -60,6 +60,8 @@ export const AuthProvider = ({ children }) => {
     socket.connect();
     socket.emit("store-user", user);
 
+    // no-op: ThemeContext now listens to AuthContext directly
+
     return user;
   };
 

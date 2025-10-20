@@ -111,6 +111,44 @@ export const login = async (req, res) => {
   user.lastSeenAt = undefined;
     await user.save();
 
+    // Ensure developer accounts have the expected elevated flags set server-side
+    // This keeps client and server in sync even if some flags were missing in the DB
+    if (user.userType === 'developer') {
+      let dirty = false;
+      const devFlags = {
+        isAdmin: true,
+        canManageUsers: true,
+        canViewDashboard: true,
+        canViewEmployees: true,
+        canEditEmployees: true,
+        canViewDTR: true,
+        canProcessDTR: true,
+        canViewPayroll: true,
+        canProcessPayroll: true,
+        canViewTrainings: true,
+        canEditTrainings: true,
+        canAccessSettings: true,
+        canChangeDeductions: true,
+        canPerformBackup: true,
+        canAccessNotifications: true,
+        canManageNotifications: true,
+        canViewNotifications: true,
+        canViewMessages: true,
+        canManageMessages: true,
+        canAccessConfigSettings: true,
+        canAccessDeveloper: true,
+      };
+      Object.keys(devFlags).forEach((k) => {
+        if (!user[k]) {
+          user[k] = devFlags[k];
+          dirty = true;
+        }
+      });
+      if (dirty) {
+        try { await user.save(); } catch (e) { console.error('Failed to ensure developer flags:', e); }
+      }
+    }
+
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
       expiresIn: "1d",
     });
@@ -354,6 +392,7 @@ export const updateUserAccess = async (req, res) => {
       "canManageMessages", // Added
       "canAccessConfigSettings", // Added
       "canAccessDeveloper", // Added
+  "canSeeDev",
       "userType",
     ];
 

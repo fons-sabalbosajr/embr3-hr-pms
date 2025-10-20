@@ -3,6 +3,7 @@ import Employee from "../models/Employee.js";
 import DTRData from "../models/DTRData.js";
 import dayjs from "dayjs";
 import mongoose from "mongoose";
+import User from "../models/User.js";
 
 export const getMergedDTRLogs = async (req, res) => {
   try {
@@ -211,5 +212,55 @@ export const markAllDTRLogsAsRead = async (req, res) => {
   } catch (error) {
     console.error("Error marking all logs as read:", error);
     res.status(500).json({ success: false, message: "Server Error" });
+  }
+};
+
+export const deleteDTRLog = async (req, res) => {
+  try {
+    const callerId = req.user?.id || req.user?._id;
+    const caller = callerId ? await User.findById(callerId) : null;
+    if (!caller || !(caller.isAdmin || caller.canManageNotifications || caller.canAccessNotifications || caller.canSeeDev)) {
+      return res.status(403).json({ success: false, message: 'Forbidden: insufficient permissions to delete dtr log' });
+    }
+
+    const { id } = req.params;
+    const deleted = await DTRLog.findByIdAndDelete(id);
+    if (!deleted) return res.status(404).json({ success: false, message: 'Not found' });
+    res.json({ success: true, data: deleted });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: 'Failed to delete dtr log' });
+  }
+};
+
+// Update DTR log (supports toggling 'hidden')
+export const updateDTRLog = async (req, res) => {
+  try {
+    const callerId = req.user?.id || req.user?._id;
+    let caller = null;
+    if (callerId) caller = await User.findById(callerId);
+    if (!caller && req.user && typeof req.user === 'object') caller = req.user;
+    if (!caller) {
+      console.warn('updateDTRLog: no caller resolved', { callerId, tokenPayload: req.user });
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    const allowedToManage = !!(caller.isAdmin || caller.canManageNotifications || caller.canAccessNotifications || caller.canSeeDev || caller.userType === 'developer');
+    if (!allowedToManage) {
+      console.warn('updateDTRLog: permission denied', { callerId, caller: { id: caller._id || caller.id, isAdmin: caller.isAdmin, canManageNotifications: caller.canManageNotifications, canAccessNotifications: caller.canAccessNotifications, canSeeDev: caller.canSeeDev, userType: caller.userType } });
+      return res.status(403).json({ success: false, message: 'Forbidden: insufficient permissions' });
+    }
+
+    const { id } = req.params;
+    const body = req.body || {};
+    const allowed = ['hidden'];
+    const changes = {};
+    Object.keys(body).forEach(k => { if (allowed.includes(k)) changes[k] = body[k]; });
+    const updated = await DTRLog.findByIdAndUpdate(id, { $set: changes }, { new: true });
+    if (!updated) return res.status(404).json({ success: false, message: 'Not found' });
+    res.json({ success: true, data: updated });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: 'Failed to update dtr log' });
   }
 };

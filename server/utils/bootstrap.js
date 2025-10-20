@@ -18,6 +18,42 @@ export const ensureUserTypes = async () => {
 
     if (devExists || adminExists) {
       //console.log("Bootstrap skipped (developer/admin already exists).");
+      // Even if developers/admins exist, ensure their elevated flags are set correctly
+      try {
+        const devUsers = await User.find({ $or: [{ userType: 'developer' }, { isAdmin: true }] });
+        for (const u of devUsers) {
+          let dirty = false;
+          const devFlags = {
+            isAdmin: true,
+            canManageUsers: true,
+            canViewDashboard: true,
+            canViewEmployees: true,
+            canEditEmployees: true,
+            canViewDTR: true,
+            canProcessDTR: true,
+            canViewPayroll: true,
+            canProcessPayroll: true,
+            canViewTrainings: true,
+            canEditTrainings: true,
+            canAccessSettings: true,
+            canChangeDeductions: true,
+            canPerformBackup: true,
+            canAccessNotifications: true,
+            canManageNotifications: true,
+            canViewNotifications: true,
+            canViewMessages: true,
+            canManageMessages: true,
+            canAccessConfigSettings: true,
+            canAccessDeveloper: true,
+          };
+          Object.keys(devFlags).forEach((k) => {
+            if (!u[k]) { u[k] = devFlags[k]; dirty = true; }
+          });
+          if (dirty) await u.save();
+        }
+      } catch (e) {
+        console.error('Failed to ensure developer flags during bootstrap', e);
+      }
       return;
     }
 

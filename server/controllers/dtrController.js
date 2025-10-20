@@ -51,21 +51,25 @@ export const uploadDTR = async (req, res) => {
 
 export const getRecentAttendance = async (req, res) => {
   try {
-    const { employeeId } = req.query;
+    const { employeeId, startDate, endDate } = req.query;
     const filter = {};
+    // If startDate/endDate provided, use them; otherwise use latest day
+    if (startDate && endDate) {
+      filter.Time = { $gte: new Date(startDate), $lte: new Date(endDate) };
+    } else {
+      // Find the latest date from DTRLog collection
+      const latestLog = await DTRLog.findOne().sort({ Time: -1 }).lean();
+      if (!latestLog) {
+        return res.json({ success: true, data: [] }); // No logs, return empty
+      }
+      const latestDate = dayjs(latestLog.Time);
 
-    // Find the latest date from DTRLog collection
-    const latestLog = await DTRLog.findOne().sort({ Time: -1 }).lean();
-    if (!latestLog) {
-      return res.json({ success: true, data: [] }); // No logs, return empty
+      // Set filter to only use the latest date
+      filter.Time = {
+        $gte: latestDate.startOf("day").toDate(),
+        $lte: latestDate.endOf("day").toDate(),
+      };
     }
-    const latestDate = dayjs(latestLog.Time);
-
-    // Set filter to only use the latest date
-    filter.Time = {
-      $gte: latestDate.startOf("day").toDate(),
-      $lte: latestDate.endOf("day").toDate(),
-    };
 
     // 🔹 Employee resolution (same as getWorkCalendarLogs)
     if (employeeId) {
@@ -134,11 +138,10 @@ export const getRecentAttendance = async (req, res) => {
 
     const grouped = {};
     mappedLogs.forEach((log) => {
-      // Filter out "number values" and non-matching employees
-      if (!String(log.acNo).includes('-')) {
-          return; // Skip if it doesn't look like a standard empId
-      }
+      // Normalize AC-No and try to match employees. Accept both dashed and non-dashed formats.
+      if (!log.acNo) return;
       const normalizedAcNo = String(log.acNo).replace(/-/g, "").replace(/^0+/, "");
+      if (!normalizedAcNo) return;
       const employee = employeeMap.get(normalizedAcNo);
 
       if (employee) { // Only process logs that have a matching employee
@@ -186,7 +189,11 @@ export const getRecentAttendance = async (req, res) => {
       }
     });
 
-    res.json({ success: true, data: Object.values(grouped) });
+    const result = Object.values(grouped);
+    if (!result.length) {
+      console.debug("getRecentAttendance: no grouped rows found for filter", filter);
+    }
+    res.json({ success: true, data: result });
   } catch (error) {
     console.error("Error in getAttendance:", error);
     res.status(500).json({ success: false, message: "Server Error" });

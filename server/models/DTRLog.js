@@ -28,7 +28,8 @@ const dtrLogSchema = new mongoose.Schema(
     "New State": String,
     Exception: String,
     DTR_ID: { type: mongoose.Schema.Types.ObjectId, ref: "DTRData" },
-    read: { type: Boolean, default: false }, // 👈 Add read field
+  read: { type: Boolean, default: false }, // 👈 Add read field
+  hidden: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

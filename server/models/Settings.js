@@ -12,16 +12,30 @@ const settingsSchema = new mongoose.Schema({
   dtr: {
     defaultStartTime: { type: String, default: "08:00" },
     defaultEndTime: { type: String, default: "17:00" },
-    autoFillBreakOut: { type: String, default: "12:00 PM" },
-    autoFillBreakIn: { type: String, default: "01:00 PM" },
+  autoFillBreakOut: { type: String, default: "12:00" },
+  autoFillBreakIn: { type: String, default: "1:00" },
+    // Developer override for cutoff used by dashboard/employee attendance
+    overrideCutoff: {
+      enabled: { type: Boolean, default: false },
+      startDate: { type: Date },
+      endDate: { type: Date },
+    },
   },
 
   // General Settings
   general: {
-    appName: { type: String, default: "EMB3 HR PMS" },
+    appName: { type: String, default: "EMB3 HR DTRMS" },
     themeColor: { type: String, default: "#1890ff" }, // Ant Design's default primary color
     headerColor: { type: String, default: "#ffffff" }, // Page header background
     siderColor: { type: String, default: "#001529" }, // Sider background (AntD default dark)
+  },
+
+  // Maintenance mode
+  maintenance: {
+    enabled: { type: Boolean, default: false },
+    startDate: { type: Date },
+    endDate: { type: Date },
+    message: { type: String },
   },
 
   // Security Settings

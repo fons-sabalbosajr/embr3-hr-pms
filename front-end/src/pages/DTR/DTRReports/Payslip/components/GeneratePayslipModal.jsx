@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Modal,
   Button,
@@ -24,7 +24,7 @@ import {
   SyncOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
-import { generatePaySlipPreview } from "../../../../../../utils/generatePaySlip.js";
+import { generatePaySlipPreview } from "../../../../../../utils/generatePaySlipContract.js";
 import { generatePaySlipPreviewRegular } from "../../../../../../utils/generatePaySlipRegular.js";
 import axiosInstance from "../../../../../api/axiosInstance.js";
 
@@ -40,6 +40,9 @@ const DeductionRow = ({
 }) => {
   const itemType = form.getFieldValue([fieldNamePrefix, name, "type"]);
   const empType = selectedEmployee?.empType;
+  const isCOS = empType !== "Regular";
+  const isAbsent = itemType === "Absent";
+  const isLate = itemType === "Late/Undertime";
 
   const colorStyle =
     itemType === "Tax" ||
@@ -50,14 +53,14 @@ const DeductionRow = ({
       : {};
 
   return (
-    <Row gutter={8} align="middle" style={{ marginBottom: 4 }}>
-      <Col span={8}>
+    <Row gutter={6} align="middle" style={{ marginBottom: 4 }}>
+      <Col span={7}>
         <Form.Item
           {...restField}
           name={[name, "type"]}
           style={{ marginBottom: 0 }}
         >
-          <Select placeholder="Select Deduction/Incentive" size="small">
+          <Select placeholder="Select Deduction/Incentive" size="middle">
             {deductionTypes.map((dt) => (
               <Select.Option key={dt.name} value={dt.name}>
                 {dt.name}
@@ -66,14 +69,55 @@ const DeductionRow = ({
           </Select>
         </Form.Item>
       </Col>
-      <Col span={8}>
+      {/* COS-specific inputs for computed items */}
+      {isCOS && isAbsent && (
+        <Col span={5}>
+          <Form.Item
+            {...restField}
+            name={[name, "days"]}
+            style={{ marginBottom: 0 }}
+            tooltip="Number of absent days"
+          >
+            <InputNumber min={0} precision={0} style={{ width: "100%" }} placeholder="Days" />
+          </Form.Item>
+        </Col>
+      )}
+      {isCOS && isLate && (
+        <>
+          <Col span={5}>
+            <Form.Item
+              {...restField}
+              name={[name, "unit"]}
+              style={{ marginBottom: 0 }}
+              initialValue="hours"
+              tooltip="Select unit for late/undertime"
+            >
+              <Select size="middle">
+                <Select.Option value="minutes">Minutes</Select.Option>
+                <Select.Option value="hours">Hours</Select.Option>
+              </Select>
+            </Form.Item>
+          </Col>
+          <Col span={4}>
+            <Form.Item
+              {...restField}
+              name={[name, "value"]}
+              style={{ marginBottom: 0 }}
+              tooltip="Enter minutes or hours"
+            >
+              <InputNumber min={0} precision={2} style={{ width: "100%" }} placeholder="Qty" />
+            </Form.Item>
+          </Col>
+        </>
+      )}
+      <Col span={isCOS ? (isLate ? 6 : isAbsent ? 8 : 7) : 7}>
         <Form.Item
           {...restField}
           name={[name, "amount"]}
           style={{ marginBottom: 0 }}
         >
           <InputNumber
-            size="small"
+            
             min={0}
             precision={2}
             style={{ width: "100%", ...colorStyle }}
@@ -91,7 +135,7 @@ const DeductionRow = ({
           />
         </Form.Item>
       </Col>
-      <Col span={4}>
+      <Col span={2} style={{ display: "flex", justifyContent: "flex-end" }}>
         <Button
           type="text"
           size="small"
@@ -135,6 +179,10 @@ const GeneratePayslipModal = ({
   const [currentPayslipData, setCurrentPayslipData] = useState(null);
   const [payslipNumber, setPayslipNumber] = useState(null);
   const [deductionTypes, setDeductionTypes] = useState([]);
+  const [filteredDeductionTypes, setFilteredDeductionTypes] = useState([]);
+  // Track auto-update vs manual edit for COS cutOffPay
+  const autoUpdatingCutOffPayRef = useRef(false);
+  const cutOffPayManuallyEditedRef = useRef(false);
 
   useEffect(() => {
     const fetchDeductionTypes = async () => {
@@ -148,6 +196,68 @@ const GeneratePayslipModal = ({
 
     fetchDeductionTypes();
   }, []);
+
+  // Filter deduction types per employee type
+  useEffect(() => {
+    if (!selectedEmployee) {
+      setFilteredDeductionTypes(deductionTypes);
+      return;
+    }
+    const empType = selectedEmployee.empType;
+    let filtered = (deductionTypes || []).filter((dt) => {
+      if (!dt || !dt.applicableTo) return true; // backward compatibility
+      return dt.applicableTo === "Both" || dt.applicableTo === empType;
+    });
+
+    // For Contract of Service, restrict to only Tax, Absent, Late/Undertime
+    if (empType && empType !== "Regular") {
+      const allowed = new Set(["Tax", "Absent", "Late/Undertime"]);
+      let restricted = filtered.filter((dt) => allowed.has(dt.name));
+
+      // Add placeholders for any missing required items
+      const haveNames = new Set(restricted.map((d) => d.name));
+      [
+        { name: "Tax", type: "deduction", calculationType: "fixed" },
+        { name: "Absent", type: "deduction", calculationType: "fixed" },
+        { name: "Late/Undertime", type: "deduction", calculationType: "fixed" },
+      ].forEach((req) => {
+        if (!haveNames.has(req.name)) {
+          restricted.push(req);
+        }
+      });
+
+      filtered = restricted;
+    }
+
+    setFilteredDeductionTypes(filtered);
+  }, [deductionTypes, selectedEmployee]);
+
+  // Keep computed gross values in-sync with form fields so the inputs show
+  // the calculated "Gross Amount Earned" for 1st/2nd cut-offs.
+  useEffect(() => {
+    try {
+      // Only set when form is available and there's a selected date range
+      if (form && cutOffDateRange) {
+        const valuesToSet = {};
+        // Ensure the form field names match the Form.Item names
+        if (typeof firstCutOffGross !== "undefined") {
+          valuesToSet.firstCutOffGross = firstCutOffGross;
+        }
+        if (typeof secondCutOffGross !== "undefined") {
+          valuesToSet.secondCutOffGross = secondCutOffGross;
+        }
+
+        // Merge only if we have values to set to avoid touching unrelated fields
+        if (Object.keys(valuesToSet).length > 0) {
+          form.setFieldsValue(valuesToSet);
+        }
+      }
+    } catch (e) {
+      // non-fatal; keep UI resilient
+      // eslint-disable-next-line no-console
+      console.warn("Failed to sync gross values into form", e);
+    }
+  }, [firstCutOffGross, secondCutOffGross, cutOffDateRange, form]);
 
   useEffect(() => {
     const generatePreview = async () => {
@@ -185,10 +295,17 @@ const GeneratePayslipModal = ({
       const peraAcaValue = form.getFieldValue("peraAca") || 0;
       const peraAcaCutOff = form.getFieldValue("peraAcaCutOff") || "first";
 
-      const cutOffPayValue = form.getFieldValue("cutOffPay");
+      // Read cut-off pay (Contract 'Rate per Cut Off') with sensible fallbacks
+      const cutOffPayValue =
+        form.getFieldValue("cutOffPay") ??
+        cutOffPay ??
+        ratePerMonthValue / 2;
 
+      // secondPeriodEarned: prefer form -> prop -> half-month fallback
       const secondPeriodEarned =
-        form.getFieldValue("secondCutOffGrossAmount") ?? ratePerMonthValue / 2;
+        form.getFieldValue("secondCutOffGross") ??
+        secondCutOffGross ??
+        ratePerMonthValue / 2;
       const firstCutOffNetPayValue =
         form.getFieldValue("firstCutOffNetPay") ?? firstCutOffNetPay;
 
@@ -263,12 +380,12 @@ const GeneratePayslipModal = ({
             }));
 
         const deductions = allItems.filter((item) => {
-          const type = deductionTypes.find((d) => d.name === item.type);
+          const type = filteredDeductionTypes.find((d) => d.name === item.type);
           return !type || type.type === "deduction";
         });
 
         const incentives = allItems.filter((item) => {
-          const type = deductionTypes.find((d) => d.name === item.type);
+          const type = filteredDeductionTypes.find((d) => d.name === item.type);
           return type && type.type === "incentive";
         });
 
@@ -322,6 +439,12 @@ const GeneratePayslipModal = ({
         setPdfPreview(previewUri);
       } else {
         // Contract employees
+        const earnedForPeriodValue =
+          earningsForPeriod ??
+          form.getFieldValue("firstCutOffGross") ??
+          firstCutOffGross ??
+          ratePerMonthValue / 2;
+
         const payslipData = {
           name: selectedEmployee.name,
           empId: selectedEmployee.empId,
@@ -330,8 +453,9 @@ const GeneratePayslipModal = ({
           cutOffStartDate: dayjs(cutOffDateRange[0]).format("YYYY-MM-DD"),
           cutOffEndDate: dayjs(cutOffDateRange[1]).format("YYYY-MM-DD"),
           grossIncome: {
-            rate: cutOffPayValue,
-            earnPeriod: earningsForPeriod,
+            monthlySalary: ratePerMonthValue,
+            rate: cutOffPayValue, // per cut-off
+            earnPeriod: cutOffPayValue, // Earn for the period equals rate per cut-off
           },
           secondPeriodRatePerMonth: ratePerMonthValue,
           secondPeriodEarnedForPeriod: secondPeriodEarned,
@@ -468,9 +592,29 @@ const GeneratePayslipModal = ({
                 form={form}
                 layout="vertical"
                 size="small"
-                onValuesChange={(_, allValues) =>
-                  recalcPayslip(allValues, deductionTypes)
-                }
+                onValuesChange={(changedValues, allValues) => {
+                  const isCOS = selectedEmployee?.empType !== "Regular";
+                  if (
+                    isCOS &&
+                    Object.prototype.hasOwnProperty.call(
+                      changedValues || {},
+                      "ratePerMonth"
+                    ) &&
+                    !cutOffPayManuallyEditedRef.current
+                  ) {
+                    const monthly =
+                      changedValues.ratePerMonth ?? allValues.ratePerMonth;
+                    const computed = (parseFloat(monthly) || 0) / 2;
+                    autoUpdatingCutOffPayRef.current = true;
+                    form.setFieldsValue({ cutOffPay: computed });
+                    const nextValues = { ...allValues, cutOffPay: computed };
+                    recalcPayslip(nextValues, filteredDeductionTypes);
+                    autoUpdatingCutOffPayRef.current = false;
+                    return;
+                  }
+
+                  recalcPayslip(allValues, filteredDeductionTypes);
+                }}
               >
                 {/* Header */}
                 <div
@@ -568,75 +712,77 @@ const GeneratePayslipModal = ({
                       />
                     </Form.Item>
                   </Col>
-                  <Col span={8}>
-                    <Form.Item
-                      labelCol={{ style: { paddingBottom: "0px" } }}
-                      label="PERA/ACA"
-                      style={{ marginBottom: 0 }}
-                    >
-                      <Space.Compact
-                        style={{ display: "flex", alignItems: "center" }}
+                  {selectedEmployee?.empType === "Regular" && (
+                    <Col span={8}>
+                      <Form.Item
+                        labelCol={{ style: { paddingBottom: "0px" } }}
+                        label="PERA/ACA"
+                        style={{ marginBottom: 0 }}
                       >
-                        {/* PERA/ACA Amount */}
-                        <Form.Item name="peraAca" initialValue={0} noStyle>
-                          <InputNumber
-                            min={0}
-                            precision={2}
-                            formatter={(value) =>
-                              showSalaryAmounts
-                                ? `₱${parseFloat(value || 0).toLocaleString(
-                                    undefined,
-                                    {
-                                      minimumFractionDigits: 2,
-                                      maximumFractionDigits: 2,
-                                    }
-                                  )}`
-                                : "*****"
-                            }
-                            parser={(value) => value.replace(/₱\s?|(,*)/g, "")}
-                            style={{
-                              width: "60%",
-                              color: "green",
-                              fontWeight: 600,
-                            }}
-                            onChange={(value) => {
-                              // Trigger recalculation with the new value
-                              recalcPayslip(
-                                { ...form.getFieldsValue(), peraAca: value },
-                                deductionTypes
-                              );
-                            }}
-                          />
-                        </Form.Item>
-
-                        {/* Switch + Indicator */}
-                        <Form.Item
-                          name="peraAcaCutOff"
-                          initialValue="first"
-                          noStyle
+                        <Space.Compact
+                          style={{ display: "flex", alignItems: "center" }}
                         >
-                          <Switch
-                            checkedChildren="1st"
-                            unCheckedChildren="2nd"
-                            checked={
-                              form.getFieldValue("peraAcaCutOff") === "first"
-                            }
-                            onChange={(checked) => {
-                              const cutOff = checked ? "first" : "second";
-                              const allValues = {
-                                ...form.getFieldsValue(),
-                                peraAcaCutOff: cutOff,
-                              };
+                          {/* PERA/ACA Amount */}
+                          <Form.Item name="peraAca" initialValue={0} noStyle>
+                            <InputNumber
+                              min={0}
+                              precision={2}
+                              formatter={(value) =>
+                                showSalaryAmounts
+                                  ? `₱${parseFloat(value || 0).toLocaleString(
+                                      undefined,
+                                      {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2,
+                                      }
+                                    )}`
+                                  : "*****"
+                              }
+                              parser={(value) => value.replace(/₱\s?|(,*)/g, "")}
+                              style={{
+                                width: "60%",
+                                color: "green",
+                                fontWeight: 600,
+                              }}
+                              onChange={(value) => {
+                                // Trigger recalculation with the new value
+                                recalcPayslip(
+                                  { ...form.getFieldsValue(), peraAca: value },
+                                  deductionTypes
+                                );
+                              }}
+                            />
+                          </Form.Item>
 
-                              form.setFieldsValue({ peraAcaCutOff: cutOff });
-                              recalcPayslip(allValues, deductionTypes); // recalc immediately
-                            }}
-                            style={{ marginLeft: 8 }}
-                          />
-                        </Form.Item>
-                      </Space.Compact>
-                    </Form.Item>
-                  </Col>
+                          {/* Switch + Indicator */}
+                          <Form.Item
+                            name="peraAcaCutOff"
+                            initialValue="first"
+                            noStyle
+                          >
+                            <Switch
+                              checkedChildren="1st"
+                              unCheckedChildren="2nd"
+                              checked={
+                                form.getFieldValue("peraAcaCutOff") === "first"
+                              }
+                              onChange={(checked) => {
+                                const cutOff = checked ? "first" : "second";
+                                const allValues = {
+                                  ...form.getFieldsValue(),
+                                  peraAcaCutOff: cutOff,
+                                };
+
+                                form.setFieldsValue({ peraAcaCutOff: cutOff });
+                                recalcPayslip(allValues, deductionTypes); // recalc immediately
+                              }}
+                              style={{ marginLeft: 8 }}
+                            />
+                          </Form.Item>
+                        </Space.Compact>
+                      </Form.Item>
+                    </Col>
+                  )}
 
                   {selectedEmployee?.empType !== "Regular" && (
                     <>
@@ -645,6 +791,13 @@ const GeneratePayslipModal = ({
                           labelCol={{ style: { paddingBottom: "0px" } }}
                           label="Rate per Cut Off"
                           name="cutOffPay"
+                          initialValue={
+                            typeof cutOffPay !== "undefined" && cutOffPay !== null
+                              ? cutOffPay
+                              : ((selectedEmployee.salaryInfo?.ratePerMonth ||
+                                  selectedEmployee.salaryInfo?.basicSalary ||
+                                  0) / 2)
+                          }
                         >
                           <InputNumber
                             min={0}
@@ -659,6 +812,11 @@ const GeneratePayslipModal = ({
                             }
                             parser={(value) => value.replace(/₱\s?|(,*)/g, "")}
                             style={{ width: "100%" }}
+                            onChange={() => {
+                              if (!autoUpdatingCutOffPayRef.current) {
+                                cutOffPayManuallyEditedRef.current = true;
+                              }
+                            }}
                           />
                         </Form.Item>
                       </Col>
@@ -777,7 +935,7 @@ const GeneratePayslipModal = ({
                                 form={form}
                                 selectedEmployee={selectedEmployee}
                                 showSalaryAmounts={showSalaryAmounts}
-                                deductionTypes={deductionTypes}
+                                deductionTypes={filteredDeductionTypes}
                               />
                             ))}
 
@@ -854,9 +1012,21 @@ const GeneratePayslipModal = ({
 
                     {/* 2nd Cut-Off */}
                     <Card
-                      title={`2nd Cut-Off (16–${dayjs(
+                      title={`2nd Cut-Off (16-${
                         form.getFieldValue("cutOffDateRange")?.[1]
-                      ).format("MMMM YYYY")})`}
+                          ? dayjs(
+                              form.getFieldValue("cutOffDateRange")[1]
+                            )
+                              .endOf("month")
+                              .format("D")
+                          : ""
+                      } ${
+                        form.getFieldValue("cutOffDateRange")?.[1]
+                          ? dayjs(
+                              form.getFieldValue("cutOffDateRange")[1]
+                            ).format("MMMM YYYY")
+                          : ""
+                      })`}
                       size="small"
                       style={{ marginBottom: 10 }}
                     >
@@ -929,7 +1099,7 @@ const GeneratePayslipModal = ({
                                 form={form}
                                 selectedEmployee={selectedEmployee}
                                 showSalaryAmounts={showSalaryAmounts}
-                                deductionTypes={deductionTypes}
+                                deductionTypes={filteredDeductionTypes}
                               />
                             ))}
 
@@ -1020,7 +1190,7 @@ const GeneratePayslipModal = ({
                               form={form}
                               selectedEmployee={selectedEmployee}
                               showSalaryAmounts={showSalaryAmounts}
-                              deductionTypes={deductionTypes}
+                              deductionTypes={filteredDeductionTypes}
                             />
                           ))}
                           <Form.Item>

@@ -80,18 +80,18 @@
 
 /* Special styling for the current user's item */
 .current-user-item {
-  /* Tint with primary color */
-  background-color: color-mix(in srgb, var(--ant-primary-color, #1677ff) 15%, transparent) !important;
+  /* No special blue background for the current user to keep consistent list appearance */
+  background-color: transparent !important;
 }
 
-/* Hover effect for the current user's item */
+/* Hover effect for the current user's item - subtle only */
 .current-user-item:hover {
-  background-color: color-mix(in srgb, var(--ant-primary-color, #1677ff) 22%, transparent) !important;
+  background-color: var(--app-surface-hover-bg, rgba(0,0,0,0.03)) !important;
 }
 
 /* User avatar */
 .user-avatar {
-  background-color: var(--ant-primary-color, #1677ff);
+  background-color: var(--ant-secondary-color, #595959);
   font-size: 12px !important; /* REDUCED */
   font-weight: bold;
   width: 28px !important; /* ADDED */
@@ -113,7 +113,7 @@
 
 /* "(You)" indicator */
 .you-indicator {
-  color: var(--ant-primary-color, #1677ff);
+  color: var(--app-text-muted, #888);
   font-size: 11px; /* REDUCED */
   font-weight: normal;
 }

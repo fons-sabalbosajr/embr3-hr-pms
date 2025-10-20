@@ -19,7 +19,7 @@ import dayjs from "dayjs";
 import {
   generatePaySlipPdf,
   openPayslipInNewTab,
-} from "../../../../../utils/generatePaySlip.js";
+} from "../../../../../utils/generatePaySlipContract.js";
 import {
   generatePaySlipPdfRegular,
   openPayslipInNewTabRegular,
@@ -71,6 +71,40 @@ const Payslip = () => {
   useEffect(() => {
     fetchCombinedData();
   }, []);
+
+  // If navigated with empId (e.g., from Dashboard), auto-open the generate modal
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const empIdParam = params.get("empId");
+    const periodParam = params.get("period"); // expected YYYY-MM
+    if (!empIdParam) return;
+    if (!combinedData || combinedData.length === 0) return;
+    // Avoid reopening if modal already open
+    if (isModalOpen) return;
+
+    const record = combinedData.find(
+      (c) => c.empId === empIdParam || c._id === empIdParam
+    );
+    if (record) {
+      // Open modal with the employee
+      showGeneratePayslipModal(record);
+
+      // If a period param is present, set the cutOffDateRange to the whole month
+      if (periodParam) {
+        try {
+          const start = dayjs(`${periodParam}-01`);
+          const end = start.endOf("month");
+          const newValues = { cutOffDateRange: [start, end] };
+          form.setFieldsValue(newValues);
+          setIsFullMonthRange(true);
+          recalcPayslip(newValues, []);
+        } catch (e) {
+          // ignore malformed period param
+          console.warn("Invalid period param", periodParam, e);
+        }
+      }
+    }
+  }, [combinedData, location.search]);
 
   // Prefill search if query param provided (empId or search)
   useEffect(() => {

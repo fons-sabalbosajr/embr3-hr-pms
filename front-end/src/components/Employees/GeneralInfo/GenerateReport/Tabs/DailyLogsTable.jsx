@@ -8,8 +8,8 @@ const DailyLogsTable = ({ dailySummary, onSendReminder }) => {
   const { rawLogs, timeIn, breakOut, breakIn, timeOut } = dailySummary;
 
   // Default Break Out/In if missing
-  const finalBreakOut = breakOut || "12:00 PM";
-  const finalBreakIn = breakIn || "01:00 PM";
+  const finalBreakOut = breakOut || "12:00";
+  const finalBreakIn = breakIn || "1:00";
 
   const dataSource = [
     {

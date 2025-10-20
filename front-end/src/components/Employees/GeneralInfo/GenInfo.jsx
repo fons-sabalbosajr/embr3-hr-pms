@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import {
   message,
   Input,
@@ -32,6 +33,7 @@ const { Option } = Select;
 
 const GenInfo = () => {
   const { hasPermission } = useAuth();
+  const location = useLocation();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalType, setModalType] = useState("add"); // 'add' or 'upload'
   const [employeeData, setEmployeeData] = useState([]);
@@ -63,6 +65,43 @@ const GenInfo = () => {
   useEffect(() => {
     fetchEmployees();
   }, []);
+
+  // If navigated here with a specific empId in location.state, open the detail modal
+  useEffect(() => {
+    // If navigate to this page with an empId, wait until employees are fetched then open the Reports modal
+    if (location?.state?.empId) {
+      const tryOpen = () => {
+        const match = employeeData.find(
+          (e) => e.empId === location.state.empId || e._id === location.state.empId || e.empNo === location.state.empId
+        );
+        if (match) {
+          setSelectedEmployee(match);
+          setModalVisible(true);
+          setModalMode('report');
+          setSearchKeyword(match.name || match.empId || '');
+          return true;
+        }
+        return false;
+      };
+
+      // If already loaded, open immediately
+      if (!loading) {
+        tryOpen();
+      } else {
+        // otherwise, poll once when loading finishes
+        const unwatch = setInterval(() => {
+          if (!loading) {
+            if (tryOpen()) {
+              clearInterval(unwatch);
+            } else {
+              // if not found after load, still clear to avoid infinite polling
+              clearInterval(unwatch);
+            }
+          }
+        }, 250);
+      }
+    }
+  }, [loading, location, employeeData]);
 
   const fetchEmployees = async () => {
     setLoading(true);

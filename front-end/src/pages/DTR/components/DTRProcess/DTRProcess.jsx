@@ -199,7 +199,7 @@ const DTRProcess = ({ currentUser }) => {
         if (stateLabel) {
           logsByEmpDay[empKey][dateKey][stateLabel] = dayjs(log.time)
             .tz(LOCAL_TZ)
-            .format("hh:mm A");
+            .format("h:mm");
         }
       });
 

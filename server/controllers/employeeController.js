@@ -1,6 +1,7 @@
 import Employee from "../models/Employee.js";
 import UploadLog from "../models/UploadLog.js";
 import DTRLog from "../models/DTRLog.js"; // Import DTRLog model
+import Settings from "../models/Settings.js";
 import { getSocketInstance } from "../socket.js";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc.js";
@@ -67,18 +68,27 @@ export const getEmployees = async (req, res) => {
   try {
     const employees = await Employee.find().sort({ createdAt: -1 }).lean();
 
-    const now = dayjs().tz(LOCAL_TZ);
-    let startOfCutoff, endOfCutoff;
+    // Check settings for developer override
+    const settings = await Settings.getSingleton();
+    let startOfCutoff;
+    let endOfCutoff;
 
-    if (now.date() <= 15) {
-      // Previous cut-off was 16th to end of last month
-      const lastMonth = now.subtract(1, 'month');
-      startOfCutoff = lastMonth.date(16).startOf('day').toDate();
-      endOfCutoff = lastMonth.endOf('month').toDate();
+    if (settings?.dtr?.overrideCutoff?.enabled && settings.dtr.overrideCutoff.startDate && settings.dtr.overrideCutoff.endDate) {
+      startOfCutoff = settings.dtr.overrideCutoff.startDate;
+      endOfCutoff = settings.dtr.overrideCutoff.endDate;
     } else {
-      // Previous cut-off was 1st to 15th of this month
-      startOfCutoff = now.date(1).startOf('day').toDate();
-      endOfCutoff = now.date(15).endOf('day').toDate();
+      const now = dayjs().tz(LOCAL_TZ);
+
+      if (now.date() <= 15) {
+        // Previous cut-off was 16th to end of last month
+        const lastMonth = now.subtract(1, "month");
+        startOfCutoff = lastMonth.date(16).startOf("day").toDate();
+        endOfCutoff = lastMonth.endOf("month").toDate();
+      } else {
+        // Previous cut-off was 1st to 15th of this month
+        startOfCutoff = now.date(1).startOf("day").toDate();
+        endOfCutoff = now.date(15).endOf("day").toDate();
+      }
     }
 
     const timeFilter = { Time: { $gte: startOfCutoff, $lte: endOfCutoff } };
@@ -183,12 +193,12 @@ export const getEmployees = async (req, res) => {
               attendance.timeOut = dayjs(timeOutLogs[timeOutLogs.length - 1].Time).tz(LOCAL_TZ).format("hh:mm A");
           }
 
-          // Auto-fill blank values
+          // Auto-fill blank values (use 24-hour style for consistency)
           if (attendance.timeIn && !attendance.breakOut) {
-            attendance.breakOut = "12:00 PM";
+            attendance.breakOut = "12:00";
           }
           if (attendance.timeOut && !attendance.breakIn) {
-            attendance.breakIn = "01:00 PM";
+            attendance.breakIn = "1:00";
           }
         } else {
           noMatchCount++;

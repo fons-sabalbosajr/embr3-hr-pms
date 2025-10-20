@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Tabs, Table, Button, Space, Modal, Form, Input, DatePicker, Select, message } from 'antd';
+import { Tabs, Table, Button, Space, Modal, Form, Input, DatePicker, Select, message, Typography } from 'antd';
 import dayjs from 'dayjs';
 import axiosInstance from '../../api/axiosInstance';
 import { fetchPhilippineHolidays } from '../../api/holidayPH';
@@ -84,6 +84,8 @@ const LocalHolidays = () => {
   );
 };
 
+const { Title, Paragraph } = Typography;
+
 const Suspensions = () => {
   const [list, setList] = useState([]);
   const [open, setOpen] = useState(false);
@@ -120,6 +122,10 @@ const Suspensions = () => {
 
   return (
     <div>
+      <Title level={4} style={{ marginBottom: 8 }}>Suspension Days</Title>
+      <Paragraph type="secondary" style={{ marginTop: 0, marginBottom: 12 }}>
+        Manage suspension days (temporary office closures or suspensions). Use the Add Suspension button to create a new suspension record; these entries will be used when calculating DTRs and reports.
+      </Paragraph>
       <Button type="primary" onClick={()=> setOpen(true)} style={{ marginBottom: 12 }}>Add Suspension</Button>
       <Table size="small" dataSource={list} rowKey="key" columns={[
         { title: 'Title', dataIndex: 'title' },
@@ -149,11 +155,15 @@ const Suspensions = () => {
 
 const Holidays = () => {
   return (
-    <Tabs defaultActiveKey="1" items={[
+    <div>
+      <Title level={3}>Holidays & Suspensions</Title>
+      <Paragraph type="secondary">Configure national/local holidays and suspension days which affect timekeeping and payroll calculations.</Paragraph>
+      <Tabs defaultActiveKey="1" items={[
       { key: '1', label: 'National Holidays', children: <NationalHolidays /> },
       { key: '2', label: 'Local Holidays', children: <LocalHolidays /> },
       { key: '3', label: 'Suspension Days', children: <Suspensions /> },
-    ]} />
+      ]} />
+    </div>
   );
 };
 

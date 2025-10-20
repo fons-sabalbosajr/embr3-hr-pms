@@ -17,7 +17,7 @@ export const getDeductionTypes = async (req, res) => {
 // @access  Private
 export const createDeductionType = async (req, res) => {
   try {
-    const { name, description, type, calculationType, amount, formula } =
+    const { name, description, type, calculationType, amount, formula, applicableTo } =
       req.body;
 
     const deductionType = new DeductionType({
@@ -27,6 +27,7 @@ export const createDeductionType = async (req, res) => {
       calculationType,
       amount,
       formula,
+      applicableTo,
     });
 
     await deductionType.save();
@@ -41,7 +42,7 @@ export const createDeductionType = async (req, res) => {
 // @access  Private
 export const updateDeductionType = async (req, res) => {
   try {
-    const { name, description, type, calculationType, amount, formula } =
+    const { name, description, type, calculationType, amount, formula, applicableTo } =
       req.body;
     const deductionType = await DeductionType.findById(req.params.id);
 
@@ -54,7 +55,8 @@ export const updateDeductionType = async (req, res) => {
     deductionType.type = type;
     deductionType.calculationType = calculationType;
     deductionType.amount = amount;
-    deductionType.formula = formula;
+  deductionType.formula = formula;
+  if (applicableTo) deductionType.applicableTo = applicableTo;
 
     await deductionType.save();
     res.status(200).json(deductionType);
