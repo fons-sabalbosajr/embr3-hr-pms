@@ -1,0 +1,40 @@
+services:
+  - type: web
+    name: embr3-hr-pms-uat-api
+    env: node
+    rootDir: server
+    branch: UAT
+    buildCommand: npm install
+    startCommand: node server.js
+    healthCheckPath: /api/dev/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: NODE_ENV
+        value: production
+      # Required runtime secrets (set values in Render dashboard, left empty in repo)
+      - key: MONGO_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: CLIENT_ORIGIN
+        # e.g. https://embr3-hr-pms-uat.onrender.com or static site's URL
+        sync: false
+
+  - type: static
+    name: embr3-hr-pms-uat-web
+    rootDir: front-end
+    branch: UAT
+    buildCommand: npm install && npm run build
+    publishPath: dist
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: VITE_BASE_PATH
+        value: /
+      - key: VITE_API_URL
+        # Set this to the API service public URL + /api when the API is live
+        # Example after first deploy: https://embr3-hr-pms-uat-api.onrender.com/api
+        sync: false
