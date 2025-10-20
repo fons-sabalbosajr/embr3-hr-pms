@@ -58,7 +58,7 @@ const RequestDTRClient = () => {
         }
         const stateLabel = STATE_LABELS[log.state];
         if (stateLabel) {
-            acc[dateKey][stateLabel] = dayjs(log.time).tz("Asia/Manila").format("hh:mm A");
+            acc[dateKey][stateLabel] = dayjs(log.time).tz("Asia/Manila").format("h:mm");
         }
         return acc;
       }, {});

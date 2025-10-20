@@ -77,26 +77,26 @@ const WorkCalendar = ({ employee }) => {
     const timeIn = dailyLogs.find((l) => l.state.includes("In"))?.time
       ? dayjs(dailyLogs.find((l) => l.state.includes("In")).time)
           .tz("Asia/Manila")
-          .format("hh:mm A")
+      .format("h:mm")
       : null;
 
     const timeOut = dailyLogs.find((l) => l.state.includes("Out"))?.time
       ? dayjs(dailyLogs.find((l) => l.state.includes("Out")).time)
           .tz("Asia/Manila")
-          .format("hh:mm A")
+          .format("h:mm")
       : null;
 
     const breakOut = dailyLogs.find((l) => l.state.includes("Break Out"))?.time
       ? dayjs(dailyLogs.find((l) => l.state.includes("Break Out")).time)
           .tz("Asia/Manila")
-          .format("hh:mm A")
-      : "12:00 PM"; // default
+          .format("h:mm")
+  : "12:00"; // default
 
     const breakIn = dailyLogs.find((l) => l.state.includes("Break In"))?.time
       ? dayjs(dailyLogs.find((l) => l.state.includes("Break In")).time)
           .tz("Asia/Manila")
-          .format("hh:mm A")
-      : "01:00 PM"; // default
+          .format("h:mm")
+  : "1:00"; // default
 
     return { timeIn, breakOut, breakIn, timeOut, rawLogs: dailyLogs };
   };

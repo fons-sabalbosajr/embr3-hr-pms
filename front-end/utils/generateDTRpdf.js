@@ -3,6 +3,7 @@ import autoTable from "jspdf-autotable";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc";
 import timezone from "dayjs/plugin/timezone";
+import customParseFormat from "dayjs/plugin/customParseFormat";
 import { fetchPhilippineHolidays } from "../src/api/holidayPH";
 import axios from "axios";
 import axiosInstance from "../src/api/axiosInstance";
@@ -10,7 +11,72 @@ import { getSignatoryEmployees } from "../src/api/employeeAPI.js";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
+dayjs.extend(customParseFormat);
 const LOCAL_TZ = "Asia/Manila";
+
+function stripAmPm(timeStr) {
+  if (!timeStr || typeof timeStr !== "string") return timeStr;
+  // remove trailing AM/PM (case-insensitive) and any surrounding whitespace
+  return timeStr.replace(/\s*(AM|PM)\s*$/i, "").trim();
+}
+
+function formatTimeForPdf(val, dateKey) {
+  try {
+    if (val === null || val === undefined || val === "") return "";
+
+    // If already a Date
+    if (val instanceof Date) {
+      const dtDate = dayjs(val).tz(LOCAL_TZ);
+      return dtDate.isValid() ? dtDate.format("HH:mm") : "";
+    }
+
+    const str = String(val).trim();
+    if (!str) return "";
+
+    // Guarded helper to try parsing with dayjs.tz safely
+    const tryTz = (input, format) => {
+      try {
+        const parsed = format
+          ? dayjs.tz(input, format, LOCAL_TZ)
+          : dayjs.tz(input, LOCAL_TZ);
+        return parsed && parsed.isValid() ? parsed : null;
+      } catch (e) {
+        return null;
+      }
+    };
+
+    // 1) Try as full ISO/datetime with timezone (guarded)
+    let dt = tryTz(str);
+    if (dt) return dt.format("h:mm");
+
+    // 2) Try parsing time-only with AM/PM (e.g., '1:00 PM' or '01:00PM')
+    if (/[AP]M$/i.test(str)) {
+      dt = tryTz(str, "h:mm A");
+      if (dt) return dt.format("h:mm");
+    }
+
+    // 3) Try parsing 24-hour time-only combined with dateKey (e.g., '13:00')
+    if (/^\d{1,2}:\d{2}$/.test(str) && dateKey) {
+      const combined = `${dateKey} ${str}`;
+      dt = tryTz(combined, "YYYY-MM-DD HH:mm");
+      if (dt) return dt.format("h:mm");
+    }
+
+    // 4) Try loose parse (without tz)
+    try {
+      const fallback = dayjs(str);
+      if (fallback && fallback.isValid()) return fallback.format("h:mm");
+    } catch (e) {
+      // ignore
+    }
+
+    // If nothing works, return empty string to avoid invalid Date errors upstream
+    return "";
+  } catch (err) {
+    // in case any unexpected error occurs, do not throw — return empty string
+    return "";
+  }
+}
 
 async function fetchEmployeeTrainings(empId) {
   try {
@@ -83,8 +149,25 @@ export async function generateDTRPdf({
     25
   );
 
-  const start = dayjs.tz(selectedRecord.DTR_Cut_Off.start, LOCAL_TZ);
-  const end = dayjs.tz(selectedRecord.DTR_Cut_Off.end, LOCAL_TZ);
+  // Guard selectedRecord and its cut-off fields
+  let start;
+  let end;
+  try {
+    const sc =
+      selectedRecord && selectedRecord.DTR_Cut_Off
+        ? selectedRecord.DTR_Cut_Off
+        : null;
+    start =
+      sc && sc.start ? dayjs.tz(sc.start, LOCAL_TZ) : dayjs().tz(LOCAL_TZ);
+    end = sc && sc.end ? dayjs.tz(sc.end, LOCAL_TZ) : dayjs().tz(LOCAL_TZ);
+  } catch (err) {
+    console.warn(
+      "generateDTRPdf: invalid selectedRecord.DTR_Cut_Off, using now as fallback",
+      err
+    );
+    start = dayjs().tz(LOCAL_TZ);
+    end = dayjs().tz(LOCAL_TZ);
+  }
 
   let cutOffText;
   if (start.isSame(end, "month")) {
@@ -115,11 +198,11 @@ export async function generateDTRPdf({
     { header: "AM Out", dataKey: "amOut" },
     { header: "PM In", dataKey: "pmIn" },
     { header: "PM Out", dataKey: "pmOut" },
-    { header: "Work Status", dataKey: "status" },
+    { header: "Work Status", dataKey: "status", width: 40 },
   ];
 
   // ---------- Fetch Holidays (PH + Local) & Suspensions & Trainings ----------
-  const year = dayjs.tz(selectedRecord.DTR_Cut_Off.start, LOCAL_TZ).year();
+  const year = start.year();
   const holidaysPH = await fetchPhilippineHolidays(year);
   const trainings = await fetchEmployeeTrainings(employee.empId);
   const signatoriesRes = await getSignatoryEmployees();
@@ -161,12 +244,12 @@ export async function generateDTRPdf({
 
   // ---------- Build Rows for the entire calendar month ----------
   const rows = [];
-  const referenceDate = dayjs.tz(selectedRecord.DTR_Cut_Off.start, LOCAL_TZ);
+  const referenceDate = start;
   const startOfMonth = referenceDate.startOf("month");
   const endOfMonth = referenceDate.endOf("month");
 
-  const cutOffStart = dayjs.tz(selectedRecord.DTR_Cut_Off.start, LOCAL_TZ);
-  const cutOffEnd = dayjs.tz(selectedRecord.DTR_Cut_Off.end, LOCAL_TZ);
+  const cutOffStart = start;
+  const cutOffEnd = end;
 
   let currentDate = startOfMonth.clone();
 
@@ -189,15 +272,25 @@ export async function generateDTRPdf({
     let status = "";
     const training = getTrainingOnDay(trainings, dateKey);
     const holiday = allHolidays.find((h) => {
-      const start = dayjs.tz(h.date, LOCAL_TZ).format("YYYY-MM-DD");
-      if (h.endDate) {
-        const end = dayjs.tz(h.endDate, LOCAL_TZ).format("YYYY-MM-DD");
-        return (
-          dayjs.tz(dateKey, LOCAL_TZ).isSameOrAfter(start, "day") &&
-          dayjs.tz(dateKey, LOCAL_TZ).isSameOrBefore(end, "day")
-        );
+      try {
+        const start = h.date
+          ? dayjs.tz(h.date, LOCAL_TZ).format("YYYY-MM-DD")
+          : null;
+        if (h.endDate) {
+          const end = h.endDate
+            ? dayjs.tz(h.endDate, LOCAL_TZ).format("YYYY-MM-DD")
+            : null;
+          if (start && end) {
+            return (
+              dayjs.tz(dateKey, LOCAL_TZ).isSameOrAfter(start, "day") &&
+              dayjs.tz(dateKey, LOCAL_TZ).isSameOrBefore(end, "day")
+            );
+          }
+        }
+        return start === dateKey;
+      } catch (e) {
+        return false;
       }
-      return start === dateKey;
     });
 
     if (training) {
@@ -217,11 +310,14 @@ export async function generateDTRPdf({
       currentDate.isSameOrAfter(cutOffStart, "day") &&
       currentDate.isSameOrBefore(cutOffEnd, "day");
 
-    const amIn = dayLogs["Time In"] || "";
-    const pmOut = dayLogs["Time Out"] || "";
+    const amIn = formatTimeForPdf(dayLogs["Time In"], dateKey) || "";
+    const pmOut = formatTimeForPdf(dayLogs["Time Out"], dateKey) || "";
     const amOut =
-      dayLogs["Break Out"] || (isInCutOff && amIn ? "12:00 PM" : "");
-    const pmIn = dayLogs["Break In"] || (isInCutOff && pmOut ? "1:00 PM" : "");
+      formatTimeForPdf(dayLogs["Break Out"], dateKey) ||
+      (isInCutOff && amIn ? "12:00" : "");
+    const pmIn = 
+      formatTimeForPdf(dayLogs["Break In"], dateKey) || 
+      (isInCutOff && pmOut ? "1:00" : "");
 
     const hasLogs = !!(amIn || amOut || pmIn || pmOut);
 
@@ -272,8 +368,13 @@ export async function generateDTRPdf({
     didParseCell: function (data) {
       if (data.section === "body") {
         const row = rows[data.row.index];
-        const SPECIAL_FONT_SIZE = 9; // emphasize weekends/holidays/suspensions
+        const SPECIAL_FONT_SIZE = 8; // emphasize weekends/holidays/suspensions
         const statusColIndex = columns.findIndex((c) => c.dataKey === "status");
+
+        // Default: use a smaller font for work status values so the cells don't overflow
+        if (data.column.index === statusColIndex) {
+          data.cell.styles.fontSize = 7;
+        }
         const mergeRowText = (text, fontSize = 7) => {
           const normalizedText = text.replace(/\s+/g, " "); // remove extra spaces
           if (data.column.index === 1) {
@@ -306,7 +407,9 @@ export async function generateDTRPdf({
           row &&
           row.hasLogs &&
           data.column.index === statusColIndex &&
-          (row.isHoliday || row.isWeekend || (row.status || "").startsWith("Suspension"))
+          (row.isHoliday ||
+            row.isWeekend ||
+            (row.status || "").startsWith("Suspension"))
         ) {
           data.cell.styles.fontSize = SPECIAL_FONT_SIZE;
         }
@@ -457,7 +560,7 @@ export async function generateBatchDTRPdf(printerTray) {
       { header: "AM Out", dataKey: "amOut" },
       { header: "PM In", dataKey: "pmIn" },
       { header: "PM Out", dataKey: "pmOut" },
-      { header: "Work Status", dataKey: "status" },
+      { header: "Work Status", dataKey: "status", width: 70 },
     ];
 
     const year = dayjs(selectedRecord.DTR_Cut_Off.start).year();
@@ -560,12 +663,14 @@ export async function generateBatchDTRPdf(printerTray) {
         currentDate.isSameOrAfter(cutOffStart, "day") &&
         currentDate.isSameOrBefore(cutOffEnd, "day");
 
-      const amIn = dayLogs["Time In"] || "";
-      const pmOut = dayLogs["Time Out"] || "";
+      const amIn = formatTimeForPdf(dayLogs["Time In"], dateKey) || "";
+      const pmOut = formatTimeForPdf(dayLogs["Time Out"], dateKey) || "";
       const amOut =
-        dayLogs["Break Out"] || (isInCutOff && amIn ? "12:00 PM" : "");
-      const pmIn =
-        dayLogs["Break In"] || (isInCutOff && pmOut ? "1:00 PM" : "");
+        formatTimeForPdf(dayLogs["Break Out"], dateKey) ||
+        (isInCutOff && amIn ? "12:00" : "");
+      const pmIn = 
+        formatTimeForPdf(dayLogs["Break In"], dateKey) || 
+        (isInCutOff && pmOut ? "1:00" : "");
 
       const hasLogs = !!(amIn || amOut || pmIn || pmOut);
 
@@ -617,8 +722,14 @@ export async function generateBatchDTRPdf(printerTray) {
         if (data.section === "body") {
           const row = rows[data.row.index];
           if (!row) return;
-          const SPECIAL_FONT_SIZE = 11; // emphasize weekends/holidays/suspensions
-          const statusColIndex = columns.findIndex((c) => c.dataKey === "status");
+          const SPECIAL_FONT_SIZE = 9; // emphasize weekends/holidays/suspensions
+          const statusColIndex = columns.findIndex(
+            (c) => c.dataKey === "status"
+          );
+          // Default: use a smaller font for work status values so the cells don't overflow
+          if (data.column.index === statusColIndex) {
+            data.cell.styles.fontSize = 7;
+          }
           const mergeRowText = (text, fontSize = 7) => {
             const normalizedText = text.replace(/\s+/g, " ");
             if (data.column.index === 1) {
@@ -647,7 +758,9 @@ export async function generateBatchDTRPdf(printerTray) {
           if (
             row.hasLogs &&
             data.column.index === statusColIndex &&
-            (row.isHoliday || row.isWeekend || (row.status || "").startsWith("Suspension"))
+            (row.isHoliday ||
+              row.isWeekend ||
+              (row.status || "").startsWith("Suspension"))
           ) {
             data.cell.styles.fontSize = SPECIAL_FONT_SIZE;
           }

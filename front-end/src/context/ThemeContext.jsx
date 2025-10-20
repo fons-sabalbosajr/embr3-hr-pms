@@ -2,6 +2,7 @@ import React, { createContext, useState, useContext, useMemo, useEffect, useCall
 import { ConfigProvider, theme } from 'antd';
 import axiosInstance from '../api/axiosInstance';
 import tinycolor from 'tinycolor2';
+import useAuth from '../hooks/useAuth';
 
 const ThemeContext = createContext(null);
 
@@ -88,7 +89,9 @@ export const ThemeProvider = ({ children }) => {
     }
   }, [applyPresetToChrome, userPrimaryPreset]);
 
-  // Load settings from backend (requires auth). Guard so we don't hammer endpoint unauthenticated.
+  // Load settings from backend (requires auth). Use AuthContext to detect when a user logs in.
+  const { isAuthenticated } = useAuth();
+
   useEffect(() => {
     let mounted = true;
     const load = async () => {
@@ -98,13 +101,14 @@ export const ThemeProvider = ({ children }) => {
         setAppSettings(res.data);
         applyCssVars(res.data);
       } catch (e) {
-        // Non-fatal if not available yet (e.g., not authenticated). Don't retry here; AuthContext change will trigger when token set.
+        // Non-fatal if not available yet (e.g., not authenticated).
       }
     };
-    // Only attempt if we appear authenticated (token in secure storage)
-    if (localStorage.getItem('token')) {
+    // Load settings when authenticated
+    if (isAuthenticated) {
       load();
     }
+
     // Listen for updates from DevSettings to re-apply immediately
     const onUpdated = () => load();
     window.addEventListener('app-settings-updated', onUpdated);
@@ -112,7 +116,7 @@ export const ThemeProvider = ({ children }) => {
       mounted = false;
       window.removeEventListener('app-settings-updated', onUpdated);
     };
-  }, [applyCssVars]);
+  }, [applyCssVars, isAuthenticated]);
 
   // Update content variables when mode changes
   useEffect(() => {

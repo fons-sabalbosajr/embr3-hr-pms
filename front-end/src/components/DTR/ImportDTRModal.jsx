@@ -38,6 +38,7 @@ const EditableCell = ({
   title,
   record,
   children,
+  inputType, // destructure so it is not forwarded to the DOM
   ...restProps
 }) => (
   <td {...restProps}>
@@ -235,7 +236,7 @@ const ImportDTRModal = ({ open, onClose, currentUser }) => {
         cutOffEnd: values.cutOffRange[1].endOf("day").toISOString(),
         userId: currentUser._id,
         uploadedBy: currentUser.name,
-        logs: uploadRows,
+        rows: uploadRows, // server expects `rows`
       };
 
       setUploading(true);

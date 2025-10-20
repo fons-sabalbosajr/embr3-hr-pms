@@ -20,7 +20,7 @@ import axiosInstance from "../../../../../api/axiosInstance";
 
 // Import PDF generation utilities
 import { generateDTRPdf } from "../../../../../../utils/generateDTRpdf.js";
-import { openPayslipInNewTab } from "../../../../../../utils/generatePaySlip.js";
+import { openPayslipInNewTab } from "../../../../../../utils/generatePaySlipContract.js";
 import { openPayslipInNewTabRegular } from "../../../../../../utils/generatePaySlipRegular.js";
 
 
@@ -55,7 +55,7 @@ const transformLogsForDTR = (logs, employee) => {
     // Use human-readable state from getWorkCalendarLogs and format time
     // Only set the first log of a given type for the day
     if (!dtrLogs[empId][dateKey][log.state]) {
-      dtrLogs[empId][dateKey][log.state] = dayjs(log.time).format("hh:mm A");
+  dtrLogs[empId][dateKey][log.state] = dayjs(log.time).format("h:mm");
     }
   });
   return dtrLogs;

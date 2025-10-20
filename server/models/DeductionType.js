@@ -30,6 +30,11 @@ const DeductionTypeSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
+  applicableTo: {
+    type: String,
+    enum: ["Regular", "Contract of Service", "Both"],
+    default: "Both",
+  },
 });
 
 export default mongoose.model("DeductionType", DeductionTypeSchema);

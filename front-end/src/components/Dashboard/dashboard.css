@@ -10,7 +10,6 @@
   font-weight: 500;
 }
 
-
 .dashboard-card {
   border-radius: 8px;
   transition: all 0.3s ease;
@@ -33,7 +32,6 @@
   color: var(--ant-text-color-secondary, #aaa);
 }
 
-
 .dashboard-loading p {
   margin-top: 15px;
 }
@@ -45,6 +43,10 @@
 .ant-list-item-meta-avatar {
   font-size: 24px;
   color: #1890ff;
+}
+
+.employee-search-bar {
+  margin-top: -25px;
 }
 
 /* Additional styles for better layout and responsiveness */
@@ -173,8 +175,6 @@
   }
 }
 
-
-
 /* EmployeesPerSectionTable styling */
 .employees-card {
   min-height: 200px;
@@ -210,13 +210,17 @@
   padding: 2px 6px;
   border-radius: 4px;
   font-size: 12px;
-  background: color-mix(in srgb, var(--app-surface-bg, #ffffff) 90%, var(--app-text-color, #141414));
+  background: color-mix(
+    in srgb,
+    var(--app-surface-bg, #ffffff) 90%,
+    var(--app-text-color, #141414)
+  );
 
   transition: background-color 0.2s ease;
 }
 
 .section-badge:hover {
-  background: var(--app-surface-hover-bg, rgba(0,0,0,0.03));
+  background: var(--app-surface-hover-bg, rgba(0, 0, 0, 0.03));
 }
 
 .section-count {
@@ -224,4 +228,48 @@
   display: flex;
   align-items: center;
   font-weight: 500;
+}
+
+/* Tile styles for employee action tiles */
+.emp-tiles {
+  display: flex;
+  gap: 12px;
+}
+.emp-tile {
+  flex: 1;
+  text-align: center;
+  padding: 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: transform 160ms ease, box-shadow 160ms ease;
+  outline: none;
+}
+.emp-tile:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+}
+.emp-tile:focus {
+  box-shadow: 0 0 0 3px rgba(24, 144, 255, 0.12);
+}
+.emp-tile .emp-tile-icon {
+  font-size: 26px;
+  opacity: 0.95;
+}
+.emp-tile .emp-tile-label {
+  margin-top: 8px;
+  font-weight: 600;
+}
+
+/* Color variants */
+.emp-tile--blue {
+  background: #e6f7ff;
+  border: 1px solid #91d5ff;
+}
+.emp-tile--amber {
+  background: #fff7e6;
+  border: 1px solid #ffd591;
+}
+.emp-tile--green {
+  background: #f6ffed;
+  border: 1px solid #b7eb8f;
 }

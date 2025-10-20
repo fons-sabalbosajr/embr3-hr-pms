@@ -160,6 +160,11 @@ const dangerZone = {
       description:
         "Allows user to manage developer settings and other system data.",
     },
+    {
+      key: "canSeeDev",
+      label: "Developer Access (legacy flag)",
+      description: "Alternate flag for developer access (can be used by older clients).",
+    },
   ],
 };
 

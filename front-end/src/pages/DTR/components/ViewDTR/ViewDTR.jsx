@@ -213,11 +213,11 @@ const ViewDTR = ({
           const dayLog = {};
           if (rawLogsForDay.length > 0) {
             // Time In: First punch of the day
-            dayLog["Time In"] = rawLogsForDay[0].format("hh:mm A");
+            dayLog["Time In"] = rawLogsForDay[0].format("h:mm");
 
             // Time Out: Last punch of the day
             if (rawLogsForDay.length > 1) {
-              dayLog["Time Out"] = rawLogsForDay[rawLogsForDay.length - 1].format("hh:mm A");
+              dayLog["Time Out"] = rawLogsForDay[rawLogsForDay.length - 1].format("h:mm");
             }
 
             // Break Out and Break In: Look for punches around lunch time
@@ -228,16 +228,16 @@ const ViewDTR = ({
 
             if (lunchPunches.length >= 2) {
               // First punch in lunch window is Break Out
-              dayLog["Break Out"] = lunchPunches[0].format("hh:mm A");
+              dayLog["Break Out"] = lunchPunches[0].format("h:mm");
               // Last punch in lunch window is Break In
-              dayLog["Break In"] = lunchPunches[lunchPunches.length - 1].format("hh:mm A");
+              dayLog["Break In"] = lunchPunches[lunchPunches.length - 1].format("h:mm");
             } else if (lunchPunches.length === 1) {
                 // If only one punch in lunch window, it could be either break out or break in
                 // This is a heuristic, might need refinement based on actual data patterns
                 if (lunchPunches[0].hour() < 12) { // Before noon, likely Break Out
-                    dayLog["Break Out"] = lunchPunches[0].format("hh:mm A");
+                    dayLog["Break Out"] = lunchPunches[0].format("h:mm");
                 } else { // After noon, likely Break In
-                    dayLog["Break In"] = lunchPunches[0].format("hh:mm A");
+                    dayLog["Break In"] = lunchPunches[0].format("h:mm");
                 }
             }
           }
@@ -261,10 +261,10 @@ const ViewDTR = ({
         let breakIn = dayLog?.["Break In"] || "";
         let timeOut = dayLog?.["Time Out"] || "";
 
-        // If there's a time in but no break out, assume 12:00 PM for break out
-        if (timeIn && !breakOut) breakOut = "12:00 PM";
-        // If there's a time out but no break in, assume 1:00 PM for break in
-        if (timeOut && !breakIn) breakIn = "1:00 PM";
+  // If there's a time in but no break out, assume 12:00 for break out
+  if (timeIn && !breakOut) breakOut = "12:00";
+  // If there's a time out but no break in, assume 1:00 for break in
+  if (timeOut && !breakIn) breakIn = "1:00";
 
         rows.push({
           key: dateKey,

@@ -12,6 +12,7 @@ import {
   Modal,
   Descriptions,
   Tag,
+  Skeleton,
 } from "antd";
 import {
   UserOutlined,
@@ -68,8 +69,11 @@ const HomePage = () => {
   const [isFeatureModalOpen, setIsFeatureModalOpen] = useState(false);
   const { notifications, setNotifications, messages, setMessages } =
     useContext(NotificationsContext);
+  const [devNotifications, setDevNotifications] = useState([]);
+  const [devNotificationsLoading, setDevNotificationsLoading] = useState(true);
   const [selectedNotification, setSelectedNotification] = useState(null);
   const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
+  const [notificationsLoading, setNotificationsLoading] = useState(true);
   const [selectedMessage, setSelectedMessage] = useState(null);
   const [isMessageModalOpen, setIsMessageModalOpen] = useState(false);
   const [employeeDetails, setEmployeeDetails] = useState(null);
@@ -81,7 +85,7 @@ const HomePage = () => {
   }, [notifications]);
 
   useEffect(() => {
-    localStorage.setItem("messages", JSON.stringify(messages));
+    // messages are reserved for future chat feature and intentionally not persisted
   }, [messages]);
 
    useEffect(() => {
@@ -93,39 +97,84 @@ const HomePage = () => {
       ]);
     });
 
-    socket.on("newDTRMessage", (data) => {
-      setMessages((prev) => [{ ...data, id: data._id || Date.now() }, ...prev]);
-    });
+    // message stream is reserved for future chat feature — ignore incoming message events
 
     // 👇 3. Remove the return () => socket.disconnect(); from here
     //    AuthContext is now responsible for disconnecting.
   }, []);
 
+  // Load developer notifications if user is developer/admin and listen for DevSettings updates
+  useEffect(() => {
+    let mounted = true;
+    const fetchDev = async () => {
+    if (!(hasPermission(["canAccessDeveloper"]) || (user && user.userType === 'developer'))) return;
+      try {
+        setDevNotificationsLoading(true);
+        const { data } = await axiosInstance.get('/dev/notifications');
+        if (!mounted) return;
+        const items = (data?.data || []).map((n) => ({ ...n, id: n._id || Date.now() }));
+        setDevNotifications(items);
+      } catch (err) {
+        // ignore dev notification load errors
+        console.debug('Failed to load dev notifications', err);
+      }
+      finally {
+        if (mounted) setDevNotificationsLoading(false);
+      }
+    };
+
+    fetchDev();
+
+    const handler = (e) => {
+      if (!e || !e.detail) return;
+      const payload = (e.detail || []).map((n) => ({ ...n, id: n._id || Date.now() }));
+      setDevNotifications(payload);
+    };
+    window.addEventListener('devNotificationsUpdated', handler);
+
+    return () => {
+      mounted = false;
+      window.removeEventListener('devNotificationsUpdated', handler);
+    };
+  }, [hasPermission]);
+
   // Load initial data from backend
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [notifRes, msgRes] = await Promise.all([
-          axiosInstance.get("/payslip-requests"),
-          axiosInstance.get("/dtrlogs"),
-        ]);
+        // Try relative endpoints first (dependent on axiosInstance.baseURL). If that fails,
+        // fall back to absolute URL using VITE_API_URL to handle different dev setups.
+        let notifRes;
+        let msgRes;
+        try {
+          [notifRes, msgRes] = await Promise.all([
+            axiosInstance.get("/payslip-requests"),
+            axiosInstance.get("/dtrlogs"),
+          ]);
+        } catch (firstErr) {
+          console.debug('Initial relative fetch failed, trying absolute VITE_API_URL fallback', firstErr);
+          const base = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+          // If VITE_API_URL isn't configured, rethrow original error
+          if (!base) throw firstErr;
+          [notifRes, msgRes] = await Promise.all([
+            axiosInstance.get(`${base}/payslip-requests`),
+            axiosInstance.get(`${base}/dtrlogs`),
+          ]);
+        }
 
-        setNotifications(
-          (notifRes.data?.data || notifRes.data || []).map((n) => ({
-            ...n,
-            id: n._id || Date.now(),
-          }))
-        );
+        console.debug('Fetched notifications response:', notifRes && notifRes.data);
+        console.debug('Fetched messages response:', msgRes && msgRes.data);
 
-        setMessages(
-          (msgRes.data?.data || msgRes.data || []).map((m) => ({
-            ...m,
-            id: m._id || Date.now(),
-          }))
-        );
+        setNotificationsLoading(true);
+        setNotifications((notifRes.data?.data || notifRes.data || []).map((n) => ({ ...n, id: n._id || n.id || Date.now() })));
+
+        // messages are reserved for future chat; do not populate messages yet
       } catch (err) {
         // Initial load failures are non-fatal; UI can still function with empty lists
         console.error("Failed to load initial data:", err);
+      }
+      finally {
+        setNotificationsLoading(false);
       }
     };
     fetchData();
@@ -318,21 +367,7 @@ const HomePage = () => {
 
   // ---- Messages Modal Logic ----
   const openMessageModal = async (m) => {
-    // Mark as read (optimistic) then open modal
-    try {
-      if (!m.read) {
-        await axiosInstance.put(`/dtrlogs/${m._id || m.id}/read`);
-        setMessages((prev) =>
-          prev.map((msg) =>
-            (msg._id || msg.id) === (m._id || m.id)
-              ? { ...msg, read: true }
-              : msg
-          )
-        );
-      }
-    } catch (error) {
-      message.error("Failed to update message status");
-    }
+    // Messages feature reserved; do not mark as read on the server yet.
     setSelectedMessage(m);
     setIsMessageModalOpen(true);
 
@@ -370,7 +405,8 @@ const HomePage = () => {
         }}
       >
         <Text strong>Notifications</Text>
-        {hasAccess("canManageNotifications") && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {hasAccess("canManageNotifications") && (
           <Button
             type="link"
             size="small"
@@ -387,10 +423,48 @@ const HomePage = () => {
           >
             Mark all as read
           </Button>
-        )}
+          )}
+
+          {/* Developer notifications are shown but hidden items are excluded */}
+        </div>
       </div>
-      {notifications.length > 0 ? (
-        notifications.map((n) => (
+      {/** Merge regular notifications and (optionally) dev notifications. Dev notifications have `hidden` flag. */}
+      {notificationsLoading || devNotificationsLoading ? (
+        <div style={{ padding: 12 }}>
+          <Skeleton active paragraph={{ rows: 3 }} />
+        </div>
+      ) : (() => {
+        // Always exclude hidden dev notifications from the bell popover
+        const visibleDev = devNotifications.filter((d) => !d.hidden);
+        // Respect dataVisible flag: if a dev notification has dataVisible === false
+        // replace its body/title with a placeholder when merging for the bell popover
+        const normalizedDev = visibleDev.map((d) => ({
+          ...d,
+          title: d.dataVisible === false ? '[hidden]' : d.title,
+          body: d.dataVisible === false ? '[hidden]' : d.body,
+        }));
+        // Exclude hidden regular notifications as well
+        let merged = [...normalizedDev, ...notifications.filter((n) => !n.hidden)];
+
+        if (merged.length === 0) {
+          return (
+            <Text type="secondary" style={{ padding: "8px 12px", display: "block" }}>
+              No new notifications
+            </Text>
+          );
+        }
+
+        // Sort: unread first, then by createdAt descending (newest first)
+        merged = merged.sort((a, b) => {
+          if ((a.read ? 1 : 0) !== (b.read ? 1 : 0)) {
+            return (a.read ? 1 : 0) - (b.read ? 1 : 0);
+          }
+          const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return tb - ta;
+        });
+
+        return merged.map((n) => (
           <div
             key={n.id}
             style={{
@@ -399,36 +473,29 @@ const HomePage = () => {
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
-              opacity: n.read ? 0.6 : 1, // 👈 dim if read
+              opacity: n.read ? 0.6 : 1,
             }}
           >
             <div>
-              <Text strong>{`Payslip Request - ${n.employeeId}`}</Text>
+              <Text strong>{n.title || `Notification${n.employeeId ? ' - ' + n.employeeId : ''}`}</Text>
               <br />
               <Text type="secondary" style={{ fontSize: "12px" }}>
-                {new Date(n.createdAt).toLocaleString()}
+                {n.createdAt ? new Date(n.createdAt).toLocaleString() : ''}
               </Text>
             </div>
             <Button
               size="small"
               type="link"
               onClick={(e) => {
-                e.stopPropagation(); // prevent popover internal event bubbling issues
+                e.stopPropagation();
                 openNotificationModal(n);
               }}
             >
               View
             </Button>
           </div>
-        ))
-      ) : (
-        <Text
-          type="secondary"
-          style={{ padding: "8px 12px", display: "block" }}
-        >
-          No new notifications
-        </Text>
-      )}
+        ));
+      })()}
     </div>
   );
 
@@ -535,7 +602,7 @@ const HomePage = () => {
           )}
           {selectedNotification.reason && (
             <Descriptions.Item label="Reason">
-              {selectedNotification.reason}
+              {selectedNotification.dataVisible === false ? '[hidden]' : selectedNotification.reason}
             </Descriptions.Item>
           )}
           {selectedNotification.period && (
@@ -555,7 +622,7 @@ const HomePage = () => {
           </Descriptions.Item>
           {selectedNotification.notes && (
             <Descriptions.Item label="Notes">
-              {selectedNotification.notes}
+              {selectedNotification.dataVisible === false ? '[hidden]' : selectedNotification.notes}
             </Descriptions.Item>
           )}
           {selectedNotification._id && (
@@ -688,21 +755,9 @@ const HomePage = () => {
             type="link"
             size="small"
             onClick={async () => {
-              try {
-                // ✅ Optimistically update UI
-                setMessages((prev) => prev.map((m) => ({ ...m, read: true })));
-
-                // ✅ Call backend to persist
-                await axiosInstance.put("/dtrlogs/read-all");
-
-                // ✅ Refresh to stay in sync
-                const { data } = await axiosInstance.get("/dtrlogs");
-                if (data.success) {
-                  setMessages(data.data);
-                }
-              } catch (error) {
-                message.error("Failed to mark all messages as read");
-              }
+              // Messages are reserved; just mark locally (no-op setter) for now
+              setMessages((prev) => prev.map((m) => ({ ...m, read: true })));
+              message.success("Marked all as read (local)");
             }}
           >
             Mark all as read
@@ -859,7 +914,12 @@ const HomePage = () => {
               placement="bottomRight"
             >
               <Badge
-                count={notifications.filter((n) => !n.read).length} // Correctly count unread
+                count={(() => {
+                  const visibleDev = devNotifications.filter((d) => !d.hidden);
+                  const visibleRegular = notifications.filter((n) => !n.hidden);
+                  const merged = [...visibleDev, ...visibleRegular];
+                  return merged.filter((n) => !n.read).length;
+                })()}
                 size="small"
                 overflowCount={99}
               >

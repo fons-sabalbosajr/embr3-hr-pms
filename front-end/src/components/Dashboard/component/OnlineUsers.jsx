@@ -9,11 +9,15 @@ import relativeTime from "dayjs/plugin/relativeTime";
 dayjs.extend(relativeTime);
 
 // Format like "0 min ago", "1 min ago" for the first hour; fallback to dayjs for longer
+// If lastSeenAt is older than 48 hours, treat as Offline
+const HOURS_OFFLINE_THRESHOLD = 48;
 const formatShortLastSeen = (dateLike) => {
   if (!dateLike) return "";
   const t = new Date(dateLike).getTime();
   if (Number.isNaN(t)) return "";
   const diffMs = Date.now() - t;
+  const hours = diffMs / (1000 * 60 * 60);
+  if (hours >= HOURS_OFFLINE_THRESHOLD) return null; // signal that user should be considered offline
   const mins = Math.floor(diffMs / 60000);
   if (mins < 60) return `${mins} min ago`;
   return dayjs(t).fromNow();
@@ -30,8 +34,15 @@ const OnlineUsers = () => {
         const enrichedUsers = usersArray.map((u) => {
           let lastSeen = "Offline";
           if (u.isOnline) lastSeen = "Online now";
-          else if (u.lastSeenAt)
-            lastSeen = `Online ${formatShortLastSeen(u.lastSeenAt)}`;
+          else if (u.lastSeenAt) {
+            const short = formatShortLastSeen(u.lastSeenAt);
+            if (short === null) {
+              // older than threshold, treat as offline
+              lastSeen = "Offline";
+            } else {
+              lastSeen = `Last seen ${short}`;
+            }
+          }
           return { ...u, lastSeen };
         });
         setUsers(enrichedUsers);
@@ -77,10 +88,11 @@ const OnlineUsers = () => {
           ...updated[idx],
           isOnline: status === "online",
           lastSeenAt: status === "online" ? undefined : effectiveLastSeenAt,
-          lastSeen:
-            status === "online"
-              ? "Online now"
-              : `Last seen ${formatShortLastSeen(effectiveLastSeenAt)}`,
+          lastSeen: (function () {
+            if (status === "online") return "Online now";
+            const short = formatShortLastSeen(effectiveLastSeenAt);
+            return short === null ? "Offline" : `Last seen ${short}`;
+          })(),
         };
         return updated;
       });

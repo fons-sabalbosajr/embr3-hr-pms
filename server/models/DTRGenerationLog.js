@@ -7,6 +7,7 @@ const dtrGenerationLogSchema = new mongoose.Schema(
     period: { type: String, required: true },
     generatedBy: { type: String, required: true },
     read: { type: Boolean, default: false }, // ✅ added
+    hidden: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

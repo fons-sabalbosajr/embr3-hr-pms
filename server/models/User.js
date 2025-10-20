@@ -51,6 +51,8 @@ const userSchema = new mongoose.Schema(
      // Backup and Config
     canAccessConfigSettings: { type: Boolean, default: false },
     canAccessDeveloper: { type: Boolean, default: false },
+  // Legacy/alternate flag to give access to developer settings
+  canSeeDev: { type: Boolean, default: false },
 
     // Security / Hierarchy
     userType: {
