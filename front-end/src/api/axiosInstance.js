@@ -24,16 +24,33 @@ axiosInstance.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response && error.response.status === 401) {
+      // Clear token on any 401
       secureRemove("token");
+
+      // Determine if current location is a public route that should not force redirect
+      const base = (import.meta.env.BASE_URL || "/").replace(/\/$/, "");
+      const currentPath = (window.location.pathname || "").replace(base, "") || "/";
+      const isPublicRoute = (
+        currentPath === "/" ||
+        currentPath === "/auth" ||
+        currentPath === "/requests" ||
+        currentPath === "/payslip" ||
+        currentPath === "/dtr-employee-request" ||
+        currentPath.startsWith("/verify/") ||
+        currentPath.startsWith("/reset-password")
+      );
+
       // Avoid spamming message if multiple concurrent 401s
       if (!window.__SESSION_EXPIRED_SHOWN__) {
         window.__SESSION_EXPIRED_SHOWN__ = true;
         message.error("Session expired. Please log in again.");
       }
-      const base = (import.meta.env.BASE_URL || "/").replace(/\/$/, "");
+
       const authPath = `${base}/auth` || "/auth";
-      // Prevent redirect loop if we're already on auth page
-      if (!window.location.pathname.endsWith("/auth")) {
+
+      // If not on a public page, redirect to /auth. On public pages, just clear token and stay.
+      const alreadyOnAuth = window.location.pathname.endsWith("/auth");
+      if (!isPublicRoute && !alreadyOnAuth) {
         setTimeout(() => {
           window.location.replace(authPath);
         }, 500);
