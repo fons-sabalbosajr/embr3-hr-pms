@@ -5,7 +5,8 @@ import { ensureUserTypes } from "./utils/bootstrap.js";
 import { initSocket } from "./socket.js";
 import app from "./app.js";
 
-const PORT = process.env.SERVER_PORT || 5000;
+// Prefer PORT for Render/Heroku compatibility, fallback to SERVER_PORT and 5000 locally
+const PORT = process.env.PORT || process.env.SERVER_PORT || 5000;
 const HOST = process.env.SERVER_HOST || "0.0.0.0";
 const server = http.createServer(app);
 
