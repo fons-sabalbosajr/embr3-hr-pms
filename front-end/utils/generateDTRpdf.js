@@ -7,6 +7,7 @@ import customParseFormat from "dayjs/plugin/customParseFormat";
 import { fetchPhilippineHolidays } from "../src/api/holidayPH";
 import axios from "axios";
 import axiosInstance from "../src/api/axiosInstance";
+import { secureRetrieve } from "./secureStorage";
 import { getSignatoryEmployees } from "../src/api/employeeAPI.js";
 
 dayjs.extend(utc);
@@ -208,28 +209,31 @@ export async function generateDTRPdf({
   const signatoriesRes = await getSignatoryEmployees();
   const signatories = signatoriesRes.data;
 
-  // Local holidays and suspensions within cut-off
+  // Local holidays and suspensions within cut-off (only fetch if authenticated)
   let localHolidays = [];
   let suspensions = [];
   try {
-    const start = dayjs(selectedRecord.DTR_Cut_Off.start).format("YYYY-MM-DD");
-    const end = dayjs(selectedRecord.DTR_Cut_Off.end).format("YYYY-MM-DD");
-    const [lhRes, sRes] = await Promise.all([
-      axiosInstance.get(`/local-holidays`, { params: { start, end } }),
-      axiosInstance.get(`/suspensions`, { params: { start, end } }),
-    ]);
-    localHolidays = (lhRes.data?.data || []).map((h) => ({
-      date: dayjs(h.date).format("YYYY-MM-DD"),
-      endDate: h.endDate ? dayjs(h.endDate).format("YYYY-MM-DD") : null,
-      name: h.name,
-      type: "Local Holiday",
-    }));
-    suspensions = (sRes.data?.data || []).map((s) => ({
-      date: dayjs(s.date).format("YYYY-MM-DD"),
-      endDate: s.endDate ? dayjs(s.endDate).format("YYYY-MM-DD") : null,
-      name: s.title,
-      type: "Suspension",
-    }));
+    const hasToken = !!secureRetrieve("token");
+    if (hasToken && selectedRecord && selectedRecord.DTR_Cut_Off) {
+      const start = dayjs(selectedRecord.DTR_Cut_Off.start).format("YYYY-MM-DD");
+      const end = dayjs(selectedRecord.DTR_Cut_Off.end).format("YYYY-MM-DD");
+      const [lhRes, sRes] = await Promise.all([
+        axiosInstance.get(`/local-holidays`, { params: { start, end } }),
+        axiosInstance.get(`/suspensions`, { params: { start, end } }),
+      ]);
+      localHolidays = (lhRes.data?.data || []).map((h) => ({
+        date: dayjs(h.date).format("YYYY-MM-DD"),
+        endDate: h.endDate ? dayjs(h.endDate).format("YYYY-MM-DD") : null,
+        name: h.name,
+        type: "Local Holiday",
+      }));
+      suspensions = (sRes.data?.data || []).map((s) => ({
+        date: dayjs(s.date).format("YYYY-MM-DD"),
+        endDate: s.endDate ? dayjs(s.endDate).format("YYYY-MM-DD") : null,
+        name: s.title,
+        type: "Suspension",
+      }));
+    }
   } catch {}
 
   const allHolidays = [
