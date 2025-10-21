@@ -1,5 +1,5 @@
 import express from "express";
-import { checkDTRExistsForRange, createDTRRequest, getDTRRequests } from "../controllers/dtrRequestController.js";
+import { checkDTRExistsForRange, createDTRRequest, getDTRRequests, debugResolveDTR } from "../controllers/dtrRequestController.js";
 
 const router = express.Router();
 
@@ -7,5 +7,6 @@ const router = express.Router();
 router.get("/check", checkDTRExistsForRange);
 router.post("/", createDTRRequest);
 router.get("/", getDTRRequests);
+router.get("/debug/resolve", debugResolveDTR);
 
 export default router;

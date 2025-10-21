@@ -44,6 +44,25 @@ dtrLogSchema.pre("save", function (next) {
   next();
 });
 
+// Ensure normalization also happens on bulk insert
+dtrLogSchema.pre('insertMany', function(next, docs) {
+  try {
+    (docs || []).forEach(doc => {
+      if (doc.Name && !doc.normalizedName) {
+        doc.normalizedName = normalizeName(doc.Name);
+      }
+      if (doc["AC-No"]) {
+        const raw = String(doc["AC-No"]);
+        const digits = raw.replace(/\D/g, "").replace(/^0+/, "");
+        if (digits) doc.normalizedAcNo = digits;
+      }
+    });
+  } catch (e) {
+    // continue regardless
+  }
+  next();
+});
+
 // Indexes
 dtrLogSchema.index({ normalizedAcNo: 1 });
 dtrLogSchema.index({ normalizedName: 1 });
