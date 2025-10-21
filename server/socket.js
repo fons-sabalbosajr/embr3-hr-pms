@@ -6,23 +6,36 @@ let io;
 const userSockets = new Map();
 
 export const initSocket = (server) => {
+  // Build allowed origins from env (comma-separated)
+  const parseAllowedOrigins = (value) =>
+    String(value || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+  const allowedOrigins = parseAllowedOrigins(
+    process.env.CLIENT_ORIGIN ||
+      process.env.FRONTEND_URL ||
+      process.env.VITE_FRONTEND_URL
+  );
+
   io = new Server(server, {
     path: "/socket.io",
     // Speed up presence updates by tuning heartbeat
     // Shorter intervals detect disconnects faster (lower offline lag)
     pingInterval: 5000, // default 25000
     pingTimeout: 10000, // default 20000
-    cors: (() => {
-      const allowed =
-        process.env.CLIENT_ORIGIN ||
-        process.env.FRONTEND_URL ||
-        process.env.VITE_FRONTEND_URL;
-      return {
-        origin: allowed ? [allowed] : true, // reflect request origin if not specified
-        methods: ["GET", "POST"],
-        credentials: true,
-      };
-    })(),
+    cors: {
+      origin: (origin, callback) => {
+        // Allow server-side or same-origin (no Origin header)
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.length === 0) return callback(null, true);
+        if (allowedOrigins.includes(origin)) return callback(null, true);
+        return callback(new Error(`Socket.IO CORS: ${origin} not allowed`));
+      },
+      methods: ["GET", "POST"],
+      credentials: true,
+    },
   });
 
   io.on("connection", (socket) => {
