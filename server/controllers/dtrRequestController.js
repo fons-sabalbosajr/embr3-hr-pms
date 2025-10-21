@@ -73,8 +73,14 @@ export const createDTRRequest = async (req, res) => {
     const acNos = await resolveAcNosForEmployee(employeeId);
     const start = dayjs(startDate).startOf("day").toDate();
     const end = dayjs(endDate).endOf("day").toDate();
-  const exists = count > 0;
-    if (!exists) {
+    // Count logs using same tolerant matching as the checker
+    const orConds = [{ normalizedAcNo: { $in: acNos } }];
+    acNos.forEach((d) => {
+      const rx = buildLooseAcNoRegex(d);
+      if (rx) orConds.push({ "AC-No": { $regex: rx } });
+    });
+    const count = await DTRLog.countDocuments({ Time: { $gte: start, $lte: end }, $or: orConds });
+    if (count <= 0) {
       return res.status(400).json({ success: false, message: "DTR for that cut off is not yet available." });
     }
 
