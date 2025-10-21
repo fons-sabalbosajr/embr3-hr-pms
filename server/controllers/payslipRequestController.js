@@ -15,10 +15,9 @@ export const createPayslipRequest = async (req, res) => {
     if (newRequest) {
       const io = getSocketInstance();
       if (io) {
-        io.emit("newNotification", {
-          type: "PayslipRequest",
-          data: newRequest,
-        });
+        // Emit document shape with a type field for client consumption
+        const payload = { ...newRequest.toObject(), type: "PayslipRequest" };
+        io.emit("newNotification", payload);
       }
     }
 

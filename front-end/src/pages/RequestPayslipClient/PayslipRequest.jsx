@@ -25,13 +25,13 @@ const PayslipRequest = () => {
       if (response.data.success) {
         message.success("Payslip request submitted successfully!");
 
-        // ✅ Push into notifications so it appears in bell popover
-        if (response.data.request) {
+        // ✅ Push into notifications so it appears in bell popover (local session)
+        if (response.data.data) {
           setNotifications((prev) => [
             {
-              id: response.data.request._id || Date.now(),
-              employeeId: response.data.request.employeeId,
-              createdAt: response.data.request.createdAt || new Date(),
+              id: response.data.data._id || Date.now(),
+              employeeId: response.data.data.employeeId,
+              createdAt: response.data.data.createdAt || new Date(),
               read: false,
               type: "PayslipRequest",
             },
