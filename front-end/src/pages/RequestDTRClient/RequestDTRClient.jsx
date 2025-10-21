@@ -3,6 +3,7 @@ import { Card, Typography, Button, Form, Input, DatePicker, message } from "antd
 import { Link } from "react-router-dom";
 import bgImage from "../../assets/bgemb.webp";
 import axiosInstance from "../../api/axiosInstance";
+import { NotificationsContext } from "../../context/NotificationsContext";
 import { generateDTRPdf } from "../../../utils/generateDTRpdf";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc";
@@ -16,25 +17,24 @@ const { Title, Text } = Typography;
 
 const RequestDTRClient = () => {
   const [form] = Form.useForm();
+  const { setNotifications } = React.useContext(NotificationsContext);
 
   const onFinish = async (values) => {
     try {
       const [startDate, endDate] = values.dateRange;
 
-      // 1. Check for DTR data availability
-      const checkResponse = await axiosInstance.get("/dtrdatas/check", {
+      // 1. Validate biometrics exist for this employee and date range
+      const existsRes = await axiosInstance.get("/dtr-requests/check", {
         params: {
+          employeeId: values.employeeId,
           startDate: startDate.toISOString(),
           endDate: endDate.toISOString(),
         },
       });
-
-      if (!checkResponse.data.data.available) {
+      if (!existsRes.data?.data?.available) {
         message.error("DTR for that cut off is not yet available.");
         return;
       }
-
-      const selectedRecord = checkResponse.data.data.record;
 
       // 2. Fetch employee data
       const employeeResponse = await axiosInstance.get(`/employees/by-emp-id/${values.employeeId}`);
@@ -68,18 +68,34 @@ const RequestDTRClient = () => {
       };
 
       // 4. Generate PDF
+      const selectedRecord = { DTR_Cut_Off: { start: startDate.toDate(), end: endDate.toDate() } };
+
       await generateDTRPdf({
         employee,
         dtrLogs: dtrLogsForPdf,
         selectedRecord,
       });
 
-      // 5. Log generation and notify
-      await axiosInstance.post("/dtr/log-generation", {
+      // 5. Create DTR request (triggers notification to main app)
+      const reqRes = await axiosInstance.post("/dtr-requests", {
         employeeId: values.employeeId,
-        period: `${startDate.format("YYYY-MM-DD")} to ${endDate.format("YYYY-MM-DD")}`,
-        generatedBy: values.email,
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString(),
+        email: values.email,
       });
+
+      if (reqRes.data?.success && reqRes.data?.data) {
+        setNotifications((prev) => [
+          {
+            id: reqRes.data.data._id || Date.now(),
+            employeeId: reqRes.data.data.employeeId,
+            createdAt: reqRes.data.data.createdAt || new Date(),
+            read: false,
+            type: "DTRRequest",
+          },
+          ...prev,
+        ]);
+      }
 
       message.success("DTR generated successfully!");
       form.resetFields();

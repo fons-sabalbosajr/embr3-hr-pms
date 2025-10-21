@@ -164,7 +164,15 @@ const HomePage = () => {
         console.debug('Fetched messages response:', msgRes && msgRes.data);
 
         setNotificationsLoading(true);
-        setNotifications((notifRes.data?.data || notifRes.data || []).map((n) => ({ ...n, id: n._id || n.id || Date.now() })));
+        const payslips = (notifRes.data?.data || notifRes.data || []).map((n) => ({ ...n, id: n._id || n.id || Date.now(), type: n.type || "PayslipRequest" }));
+        let dtrReqs = [];
+        try {
+          const dtrReqRes = await axiosInstance.get("/dtr-requests");
+          dtrReqs = (dtrReqRes.data?.data || []).map((n) => ({ ...n, id: n._id || n.id || Date.now(), type: "DTRRequest" }));
+        } catch (e) {
+          // ignore if endpoint not available yet
+        }
+        setNotifications([...dtrReqs, ...payslips]);
 
         // messages are reserved for future chat; do not populate messages yet
       } catch (err) {
