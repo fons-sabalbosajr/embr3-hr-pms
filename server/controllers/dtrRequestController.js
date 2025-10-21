@@ -5,6 +5,15 @@ import dayjs from "dayjs";
 import { getSocketInstance } from "../socket.js";
 import mongoose from "mongoose";
 
+// Build a tolerant regex that matches AC-No with optional non-digits and leading zeros
+// Example: digits "3946" -> /^0*\D*3\D*9\D*4\D*6\D*$/i which matches "03-946", "0003 9 4 6", etc.
+const buildLooseAcNoRegex = (digits) => {
+  const seq = String(digits || "").replace(/\D/g, "").replace(/^0+/, "");
+  if (!seq) return null;
+  const parts = seq.split("").map((ch) => `\\D*${ch}`);
+  return new RegExp(`^0*${parts.join("")}\\D*$`, "i");
+};
+
 const resolveAcNosForEmployee = async (employeeId) => {
   // Try by empId first
   const emp = await Employee.findOne({ empId: employeeId }).lean();
@@ -38,44 +47,13 @@ export const checkDTRExistsForRange = async (req, res) => {
     const start = dayjs(startDate).startOf("day").toDate();
     const end = dayjs(endDate).endOf("day").toDate();
 
-    // Use aggregation to normalize raw AC-No dynamically (handles old data without normalizedAcNo)
-    const pipeline = [
-      { $match: { Time: { $gte: start, $lte: end } } },
-      {
-        $addFields: {
-          normalizedRaw: {
-            $regexReplace: {
-              input: { $ifNull: ["$AC-No", ""] },
-              regex: /\D/g,
-              replacement: "",
-            },
-          },
-        },
-      },
-      {
-        $addFields: {
-          normalizedRaw: {
-            $regexReplace: {
-              input: "$normalizedRaw",
-              regex: /^0+/,
-              replacement: "",
-            },
-          },
-        },
-      },
-      {
-        $match: {
-          $or: [
-            { normalizedAcNo: { $in: acNos } },
-            { normalizedRaw: { $in: acNos } },
-          ],
-        },
-      },
-      { $limit: 1 },
-    ];
-
-    const sample = await DTRLog.aggregate(pipeline).exec();
-    const count = sample.length;
+    // Query using normalizedAcNo or a tolerant regex on raw AC-No
+    const orConds = [{ normalizedAcNo: { $in: acNos } }];
+    acNos.forEach((d) => {
+      const rx = buildLooseAcNoRegex(d);
+      if (rx) orConds.push({ "AC-No": { $regex: rx } });
+    });
+    const count = await DTRLog.countDocuments({ Time: { $gte: start, $lte: end }, $or: orConds });
 
     return res.json({ success: true, data: { available: count > 0, total: count } });
   } catch (err) {
@@ -95,7 +73,7 @@ export const createDTRRequest = async (req, res) => {
     const acNos = await resolveAcNosForEmployee(employeeId);
     const start = dayjs(startDate).startOf("day").toDate();
     const end = dayjs(endDate).endOf("day").toDate();
-    const exists = count > 0;
+  const exists = count > 0;
     if (!exists) {
       return res.status(400).json({ success: false, message: "DTR for that cut off is not yet available." });
     }
@@ -133,30 +111,14 @@ export const debugResolveDTR = async (req, res) => {
     const start = startDate ? dayjs(startDate).startOf("day").toDate() : null;
     const end = endDate ? dayjs(endDate).endOf("day").toDate() : null;
 
-    const pipeline = [];
-    if (start && end) pipeline.push({ $match: { Time: { $gte: start, $lte: end } } });
-    pipeline.push({
-      $addFields: {
-        normalizedRaw: {
-          $regexReplace: {
-            input: { $ifNull: ["$AC-No", ""] },
-            regex: /\D/g,
-            replacement: "",
-          },
-        },
-      },
-    });
-    pipeline.push({
-      $addFields: {
-        normalizedRaw: {
-          $regexReplace: { input: "$normalizedRaw", regex: /^0+/, replacement: "" },
-        },
-      },
-    });
-    pipeline.push({ $project: { _id: 0, Time: 1, ACNo: "$AC-No", normalizedAcNo: 1, normalizedRaw: 1 } });
-    pipeline.push({ $limit: 50 });
-
-    const sample = await DTRLog.aggregate(pipeline).exec();
+    const match = start && end ? { Time: { $gte: start, $lte: end } } : {};
+    const sampleDocs = await DTRLog.find(match).sort({ Time: 1 }).limit(50).lean();
+    const sample = sampleDocs.map((doc) => ({
+      Time: doc.Time,
+      ACNo: doc["AC-No"],
+      normalizedAcNo: doc.normalizedAcNo,
+      normalizedRaw: String(doc["AC-No"] || "").replace(/\D/g, "").replace(/^0+/, ""),
+    }));
     res.json({ success: true, data: { acNos, sample } });
   } catch (err) {
     console.error("debugResolveDTR error:", err);
