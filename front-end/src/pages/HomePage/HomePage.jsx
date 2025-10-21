@@ -80,9 +80,7 @@ const HomePage = () => {
   const [employeeLoading, setEmployeeLoading] = useState(false);
   const [employeeError, setEmployeeError] = useState(null);
 
-  useEffect(() => {
-    localStorage.setItem("notifications", JSON.stringify(notifications));
-  }, [notifications]);
+  // Notifications are persisted securely in NotificationsContext
 
   useEffect(() => {
     // messages are reserved for future chat feature and intentionally not persisted
