@@ -24,7 +24,30 @@ import suspensionRoutes from "./routes/suspensionRoutes.js";
 dotenv.config();
 const app = express();
 
-app.use(cors({ origin: process.env.CLIENT_ORIGIN, credentials: true }));
+// Flexible CORS: allow comma-separated origins in CLIENT_ORIGIN
+const parseAllowedOrigins = (value) =>
+  String(value || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+const allowedOrigins = parseAllowedOrigins(process.env.CLIENT_ORIGIN);
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    // Allow non-browser or same-origin requests (no Origin header)
+    if (!origin) return callback(null, true);
+    // Match against allowlist
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    // Optional: allow localhost convenience if explicitly configured later
+    return callback(new Error(`Not allowed by CORS: ${origin}`));
+  },
+  credentials: true,
+};
+
+app.use(cors(corsOptions));
+// Ensure preflight requests succeed universally for defined resources
+app.options("*", cors(corsOptions));
 app.use(express.json({ limit: "20mb" }));
 app.use(express.urlencoded({ extended: true, limit: "20mb" }));
 
