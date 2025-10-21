@@ -46,8 +46,8 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-// Ensure preflight requests succeed universally for defined resources
-app.options("*", cors(corsOptions));
+// Ensure preflight requests succeed universally (Express 5: avoid '*' path)
+app.options(/.*/, cors(corsOptions));
 app.use(express.json({ limit: "20mb" }));
 app.use(express.urlencoded({ extended: true, limit: "20mb" }));
 
