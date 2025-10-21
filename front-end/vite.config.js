@@ -6,11 +6,9 @@ import path from "path";
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd());
 
-  // In dev we keep base as '/' so you can visit http://host:port/ directly without Vite's base warning loop.
-  // In production (build output to be deployed behind a reverse proxy path) we set the intended base.
-  // Allow overriding via VITE_BASE_PATH (ensure it ends with a slash) else default to '/hrpms/' in prod.
+  // In dev we keep base as '/'. In production, allow overriding via VITE_BASE_PATH (ensure it ends with a slash).
   const isProd = mode === "production";
-  const rawBase = env.VITE_BASE_PATH || (isProd ? "/hrpms/" : "/");
+  const rawBase = env.VITE_BASE_PATH || "/";
   const normalizedBase = rawBase.endsWith("/") ? rawBase : rawBase + "/";
 
   return {
