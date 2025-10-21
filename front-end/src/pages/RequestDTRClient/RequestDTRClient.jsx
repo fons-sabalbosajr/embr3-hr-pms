@@ -130,7 +130,12 @@ const RequestDTRClient = () => {
       className="request-dtr-container"
       style={{
         minHeight: "100vh",
-        backgroundImage: `url(${bgImage})`,
+        backgroundImage: `linear-gradient(
+          135deg,
+          rgba(0, 75, 128, 0.85),
+          rgba(154, 205, 50, 0.85),
+          rgba(245, 216, 163, 0.85)
+        ), url(${bgImage})`,
         backgroundSize: "cover",
         backgroundPosition: "center",
         display: "flex",
