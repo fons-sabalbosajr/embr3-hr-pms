@@ -19,6 +19,11 @@ import {
 
 const router = express.Router();
 
+// Public health check (no auth)
+router.get('/health', (req, res) => {
+	res.status(200).send('ok');
+});
+
 // Protected route; front-end can additionally gate to admins
 router.use(verifyToken);
 
