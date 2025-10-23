@@ -2,8 +2,9 @@ import axios from "axios";
 import { message } from "antd";
 import { secureRetrieve, secureRemove } from "../../utils/secureStorage";
 
+// Prefer explicit API base via VITE_API_URL; fall back to Vite dev proxy path '/api' for local dev
 const axiosInstance = axios.create({
-  baseURL: import.meta.env.VITE_API_URL, // e.g. [http://10.14.77.107:5000/api](http://10.14.77.107:5000/api)
+  baseURL: import.meta.env.VITE_API_URL || "/api", // e.g. http://<server>:5000/api (prod) or '/api' (dev proxy)
   withCredentials: true,
 });
 

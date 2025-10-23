@@ -2,6 +2,11 @@ import React from "react";
 import { Popover, Tag } from "antd";
 import { CalendarFilled, BookFilled } from "@ant-design/icons";
 import dayjs from "dayjs";
+import isSameOrBefore from "dayjs/plugin/isSameOrBefore";
+import isSameOrAfter from "dayjs/plugin/isSameOrAfter";
+
+dayjs.extend(isSameOrBefore);
+dayjs.extend(isSameOrAfter);
 
 const DTRDayTiles = ({
   days,

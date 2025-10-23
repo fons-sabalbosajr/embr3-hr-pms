@@ -23,16 +23,10 @@ export const getWorkCalendar = async (req, res) => {
       //console.log("Employee found:", employee.empId, employee.name);
     }
 
-    // Normalize empId → AC-No
-    const normalizeEmpIdToACNo = (empId) => {
-      const [prefix, number] = empId.split("-");
-      return `${parseInt(prefix)}${number}`;
-    };
-    const mappedACNo = normalizeEmpIdToACNo(employeeId);
-    //console.log("Mapped AC-No for query:", mappedACNo);
-
-    // Query logs: fetch ALL logs for this AC-No (no month filter)
-    const logs = await DTRLog.find({ "AC-No": mappedACNo }).sort({ Time: 1 });
+    // Normalize to pure digits and match via normalizedAcNo to be robust across formats
+    const normalizeDigits = (v) => (v ? String(v).replace(/\D/g, "").replace(/^0+/, "") : "");
+    const mappedACNo = normalizeDigits(employeeId);
+    const logs = await DTRLog.find({ normalizedAcNo: mappedACNo }).sort({ Time: 1 });
 
     //console.log(`Found ${logs.length} logs for AC-No ${mappedACNo}`);
 

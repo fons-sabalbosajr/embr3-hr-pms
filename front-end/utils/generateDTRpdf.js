@@ -80,10 +80,8 @@ function formatTimeForPdf(val, dateKey) {
 
 async function fetchEmployeeTrainings(empId) {
   try {
-    const res = await axios.get(
-      `${import.meta.env.VITE_API_BASE_URL}/trainings/by-employee/${empId}`
-    );
-    return res.data.data || [];
+    const res = await axiosInstance.get(`/trainings/public/by-employee/${empId}`);
+    return res.data?.data || [];
   } catch {
     return [];
   }
@@ -116,6 +114,22 @@ export async function generateDTRPdf({
   selectedRecord,
   download = false,
 }) {
+  // Helper: parse cut-off dates safely as local dates without shifting days
+  const parseCutoff = (val) => {
+    try {
+      if (!val) return dayjs().tz(LOCAL_TZ);
+      if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(val)) {
+        return dayjs.tz(val + ' 00:00', 'YYYY-MM-DD HH:mm', LOCAL_TZ);
+      }
+      // Fallback: parse with tz awareness; if it has a Z/offset, this preserves the instant
+      const tzParsed = dayjs.tz(val, LOCAL_TZ);
+      if (tzParsed && tzParsed.isValid()) return tzParsed;
+      const basic = dayjs(val);
+      return basic.isValid() ? dayjs.tz(basic.toISOString(), LOCAL_TZ) : dayjs().tz(LOCAL_TZ);
+    } catch {
+      return dayjs().tz(LOCAL_TZ);
+    }
+  };
   const docWidth = 100;
   const docHeight = 297;
   const leftMargin = 5;
@@ -149,25 +163,10 @@ export async function generateDTRPdf({
     25
   );
 
-  // Guard selectedRecord and its cut-off fields
-  let start;
-  let end;
-  try {
-    const sc =
-      selectedRecord && selectedRecord.DTR_Cut_Off
-        ? selectedRecord.DTR_Cut_Off
-        : null;
-    start =
-      sc && sc.start ? dayjs.tz(sc.start, LOCAL_TZ) : dayjs().tz(LOCAL_TZ);
-    end = sc && sc.end ? dayjs.tz(sc.end, LOCAL_TZ) : dayjs().tz(LOCAL_TZ);
-  } catch (err) {
-    console.warn(
-      "generateDTRPdf: invalid selectedRecord.DTR_Cut_Off, using now as fallback",
-      err
-    );
-    start = dayjs().tz(LOCAL_TZ);
-    end = dayjs().tz(LOCAL_TZ);
-  }
+  // Guard selectedRecord and its cut-off fields (date-only to avoid drift)
+  const sc = selectedRecord && selectedRecord.DTR_Cut_Off ? selectedRecord.DTR_Cut_Off : null;
+  const start = parseCutoff(sc && sc.start);
+  const end = parseCutoff(sc && sc.end);
 
   let cutOffText;
   if (start.isSame(end, "month")) {
@@ -198,7 +197,7 @@ export async function generateDTRPdf({
     { header: "AM Out", dataKey: "amOut" },
     { header: "PM In", dataKey: "pmIn" },
     { header: "PM Out", dataKey: "pmOut" },
-    { header: "Work Status", dataKey: "status", width: 40 },
+    { header: "Work Status", dataKey: "status", width: 35 },
   ];
 
   // ---------- Fetch Holidays (PH + Local) & Suspensions & Trainings ----------
@@ -248,8 +247,8 @@ export async function generateDTRPdf({
   const startOfMonth = referenceDate.startOf("month");
   const endOfMonth = referenceDate.endOf("month");
 
-  const cutOffStart = start;
-  const cutOffEnd = end;
+  const cutOffStart = start.startOf('day');
+  const cutOffEnd = end.startOf('day');
 
   let currentDate = startOfMonth.clone();
 
@@ -504,6 +503,20 @@ export async function generateBatchDTRPdf(printerTray) {
     "MMMDDYYYY"
   )}-${latestEnd.format("MMMDDYYYY")}.pdf`;
 
+  // Helper for batch: parse date-only or ISO as local Manila date
+  const parseCutoffBatch = (val) => {
+    try {
+      if (!val) return dayjs().tz(LOCAL_TZ);
+      if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(val)) {
+        return dayjs.tz(val + ' 00:00', 'YYYY-MM-DD HH:mm', LOCAL_TZ);
+      }
+      const tzParsed = dayjs.tz(val, LOCAL_TZ);
+      return tzParsed && tzParsed.isValid() ? tzParsed : dayjs().tz(LOCAL_TZ);
+    } catch {
+      return dayjs().tz(LOCAL_TZ);
+    }
+  };
+
   for (let i = 0; i < printerTray.length; i++) {
     const { employee, dtrLogs, selectedRecord } = printerTray[i];
 
@@ -529,8 +542,8 @@ export async function generateBatchDTRPdf(printerTray) {
       25
     );
 
-    const start = dayjs(selectedRecord.DTR_Cut_Off.start);
-    const end = dayjs(selectedRecord.DTR_Cut_Off.end);
+  const start = parseCutoffBatch(selectedRecord.DTR_Cut_Off.start);
+  const end = parseCutoffBatch(selectedRecord.DTR_Cut_Off.end);
 
     let cutOffText;
     if (start.isSame(end, "month")) {
@@ -560,7 +573,7 @@ export async function generateBatchDTRPdf(printerTray) {
       { header: "AM Out", dataKey: "amOut" },
       { header: "PM In", dataKey: "pmIn" },
       { header: "PM Out", dataKey: "pmOut" },
-      { header: "Work Status", dataKey: "status", width: 70 },
+      { header: "Work Status", dataKey: "status", width: 40 },
     ];
 
     const year = dayjs(selectedRecord.DTR_Cut_Off.start).year();
@@ -568,12 +581,12 @@ export async function generateBatchDTRPdf(printerTray) {
     const trainings = await fetchEmployeeTrainings(employee.empId);
 
     const rows = [];
-    const referenceDate = dayjs(selectedRecord.DTR_Cut_Off.start);
+  const referenceDate = parseCutoffBatch(selectedRecord.DTR_Cut_Off.start);
     const startOfMonth = referenceDate.startOf("month");
     const endOfMonth = referenceDate.endOf("month");
 
-    const cutOffStart = dayjs(selectedRecord.DTR_Cut_Off.start);
-    const cutOffEnd = dayjs(selectedRecord.DTR_Cut_Off.end);
+  const cutOffStart = parseCutoffBatch(selectedRecord.DTR_Cut_Off.start).startOf('day');
+  const cutOffEnd = parseCutoffBatch(selectedRecord.DTR_Cut_Off.end).startOf('day');
 
     // Local holidays and suspensions within cut-off
     let localHolidays = [];
@@ -616,9 +629,9 @@ export async function generateBatchDTRPdf(printerTray) {
     let currentDate = startOfMonth.clone();
 
     while (currentDate.isSameOrBefore(endOfMonth, "day")) {
-      const dateKey = currentDate.format("YYYY-MM-DD");
-      const dayNum = currentDate.date();
-      const dayOfWeek = currentDate.day();
+  const dateKey = currentDate.tz(LOCAL_TZ).format("YYYY-MM-DD");
+  const dayNum = currentDate.tz(LOCAL_TZ).date();
+  const dayOfWeek = currentDate.tz(LOCAL_TZ).day();
       let dayLogs = {};
       let status = "";
 

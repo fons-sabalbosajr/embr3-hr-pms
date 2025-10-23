@@ -13,6 +13,7 @@ import {
   getAllUsers,
   logout,
   updateUserAccess,
+  devResetPassword,
 } from '../controllers/authController.js';
 import verifyToken from '../middleware/authMiddleware.js';
 
@@ -24,6 +25,8 @@ router.get('/verify/:token', verifyEmail);
 router.post('/resend', resendVerification);
 router.post('/forgot-password', forgotPassword);
 router.post('/reset-password/:token', resetPassword);
+// Development-only password reset (requires DEV_RESET_TOKEN and non-production)
+router.post('/dev-reset', devResetPassword);
 
 // Authenticated routes
 router.put('/profile', verifyToken, updateUserProfile);

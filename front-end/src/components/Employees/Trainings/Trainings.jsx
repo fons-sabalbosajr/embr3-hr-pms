@@ -265,12 +265,16 @@ const Trainings = () => {
                         <div
                           style={{
                             padding: "2px 8px",
-                            color: "#fff",
+                            color: emp.resigned ? "#ddd" : "#fff",
                             fontSize: "12px",
+                            textDecoration: emp.resigned ? "line-through" : undefined,
+                            opacity: emp.resigned ? 0.7 : 1,
                           }}
+                          title={emp.resigned ? "Resigned" : undefined}
                         >
                           {emp.name}{" "}
                           {emp.sectionOrUnit ? `- ${emp.sectionOrUnit}` : ""}
+                          {emp.resigned ? " (Resigned)" : ""}
                         </div>
                       ),
                     })),

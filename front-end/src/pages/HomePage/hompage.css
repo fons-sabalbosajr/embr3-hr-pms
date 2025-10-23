@@ -276,3 +276,30 @@
     background-position: 0% 50%;
   }
 }
+
+/* Compact styles for admin DTR preview inside notification modal */
+.dtr-admin-modal .ant-modal-body {
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.dtr-admin-modal .ant-modal-title {
+  font-size: 14px;
+}
+
+.dtr-admin-modal .dtr-table-compact {
+  font-size: 11px;
+}
+
+.dtr-admin-modal .dtr-table-compact .time-cell {
+  font-size: 10px;
+}
+
+.dtr-admin-modal .dtr-table-compact .date-cell {
+  font-size: 10px;
+}
+
+.dtr-admin-modal .dtr-table-compact .ant-table-thead > tr > th,
+.dtr-admin-modal .dtr-table-compact .ant-table-tbody > tr > td {
+  padding: 4px 6px;
+}

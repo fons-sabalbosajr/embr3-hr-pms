@@ -333,6 +333,9 @@ export const resyncDeveloperFlags = async (req, res) => {
       canManageMessages: true,
       canAccessConfigSettings: true,
       canAccessDeveloper: true,
+      canSeeDev: true,
+      canManipulateBiometrics: true,
+      showSalaryAmounts: true,
     };
 
     const users = await User.find({ $or: [{ userType: 'developer' }, { isAdmin: true }] });

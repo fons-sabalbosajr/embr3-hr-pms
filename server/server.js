@@ -3,6 +3,7 @@ import http from "http";
 import connectDB from "./config/db.js";
 import { ensureUserTypes } from "./utils/bootstrap.js";
 import { initSocket } from "./socket.js";
+import { verifyEmailTransport } from "./utils/email.js";
 import app from "./app.js";
 
 const PORT = process.env.SERVER_PORT || 5000;
@@ -15,6 +16,10 @@ initSocket(server);
 // --- Start Server ---
 connectDB().then(async () => {
   await ensureUserTypes(); // Run bootstrap logic after DB connection
+  // Verify email transport once at startup for diagnostics
+  if ((process.env.NODE_ENV || 'development').toLowerCase() !== 'test') {
+    try { await verifyEmailTransport(); } catch (_) {}
+  }
   server.listen(PORT, HOST, () => {
     console.log(`Server running at http://${HOST}:${PORT}`);
   });
