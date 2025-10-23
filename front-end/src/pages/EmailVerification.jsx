@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { message, Spin, Result, Button } from "antd";
 import { CheckCircleOutlined, CloseCircleOutlined } from "@ant-design/icons";
-import axios from "axios";
+import axios from "../api/axiosInstance";
 
 const EmailVerification = () => {
   const { token } = useParams();
@@ -16,9 +16,7 @@ const EmailVerification = () => {
 
     const verifyEmail = async () => {
       try {
-        const res = await axios.get(
-          `${import.meta.env.VITE_API_URL}/users/verify/${token}`
-        );
+        const res = await axios.get(`/users/verify/${token}`);
         if (isMounted) {
           setStatus("success");
           message.success("Email verified successfully!");

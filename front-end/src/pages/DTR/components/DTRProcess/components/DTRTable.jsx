@@ -28,7 +28,7 @@ const DTRTable = ({
 
   return (
     <Table
-      rowKey="_id"
+      rowKey={(record) => record.stableKey || record._id || record.empId || record.empNo || record.name}
       rowSelection={rowSelection} // <-- new
       columns={columns}
       dataSource={dataSource}

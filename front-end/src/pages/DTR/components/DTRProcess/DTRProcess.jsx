@@ -1,16 +1,6 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useLocation } from "react-router-dom";
-import {
-  Typography,
-  Spin,
-  message,
-  Space,
-  Button,
-  Dropdown,
-  Menu,
-  Tag,
-  Badge,
-} from "antd";
+import { Typography, Spin, Space, Button, Dropdown, Menu, Tag, Badge, App } from "antd";
 import { EyeOutlined, PrinterOutlined, MenuOutlined } from "@ant-design/icons";
 import DTRFilters from "../DTRProcess/components/DTRFilters";
 import DTRTable from "../DTRProcess/components/DTRTable";
@@ -48,13 +38,27 @@ const STATE_LABELS = {
   "C/Out": "Time Out",
 };
 
-const divisionAcronyms = {
-  "Office of the Regional Director": "ORD",
-  "Finance and Administrative Division": "FAD",
-  "Environmental Monitoring and Enforcement Division": "EMED",
-  "Clearance and Permitting Division": "CPD",
+// (divisionAcronyms will be loaded from env below)
+
+// Load acronyms from environment variables (Vite)
+const parseEnvJson = (val, fallback = {}) => {
+  try {
+    if (!val || typeof val !== "string") return fallback;
+    return JSON.parse(val);
+  } catch (_) {
+    return fallback;
+  }
 };
 
+const divisionAcronyms = parseEnvJson(import.meta.env.VITE_DIVISION_ACRONYMS, {});
+const sectionUnitAcronymsFlat = parseEnvJson(
+  import.meta.env.VITE_SECTION_OR_UNIT_ACRONYMS,
+  {}
+);
+const positionAcronymsMap = parseEnvJson(
+  import.meta.env.VITE_POSITION_ACRONYMS,
+  {}
+);
 const divisionColors = {
   "Clearance and Permitting Division": "#1f9cca", // blue
   "Finance and Administrative Division": "#283539", // green
@@ -63,40 +67,57 @@ const divisionColors = {
   "Specialized Team": "#fd8004",
 };
 
-const sectionUnitAcronyms = {
-  CPD: {
-    "Air and Water Permitting Section": "AW",
-    "Environmental Impact Assessment Section": "EIA",
-    "Chemical and Hazardous Waste Permitting Section": "CHWMS",
-  },
-  FAD: {
-    "Budget Unit": "BU",
-    "Cashier Unit": "CA",
-    "Finance Section": "FI",
-    "Personnel Unit": "PE",
-    "Property and General Services Unit": "PGSU",
-    "Records Unit": "RE",
-  },
-  EMED: {
-    "Ecological Solid Waste Management Section": "ESWM",
-    "Air, Water and ECC Compliance Monitoring and Enforcement Section":
-      "AWECMES",
-    "Ambient Monitoring and Technical Services Section": "AMTSS",
-  },
-  ORD: {
-    "Environmental Education and Information Unit": "EEIU",
-    "Environmental Laboratory Unit": "LAB",
-    "Legal Services Unit": "LSU",
-    "Manila Bay Unit": "MBU",
-    "Planning and Information System Management Unit": "PISMU",
-    "Provincial Environmental Management Unit": "PEMU", // note: multiple PEMUs by location; handle if needed
-  },
-  Specialized: {
-    "Commission On Audit": "COA",
-  },
+// (sectionUnitAcronyms will be loaded from env as a flat map below)
+// Helper: normalize position key lookup (env keys are uppercase in provided map)
+const normalizePositionKey = (s) => (typeof s === "string" ? s.trim().toUpperCase() : "");
+
+// Compute an acronym for a position title, with a few sensible rules and fallbacks
+const computePositionAcronym = (position) => {
+  if (!position || typeof position !== "string") return "";
+
+  const raw = position.trim();
+
+    const envHit = positionAcronymsMap[normalizePositionKey(raw)];
+    if (envHit) return envHit;
+
+  // Special-case Engineer roles → ENGR + rank (e.g., II)
+  const upper = normalizePositionKey(raw);
+  if (upper.startsWith("ENGINEER")) {
+    const parts = raw.trim().split(/\s+/);
+    const last = parts[parts.length - 1];
+    const rank = /^(?:[IVXLCM]+|\d+)$/.test(last) ? ` ${last.toUpperCase()}` : "";
+    return `ENGR${rank}`;
+  }
+
+  // Generic builder: take capital initials of significant words, keep trailing roman numeral/number
+  const stopWords = new Set(["of", "and", "the", "unit", "section", "division"]);
+  const tokens = raw
+    .replace(/[(),]/g, " ")
+    .split(/[\s\-/]+/)
+    .filter(Boolean);
+
+  if (!tokens.length) return raw;
+
+  // Detect trailing roman numerals or numbers as class/rank
+  let rank = "";
+  const last = tokens[tokens.length - 1];
+  if (/^(?:[IVXLCM]+|\d+)$/.test(last)) {
+    rank = last.toUpperCase();
+    tokens.pop();
+  }
+
+  const letters = tokens
+    .filter((t) => !stopWords.has(t.toLowerCase()))
+    .map((t) => t[0]?.toUpperCase())
+    .filter(Boolean)
+    .join("");
+
+  if (!letters) return rank || raw;
+  return rank ? `${letters} ${rank}` : letters;
 };
 
 const DTRProcess = ({ currentUser }) => {
+  const { message: appMessage } = App.useApp();
   const [employees, setEmployees] = useState([]);
   const [filteredEmployees, setFilteredEmployees] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -121,14 +142,14 @@ const DTRProcess = ({ currentUser }) => {
   const fetchEmployees = async () => {
     try {
       setLoading(true);
-      const res = await axios.get(
-        `${import.meta.env.VITE_API_BASE_URL}/employees`
-      );
-      const sortedData = sortEmployees(res.data);
+      const res = await axiosInstance.get(`/employees`);
+      const sortedData = sortEmployees(res.data).map((emp, idx) => ({
+        ...emp,
+        stableKey: emp._id || emp.empId || emp.empNo || `${emp.name || 'emp'}__${idx}`,
+      }));
       setEmployees(sortedData);
       setFilteredEmployees(sortedData);
-
-      await fetchDtrLogs(sortedData);
+      // Defer DTR logs loading until a record is selected to reduce initial load
       // Apply deep-link empId filter if present in query params
       const params = new URLSearchParams(location.search);
       const empIdParam = params.get('empId');
@@ -143,8 +164,8 @@ const DTRProcess = ({ currentUser }) => {
         );
       }
     } catch (err) {
-      console.error("Failed to fetch employees:", err);
-      message.error("Unable to load employees");
+  console.error("Failed to fetch employees:", err);
+  appMessage.error("Unable to load employees");
     } finally {
       setLoading(false);
     }
@@ -155,90 +176,28 @@ const DTRProcess = ({ currentUser }) => {
       setLoading(true);
 
       const employeeNames = employees.map((emp) => emp.name).filter(Boolean);
+      const employeeEmpIds = employees.map((emp) => emp.empId).filter(Boolean);
 
       const startOfMonth = dayjs().startOf("month").format("YYYY-MM-DD");
       const endOfMonth = dayjs().endOf("month").format("YYYY-MM-DD");
 
-      const res = await axios.get(
-        `${import.meta.env.VITE_API_BASE_URL}/dtrlogs/merged`,
-        {
-          params: {
-            names: employeeNames.join(","),
-            startDate: startOfMonth,
-            endDate: endOfMonth,
-          },
-        }
-      );
-
-      if (!res.data.success) {
-        message.error("Failed to load DTR logs");
+      const res = await axiosInstance.get(`/dtrlogs/merged`, {
+        params: {
+          names: employeeNames.join(","),
+          empIds: employeeEmpIds.join(","),
+          startDate: startOfMonth,
+          endDate: endOfMonth,
+        },
+      });
+      const logsPayload = Array.isArray(res.data) ? res.data : res.data?.data;
+      if (!logsPayload) {
+        appMessage.error("Failed to load DTR logs");
         return;
       }
-
-      const logs = res.data.data;
+      const logs = logsPayload;
       const logsByEmpDay = {};
 
       logs.forEach((log) => {
-        if (!log.empId) return;
-
-        const empKey = log.empId;
-
-        const dateKey = dayjs(log.time).tz(LOCAL_TZ).format("YYYY-MM-DD");
-
-        if (!logsByEmpDay[empKey]) logsByEmpDay[empKey] = {};
-        if (!logsByEmpDay[empKey][dateKey]) {
-          logsByEmpDay[empKey][dateKey] = {
-            "Time In": null,
-            "Break Out": null,
-            "Break In": null,
-            "Time Out": null,
-          };
-        }
-
-        const stateLabel = STATE_LABELS[log.state];
-        if (stateLabel) {
-          logsByEmpDay[empKey][dateKey][stateLabel] = dayjs(log.time)
-            .tz(LOCAL_TZ)
-            .format("h:mm");
-        }
-      });
-
-      setDtrLogs(logsByEmpDay);
-    } catch (error) {
-      console.error("Failed to fetch DTR logs:", error);
-      message.error("Error loading DTR logs");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchDtrLogsByRecord = async (selectedRecord, employees) => {
-    if (!selectedRecord || !employees.length) return;
-
-    try {
-      setLoading(true);
-
-      const employeeNames = employees.map((emp) => emp.name).filter(Boolean);
-
-      const res = await axios.get(
-        `${import.meta.env.VITE_API_BASE_URL}/dtrlogs/merged`,
-        {
-          params: {
-            recordName: selectedRecord.DTR_Record_Name,
-            names: employeeNames.join(","),
-          },
-        }
-      );
-
-      if (!res.data.success) {
-        message.error("Failed to load DTR logs");
-        setDtrLogs({});
-        return;
-      }
-
-      const logsByEmpDay = {};
-
-      res.data.data.forEach((log) => {
         if (!log.empId) return;
 
         const empKey = log.empId;
@@ -266,7 +225,65 @@ const DTRProcess = ({ currentUser }) => {
       setDtrLogs(logsByEmpDay);
     } catch (error) {
       console.error("Failed to fetch DTR logs:", error);
-      message.error("Error loading DTR logs");
+      appMessage.error("Error loading DTR logs");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchDtrLogsByRecord = async (selectedRecord, employees) => {
+    if (!selectedRecord || !employees.length) return;
+
+    try {
+      setLoading(true);
+
+  const employeeNames = employees.map((emp) => emp.name).filter(Boolean);
+  const employeeEmpIds = employees.map((emp) => emp.empId).filter(Boolean);
+
+      const res = await axiosInstance.get(`/dtrlogs/merged`, {
+        params: {
+          recordName: selectedRecord.DTR_Record_Name,
+          names: employeeNames.join(","),
+          empIds: employeeEmpIds.join(","),
+        },
+      });
+      const logsPayload = Array.isArray(res.data) ? res.data : res.data?.data;
+      if (!logsPayload) {
+        appMessage.error("Failed to load DTR logs");
+        setDtrLogs({});
+        return;
+      }
+      const logsByEmpDay = {};
+
+      logsPayload.forEach((log) => {
+        if (!log.empId) return;
+
+        const empKey = log.empId;
+
+        const dateKey = dayjs(log.time).tz(LOCAL_TZ).format("YYYY-MM-DD");
+
+        if (!logsByEmpDay[empKey]) logsByEmpDay[empKey] = {};
+        if (!logsByEmpDay[empKey][dateKey]) {
+          logsByEmpDay[empKey][dateKey] = {
+            "Time In": null,
+            "Break Out": null,
+            "Break In": null,
+            "Time Out": null,
+          };
+        }
+
+        const stateLabel = STATE_LABELS[log.state];
+        if (stateLabel) {
+          logsByEmpDay[empKey][dateKey][stateLabel] = dayjs(log.time)
+            .tz(LOCAL_TZ)
+            .format("hh:mm A");
+        }
+      });
+
+      setDtrLogs(logsByEmpDay);
+    } catch (error) {
+      console.error("Failed to fetch DTR logs:", error);
+      appMessage.error("Error loading DTR logs");
       setDtrLogs({});
     } finally {
       setLoading(false);
@@ -280,12 +297,16 @@ const DTRProcess = ({ currentUser }) => {
   useEffect(() => {
     const fetchDtrRecords = async () => {
       try {
-        const res = await axios.get(
-          `${import.meta.env.VITE_API_BASE_URL}/dtrdatas`
-        );
-        setDtrRecords(res.data.data);
+        const res = await axiosInstance.get(`/dtrdatas`);
+        const list = Array.isArray(res?.data?.data)
+          ? res.data.data
+          : Array.isArray(res?.data)
+          ? res.data
+          : [];
+        setDtrRecords(list);
       } catch (err) {
-        message.error("Unable to load DTR records");
+        appMessage.error("Unable to load DTR records");
+        setDtrRecords([]);
       }
     };
     fetchDtrRecords();
@@ -340,7 +361,8 @@ const DTRProcess = ({ currentUser }) => {
     setFilteredEmployees(sortEmployees(data));
   }, [searchText, empTypeFilter, sectionOrUnitFilter, employees]);
 
-  const selectedRecord = dtrRecords.find(
+  const recordsSafe = Array.isArray(dtrRecords) ? dtrRecords : [];
+  const selectedRecord = recordsSafe.find(
     (rec) => rec.DTR_Record_Name === selectedDtrRecord
   );
 
@@ -451,20 +473,33 @@ const DTRProcess = ({ currentUser }) => {
 
   useEffect(() => {
     async function fetchTrainingsForEmployees() {
-      if (!employees.length) return;
+      if (!employees.length || !selectedRecord) {
+        setEmployeeTrainings({});
+        return;
+      }
+
+      // Concurrency-limited parallel fetch to avoid request floods
+      const limit = 10;
+      const list = employees.slice();
       const trainingsByEmp = {};
-      for (const emp of employees) {
-        try {
-          const res = await axios.get(
-            `${import.meta.env.VITE_API_BASE_URL}/trainings/by-employee/${
-              emp.empId
-            }`
-          );
-          trainingsByEmp[emp.empId] = res.data.data || [];
-        } catch {
-          trainingsByEmp[emp.empId] = [];
+      let index = 0;
+
+      async function worker() {
+        while (index < list.length) {
+          const current = list[index++];
+          if (!current?.empId) continue;
+          try {
+            const res = await axiosInstance.get(
+              `/trainings/by-employee/${current.empId}`
+            );
+            trainingsByEmp[current.empId] = res.data?.data || [];
+          } catch {
+            trainingsByEmp[current.empId] = [];
+          }
         }
       }
+
+      await Promise.all(Array.from({ length: limit }, () => worker()));
       setEmployeeTrainings(trainingsByEmp);
     }
     fetchTrainingsForEmployees();
@@ -578,20 +613,20 @@ const DTRProcess = ({ currentUser }) => {
 
       await logDTRRecord(item.employee, item.selectedRecord, currentUser);
     } catch (err) {
-      console.error("Error downloading/logging DTR:", err);
-      message.error("Failed to download or log DTR");
+  console.error("Error downloading/logging DTR:", err);
+  appMessage.error("Failed to download or log DTR");
     }
   };
 
   const handleDownloadAllDTRs = async () => {
     if (!printerTray.length) {
-      message.warning("Printer tray is empty");
+  appMessage.warning("Printer tray is empty");
       return;
     }
 
     try {
       await generateBatchDTRPdf(printerTray);
-      message.success("Batch DTR PDF downloaded.");
+  appMessage.success("Batch DTR PDF downloaded.");
 
       for (const item of printerTray) {
         const { employee, selectedRecord } = item;
@@ -607,10 +642,10 @@ const DTRProcess = ({ currentUser }) => {
         }
       }
 
-      message.success("All DTRs logged successfully.");
+  appMessage.success("All DTRs logged successfully.");
     } catch (err) {
       console.error("Failed to download or log batch DTRs:", err);
-      message.error("Failed to download or log batch DTRs.");
+  appMessage.error("Failed to download or log batch DTRs.");
     }
   };
 
@@ -641,8 +676,8 @@ const DTRProcess = ({ currentUser }) => {
         await logDTRRecord(employee, selectedRecord, currentUser);
       };
     } catch (err) {
-      console.error("Failed to print/log DTR:", err);
-      message.error("Failed to print DTR");
+  console.error("Failed to print/log DTR:", err);
+  appMessage.error("Failed to print DTR");
     }
   };
 
@@ -665,17 +700,18 @@ const DTRProcess = ({ currentUser }) => {
       ];
     });
 
-    message.success(`${employee.name} DTR added to Printer Tray.`);
+  appMessage.success(`${employee.name} DTR added to Printer Tray.`);
   };
 
   const handleClearPrinterTray = () => {
-    setPrinterTray([]);
-    message.success("Printer Tray cleared.");
+  setPrinterTray([]);
+  appMessage.success("Printer Tray cleared.");
   };
 
   const handleAddSelectedToTray = () => {
+    const keySet = new Set(selectedRowKeys);
     const selectedEmployees = employees.filter((emp) =>
-      selectedRowKeys.includes(emp._id)
+      keySet.has(emp.stableKey || emp._id || emp.empId || emp.empNo || emp.name)
     );
 
     let newItemsCount = 0;
@@ -703,9 +739,9 @@ const DTRProcess = ({ currentUser }) => {
     });
 
     if (newItemsCount > 0) {
-      message.success(`${newItemsCount} DTR(s) added to Printer Tray.`);
+      appMessage.success(`${newItemsCount} DTR(s) added to Printer Tray.`);
     } else {
-      message.info("Selected DTR(s) are already in the tray.");
+      appMessage.info("Selected DTR(s) are already in the tray.");
     }
     setSelectedRowKeys([]);
   };
@@ -714,7 +750,7 @@ const DTRProcess = ({ currentUser }) => {
     {
       title: "Employee No / Type",
       key: "empNoType",
-      width: 150,
+      width: 130,
       render: (_, record) => {
         const color = record.empType === "Regular" ? "#389e0d" : "#fa8c16";
         return (
@@ -732,26 +768,21 @@ const DTRProcess = ({ currentUser }) => {
     {
       title: "Name / Position",
       key: "namePosition",
-      width: 250,
+      width: 270,
       render: (_, record) => {
-        const divisionAcronym =
-          divisionAcronyms[record.division] || record.division;
+        const divisionAcronym = divisionAcronyms[record.division] || record.division;
+        const sectionAcronym = sectionUnitAcronymsFlat[record.sectionOrUnit] || record.sectionOrUnit || "";
 
-        let sectionAcronym = "";
-        if (record.division && sectionUnitAcronyms[divisionAcronym]) {
-          sectionAcronym =
-            sectionUnitAcronyms[divisionAcronym][record.sectionOrUnit] ||
-            record.sectionOrUnit;
-        } else {
-          sectionAcronym = record.sectionOrUnit || "";
-        }
+  const posAcr = computePositionAcronym(record.position);
+  const showAcronym = record.empType === "Regular";
+  const positionDisplay = showAcronym ? (posAcr || record.position) : record.position;
 
         return (
           <div style={{ width: 250, minWidth: 250, maxWidth: 250 }}>
             <strong>{record.name}</strong>
             {record.position && (
-              <div style={{ fontSize: "12px", color: "#888" }}>
-                {record.position}
+              <div style={{ fontSize: "12px", color: "#888" }} title={showAcronym ? record.position : undefined}>
+                {positionDisplay}
               </div>
             )}
             {(record.division || record.sectionOrUnit) && (
@@ -798,14 +829,13 @@ const DTRProcess = ({ currentUser }) => {
             }}
             getTrainingDetailsOnDay={(emp, dateKey) => {
               const trainings = employeeTrainings[emp.empId] || [];
-              return trainings.find((t) =>
-                dayjs(dateKey).isBetween(
-                  dayjs(t.trainingDate[0]),
-                  dayjs(t.trainingDate[1]),
-                  null,
-                  "[]"
-                )
-              );
+              return trainings.find((t) => {
+                const d = dayjs(dateKey);
+                const start = dayjs(t.trainingDate?.[0]);
+                const end = dayjs(t.trainingDate?.[1]);
+                if (!start.isValid() || !end.isValid()) return false;
+                return d.isSameOrAfter(start, "day") && d.isSameOrBefore(end, "day");
+              });
             }}
           />
         ) : (
@@ -915,7 +945,7 @@ const DTRProcess = ({ currentUser }) => {
                 (emp) => !hasAnyDTRLogs(emp, dtrDays, dtrLogs, selectedRecord)
               );
               setFilteredEmployees(missing);
-              message.warning(
+              appMessage.warning(
                 `Showing ${missing.length} employees with no DTR at all`
               );
             }}

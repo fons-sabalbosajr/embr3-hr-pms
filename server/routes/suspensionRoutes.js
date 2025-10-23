@@ -3,6 +3,8 @@ import verifyToken from '../middleware/authMiddleware.js';
 import { list, create, update, remove } from '../controllers/suspensionController.js';
 
 const router = express.Router();
+// Public, read-only access for date-range listing (used by public DTR preview)
+router.get('/public', list);
 
 router.get('/', verifyToken, list);
 router.post('/', verifyToken, create);

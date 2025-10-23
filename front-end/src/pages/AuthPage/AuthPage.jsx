@@ -65,7 +65,7 @@ const AuthPage = () => {
   // --- Resend Verification
   const handleResend = async (email) => {
     try {
-      await axios.post("/users/resend-verification", { email });
+      await axios.post("/users/resend", { email });
       message.success("Verification email resent.");
     } catch (err) {
       message.error(err.response?.data?.message || "Resend failed");
@@ -136,19 +136,19 @@ const AuthPage = () => {
                     <Button
                       type="link"
                       onClick={async () => {
-                        const { value: email } = await Swal.fire({
+                        const { value: identifier } = await Swal.fire({
                           title: "Forgot Password",
-                          input: "email",
-                          inputLabel: "Enter your registered email",
-                          inputPlaceholder: "you@example.com",
+                          input: "text",
+                          inputLabel: "Enter your email or username",
+                          inputPlaceholder: "you@example.com or yourusername",
                           confirmButtonText: "Send Reset Link",
                           showCancelButton: true,
                           inputValidator: (value) => {
-                            if (!value) return "Email is required";
+                            if (!value) return "Email or username is required";
                           },
                         });
 
-                        if (email) {
+                        if (identifier) {
                           try {
                             // Show loading spinner
                             Swal.fire({
@@ -160,10 +160,10 @@ const AuthPage = () => {
                               },
                             });
 
-                            await axios.post("/users/forgot-password", {
-                              email,
-                            });
-
+                            const payload = identifier.includes('@')
+                              ? { email: identifier }
+                              : { username: identifier };
+                            await axios.post("/users/forgot-password", payload);
                             Swal.fire({
                               icon: "success",
                               title: "Reset Link Sent",

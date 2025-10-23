@@ -12,8 +12,10 @@ import {
   Modal,
   Descriptions,
   Tag,
-  Skeleton,
+  Table,
+  Alert, Skeleton
 } from "antd";
+
 import {
   UserOutlined,
   BellOutlined,
@@ -53,6 +55,7 @@ import ProfileModal from "./components/ProfileModal";
 import FeatureModal from "./components/FeatureModal";
 import { NotificationsContext } from "../../context/NotificationsContext";
 import socket from "../../../utils/socket";
+import dayjs from "dayjs";
 
 import "./hompage.css";
 
@@ -79,6 +82,10 @@ const HomePage = () => {
   const [employeeDetails, setEmployeeDetails] = useState(null);
   const [employeeLoading, setEmployeeLoading] = useState(false);
   const [employeeError, setEmployeeError] = useState(null);
+  // DTR request inline preview state
+  const [dtrPreviewLoading, setDtrPreviewLoading] = useState(false);
+  const [dtrPreviewRows, setDtrPreviewRows] = useState([]);
+  const [dtrPreviewError, setDtrPreviewError] = useState(null);
 
   useEffect(() => {
     localStorage.setItem("notifications", JSON.stringify(notifications));
@@ -90,17 +97,68 @@ const HomePage = () => {
 
    useEffect(() => {
     // 👇 2. The socket is already connected by AuthContext, so just listen for events
-    socket.on("newNotification", (data) => {
-      setNotifications((prev) => [
-        { ...data, id: data._id || Date.now() },
-        ...prev,
-      ]);
-    });
+      const handler = (payload) => {
+        // Normalize different server payload shapes
+        let normalized = null;
+        try {
+          if (!payload) return;
+          if (payload.type === 'PayslipRequest') {
+            const d = payload.data || payload;
+            if (!d) return;
+            normalized = {
+              type: 'PayslipRequest',
+              id: d._id || d.id || Date.now(),
+              _id: d._id,
+              employeeId: d.employeeId,
+              createdAt: d.createdAt,
+              read: !!d.read,
+              hidden: !!d.hidden,
+              period: d.period,
+              title: `Payslip Request - ${d.employeeId}`,
+            };
+          } else if (payload.type === 'DTRRequest') {
+            const d = payload.data || payload;
+            normalized = {
+              type: 'DTRRequest',
+              id: d.id || d._id || Date.now(),
+              _id: d._id || d.id,
+              employeeId: d.employeeId,
+              createdAt: d.createdAt,
+              read: !!d.read,
+              hidden: !!d.hidden,
+              startDate: d.startDate,
+              endDate: d.endDate,
+              title: d.title || `DTR Request - ${d.employeeId}`,
+              body: d.body,
+            };
+          } else if (payload._id && payload.period) {
+            // Fallback: direct payslip document
+            normalized = {
+              type: 'PayslipRequest',
+              id: payload._id,
+              _id: payload._id,
+              employeeId: payload.employeeId,
+              createdAt: payload.createdAt,
+              read: !!payload.read,
+              hidden: !!payload.hidden,
+              period: payload.period,
+              title: `Payslip Request - ${payload.employeeId}`,
+            };
+          }
+        } catch (e) {
+          // ignore
+        }
 
-    // message stream is reserved for future chat feature — ignore incoming message events
+        if (normalized) {
+          setNotifications((prev) => [normalized, ...prev]);
+        }
+      };
 
-    // 👇 3. Remove the return () => socket.disconnect(); from here
-    //    AuthContext is now responsible for disconnecting.
+      socket.on("newNotification", handler);
+
+      return () => {
+        socket.off("newNotification", handler);
+      };
   }, []);
 
   // Load developer notifications if user is developer/admin and listen for DevSettings updates
@@ -144,29 +202,53 @@ const HomePage = () => {
       try {
         // Try relative endpoints first (dependent on axiosInstance.baseURL). If that fails,
         // fall back to absolute URL using VITE_API_URL to handle different dev setups.
-        let notifRes;
-        let msgRes;
+          let payslipRes;
+          let dtrReqRes;
         try {
-          [notifRes, msgRes] = await Promise.all([
-            axiosInstance.get("/payslip-requests"),
-            axiosInstance.get("/dtrlogs"),
-          ]);
+            [payslipRes, dtrReqRes] = await Promise.all([
+              axiosInstance.get("/payslip-requests"),
+              axiosInstance.get("/dtr-requests"),
+            ]);
         } catch (firstErr) {
           console.debug('Initial relative fetch failed, trying absolute VITE_API_URL fallback', firstErr);
           const base = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
           // If VITE_API_URL isn't configured, rethrow original error
           if (!base) throw firstErr;
-          [notifRes, msgRes] = await Promise.all([
-            axiosInstance.get(`${base}/payslip-requests`),
-            axiosInstance.get(`${base}/dtrlogs`),
-          ]);
+            [payslipRes, dtrReqRes] = await Promise.all([
+              axiosInstance.get(`${base}/payslip-requests`),
+              axiosInstance.get(`${base}/dtr-requests`),
+            ]);
         }
 
-        console.debug('Fetched notifications response:', notifRes && notifRes.data);
-        console.debug('Fetched messages response:', msgRes && msgRes.data);
+          console.debug('Fetched payslip notifications:', payslipRes && payslipRes.data);
+          console.debug('Fetched DTR requests:', dtrReqRes && dtrReqRes.data);
 
         setNotificationsLoading(true);
-        setNotifications((notifRes.data?.data || notifRes.data || []).map((n) => ({ ...n, id: n._id || n.id || Date.now() })));
+          const payslip = (payslipRes.data?.data || payslipRes.data || []).map((d) => ({
+            type: 'PayslipRequest',
+            id: d._id || d.id || Date.now(),
+            _id: d._id,
+            employeeId: d.employeeId,
+            createdAt: d.createdAt,
+            read: !!d.read,
+            hidden: !!d.hidden,
+            period: d.period,
+            title: `Payslip Request - ${d.employeeId}`,
+          }));
+          const dtr = (dtrReqRes.data?.data || dtrReqRes.data || []).map((d) => ({
+            type: 'DTRRequest',
+            id: d._id || d.id || Date.now(),
+            _id: d._id || d.id,
+            employeeId: d.employeeId,
+            createdAt: d.createdAt,
+            read: !!d.read,
+            hidden: !!d.hidden,
+            startDate: d.startDate,
+            endDate: d.endDate,
+            title: `DTR Request - ${d.employeeId}`,
+            body: `${d.startDate ? new Date(d.startDate).toLocaleDateString() : ''} - ${d.endDate ? new Date(d.endDate).toLocaleDateString() : ''}`
+          }));
+          setNotifications([...payslip, ...dtr]);
 
         // messages are reserved for future chat; do not populate messages yet
       } catch (err) {
@@ -329,7 +411,12 @@ const HomePage = () => {
     // Mark read (optimistic) and open modal
     try {
       if (!n.read) {
-        await axiosInstance.put(`/payslip-requests/${n.id}/read`);
+        // Route to correct endpoint depending on request type
+        if (n.type === 'PayslipRequest' || n.period) {
+          await axiosInstance.put(`/payslip-requests/${n.id}/read`);
+        } else if (n.type === 'DTRRequest' || (n.startDate && n.endDate)) {
+          await axiosInstance.put(`/dtr-requests/${n.id}/read`);
+        }
         setNotifications((prev) =>
           prev.map((notif) =>
             notif.id === n.id ? { ...notif, read: true } : notif
@@ -349,11 +436,45 @@ const HomePage = () => {
       setEmployeeError(null);
       setEmployeeDetails(null);
       try {
-        const { data } = await axiosInstance.get(`/employees/by-emp-id/${encodeURIComponent(n.employeeId)}`);
-        if (data?.success) {
-          setEmployeeDetails(data.data);
+        // Build candidate IDs: original and digits-only without leading zeros
+        const rawId = String(n.employeeId || "");
+        const digitsOnly = (rawId.match(/\d+/g) || []).join("");
+        const noLeadingZeros = digitsOnly.replace(/^0+/, "");
+        const candidates = Array.from(new Set([
+          rawId,
+          noLeadingZeros && noLeadingZeros !== rawId ? noLeadingZeros : null,
+        ].filter(Boolean)));
+
+        // Helper to try fetch against a base prefix ("" for relative, or absolute base)
+        const tryFetch = async (basePrefix, id) => {
+          const path = `${basePrefix}/employees/by-emp-id/${encodeURIComponent(id)}`.replace(/([^:]\/)\/+/g, "$1/");
+          return axiosInstance.get(path);
+        };
+
+        const bases = [""];
+        const absBase = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+        if (absBase) bases.push(absBase);
+
+        let found = null;
+        for (const id of candidates) {
+          for (const base of bases) {
+            try {
+              const resp = await tryFetch(base, id);
+              if (resp?.data?.success) {
+                found = resp.data.data;
+                break;
+              }
+            } catch (_) {
+              // try next
+            }
+          }
+          if (found) break;
+        }
+
+        if (found) {
+          setEmployeeDetails(found);
         } else {
-          setEmployeeError(data?.message || 'Employee not found');
+          setEmployeeError('Employee not found');
         }
       } catch (err) {
         setEmployeeError("Failed to load employee details");
@@ -364,6 +485,84 @@ const HomePage = () => {
       setEmployeeDetails(null);
     }
   };
+
+  // Load inline DTR preview for DTRRequest notifications
+  useEffect(() => {
+    const n = selectedNotification;
+    const isDTR = n && n.type === 'DTRRequest' && n.startDate && n.endDate && n.employeeId;
+    if (!isNotificationModalOpen || !isDTR) {
+      setDtrPreviewRows([]);
+      setDtrPreviewError(null);
+      setDtrPreviewLoading(false);
+      return;
+    }
+    let cancelled = false;
+    const load = async () => {
+      try {
+        setDtrPreviewLoading(true);
+        setDtrPreviewError(null);
+        setDtrPreviewRows([]);
+        const { data } = await axiosInstance.get('/dtrlogs/merged', {
+          params: {
+            startDate: dayjs(n.startDate).format('YYYY-MM-DD'),
+            endDate: dayjs(n.endDate).format('YYYY-MM-DD'),
+            empIds: n.employeeId,
+          },
+        });
+        if (cancelled) return;
+        const logs = data?.data || [];
+        // Group logs by day
+        const byDate = logs.reduce((acc, log) => {
+          const dateKey = dayjs(log.time).format('YYYY-MM-DD');
+          if (!acc[dateKey]) acc[dateKey] = [];
+          acc[dateKey].push(log);
+          return acc;
+        }, {});
+
+        const start = dayjs(n.startDate).startOf('day');
+        const end = dayjs(n.endDate).startOf('day');
+        const totalDays = end.diff(start, 'day') + 1;
+        const rows = Array.from({ length: totalDays }).map((_, idx) => {
+          const date = start.add(idx, 'day');
+          const key = date.format('YYYY-MM-DD');
+          const list = (byDate[key] || []).map(l => ({ time: dayjs(l.time), state: l.state }));
+
+          const timeInCandidates = list.filter(l => l.state === 'C/In' && l.time.hour() < 12).sort((a,b) => a.time - b.time);
+          const timeOutCandidates = list.filter(l => l.state === 'C/Out' && l.time.hour() >= 12).sort((a,b) => a.time - b.time);
+          const breakOutCandidates = list.filter(l => l.state === 'Out' && l.time.hour() >= 12 && l.time.hour() < 13).sort((a,b) => a.time - b.time);
+          const breakInCandidates = list.filter(l => l.state === 'Out Back' && l.time.hour() >= 12 && l.time.hour() < 14).sort((a,b) => a.time - b.time);
+
+          let timeIn = timeInCandidates.length ? timeInCandidates[0].time.format('h:mm') : '';
+          let timeOut = timeOutCandidates.length ? timeOutCandidates[timeOutCandidates.length - 1].time.format('h:mm') : '';
+          let breakOut = breakOutCandidates.length ? breakOutCandidates[0].time.format('h:mm') : '';
+          let breakIn = breakInCandidates.length ? breakInCandidates[0].time.format('h:mm') : '';
+
+          if (timeIn && timeOut && !breakOut && !breakIn) {
+            breakOut = '12:00';
+            breakIn = '1:00';
+          }
+
+          return {
+            key,
+            date: date.format('MM/DD/YYYY'),
+            timeIn: timeIn || '---',
+            breakOut: breakOut || '---',
+            breakIn: breakIn || '---',
+            timeOut: timeOut || '---',
+          };
+        });
+        setDtrPreviewRows(rows);
+      } catch (err) {
+        if (!cancelled) setDtrPreviewError(err?.response?.data?.message || err.message || 'Failed to load DTR preview');
+      } finally {
+        if (!cancelled) setDtrPreviewLoading(false);
+      }
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [isNotificationModalOpen, selectedNotification]);
 
   // ---- Messages Modal Logic ----
   const openMessageModal = async (m) => {
@@ -412,7 +611,10 @@ const HomePage = () => {
             size="small"
             onClick={async () => {
               try {
-                await axiosInstance.put("/payslip-requests/read-all");
+                await Promise.all([
+                  axiosInstance.put("/payslip-requests/read-all"),
+                  axiosInstance.put("/dtr-requests/read-all"),
+                ]);
                 setNotifications((prev) =>
                   prev.map((n) => ({ ...n, read: true }))
                 );
@@ -504,10 +706,11 @@ const HomePage = () => {
       open={isNotificationModalOpen}
       title={
         selectedNotification
-          ? `Payslip Request - ${selectedNotification.employeeId}`
-          : "Notification"
+          ? `${selectedNotification.type === 'DTRRequest' ? 'DTR Request' : 'Payslip Request'} - ${selectedNotification.employeeId}`
+          : 'Notification'
       }
       onCancel={() => setIsNotificationModalOpen(false)}
+      className="dtr-admin-modal"
       footer={[
         <Button key="close" onClick={() => setIsNotificationModalOpen(false)}>
           Close
@@ -541,12 +744,12 @@ const HomePage = () => {
       ]}
     >
       {selectedNotification && (
+        <>
         <Descriptions
           size="small"
           column={1}
           bordered
-          labelStyle={{ width: 130 }}
-          contentStyle={{ background: "transparent" }}
+          styles={{ label: { width: 130 }, content: { background: "transparent" } }}
         >
           {selectedNotification.employeeName && (
             <Descriptions.Item label="Employee">
@@ -605,6 +808,20 @@ const HomePage = () => {
               {selectedNotification.dataVisible === false ? '[hidden]' : selectedNotification.reason}
             </Descriptions.Item>
           )}
+          {selectedNotification.type === 'DTRRequest' && (
+            <>
+              {selectedNotification.startDate && (
+                <Descriptions.Item label="Start Date">
+                  {new Date(selectedNotification.startDate).toLocaleDateString()}
+                </Descriptions.Item>
+              )}
+              {selectedNotification.endDate && (
+                <Descriptions.Item label="End Date">
+                  {new Date(selectedNotification.endDate).toLocaleDateString()}
+                </Descriptions.Item>
+              )}
+            </>
+          )}
           {selectedNotification.period && (
             <Descriptions.Item label="Period">
               {selectedNotification.period}
@@ -631,6 +848,30 @@ const HomePage = () => {
             </Descriptions.Item>
           )}
         </Descriptions>
+          {!dtrPreviewLoading && !dtrPreviewError && dtrPreviewRows.length > 0 && (
+            <Table
+              size="small"
+              className="dtr-table-compact"
+              dataSource={dtrPreviewRows}
+              pagination={false}
+              rowKey={(r) => r.key}
+              bordered
+              columns={[
+                { title: 'Date', dataIndex: 'date', key: 'date', width: 120, onCell: () => ({ className: 'date-cell' }) },
+                { title: 'Time In', dataIndex: 'timeIn', key: 'timeIn', width: 100, onCell: () => ({ className: 'time-cell' }) },
+                { title: 'Break Out', dataIndex: 'breakOut', key: 'breakOut', width: 100, onCell: () => ({ className: 'time-cell' }) },
+                { title: 'Break In', dataIndex: 'breakIn', key: 'breakIn', width: 100, onCell: () => ({ className: 'time-cell' }) },
+                { title: 'Time Out', dataIndex: 'timeOut', key: 'timeOut', width: 100, onCell: () => ({ className: 'time-cell' }) },
+              ]}
+            />
+          )}
+          {!dtrPreviewLoading && !dtrPreviewError && dtrPreviewRows.length > 0 && dtrPreviewRows.every(r => r.timeIn === '---' && r.breakOut === '---' && r.breakIn === '---' && r.timeOut === '---') && (
+            <Alert style={{ marginTop: 8 }} type="warning" showIcon message="No biometrics encoded yet for the selected period." />
+          )}
+          {!dtrPreviewLoading && !dtrPreviewError && dtrPreviewRows.length === 0 && (
+            <Alert type="warning" showIcon message="No biometrics encoded yet for the selected period." />
+          )}
+        </>
       )}
     </Modal>
   );
@@ -669,8 +910,7 @@ const HomePage = () => {
           size="small"
           column={1}
           bordered
-          labelStyle={{ width: 130 }}
-          contentStyle={{ background: "transparent" }}
+          styles={{ label: { width: 130 }, content: { background: "transparent" } }}
         >
           {selectedMessage.employeeId && (
             <Descriptions.Item label="Employee ID">

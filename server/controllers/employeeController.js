@@ -1,4 +1,6 @@
 import Employee from "../models/Employee.js";
+import User from "../models/User.js";
+import AuditLog from "../models/AuditLog.js";
 import UploadLog from "../models/UploadLog.js";
 import DTRLog from "../models/DTRLog.js"; // Import DTRLog model
 import Settings from "../models/Settings.js";
@@ -6,6 +8,11 @@ import { getSocketInstance } from "../socket.js";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc.js";
 import timezone from "dayjs/plugin/timezone.js";
+import EmployeeDoc from "../models/employeeDocModel.js";
+import EmployeeSalary from "../models/EmployeeSalary.js";
+import PayslipRequest from "../models/PayslipRequest.js";
+import DTRGenerationLog from "../models/DTRGenerationLog.js";
+import Training from "../models/Training.js";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -66,7 +73,34 @@ export const uploadEmployees = async (req, res) => {
 
 export const getEmployees = async (req, res) => {
   try {
-    const employees = await Employee.find().sort({ createdAt: -1 }).lean();
+    const page = Math.max(parseInt(req.query.page || '0', 10), 0); // 0-based for backward compat
+    const pageSizeParam = parseInt(req.query.pageSize || '0', 10);
+    const includeAttendance = String(req.query.includeAttendance || 'false').toLowerCase() === 'true';
+    const pageSize = pageSizeParam > 0 ? Math.min(pageSizeParam, 200) : 0; // cap to avoid huge pages
+
+    // Default: exclude resigned employees unless developer/admin explicitly asks
+    let canSeeResigned = false;
+    try {
+      const callerId = req.user?.id || req.user?._id;
+      if (callerId) {
+        const caller = await User.findById(callerId).lean();
+        if (caller) {
+          canSeeResigned = Boolean(
+            caller.userType === 'developer' ||
+            caller.isAdmin ||
+            caller.canAccessDeveloper ||
+            caller.canSeeDev
+          );
+        }
+      }
+    } catch (_) {}
+    const includeResigned = String(req.query.includeResigned || 'false').toLowerCase() === 'true';
+    const baseQuery = includeResigned && canSeeResigned ? {} : { isResigned: { $ne: true } };
+    const cursor = Employee.find(baseQuery).sort({ createdAt: -1 });
+    if (pageSize > 0) {
+      cursor.skip(page * pageSize).limit(pageSize);
+    }
+    const employees = await cursor.lean();
 
     // Check settings for developer override
     const settings = await Settings.getSingleton();
@@ -96,7 +130,8 @@ export const getEmployees = async (req, res) => {
     let matchedCount = 0;
     let noMatchCount = 0;
 
-    const employeesWithAttendance = await Promise.all(
+    const employeesWithAttendance = includeAttendance
+      ? await Promise.all(
       employees.map(async (employee) => {
         // 🔹 Candidate IDs (normalized)
         const candidateIds = [];
@@ -206,7 +241,8 @@ export const getEmployees = async (req, res) => {
 
         return { ...employee, attendance };
       })
-    );
+    )
+      : employees;
 
     // ✅ Totals
     // console.log("=====================================");
@@ -216,6 +252,11 @@ export const getEmployees = async (req, res) => {
     // console.log(`❌ Total employees with no match: ${noMatchCount}`);
     // console.log("=====================================");
 
+    // If paginated, also include total for the client
+    if (pageSize > 0) {
+      const total = await Employee.countDocuments(baseQuery);
+      return res.status(200).json({ data: employeesWithAttendance, page, pageSize, total });
+    }
     res.status(200).json(employeesWithAttendance);
   } catch (err) {
     console.error("Error in getEmployees:", err);
@@ -401,13 +442,267 @@ export const getUniqueSectionOrUnits = async (req, res) => {
 export const getEmployeeByEmpId = async (req, res) => {
   try {
     const { empId } = req.params;
-    const employee = await Employee.findOne({ empId });
+    const raw = decodeURIComponent(empId || "");
+    const digits = (raw.match(/\d+/g) || []).join("").replace(/^0+/, "");
+    // Build a regex that matches the same sequence of digits while ignoring non-digits and leading zeros
+    // e.g., raw `03-579` or `03579` -> digits `3579` -> regex /^0*3\D*5\D*7\D*9$/i
+    const regex = digits
+      ? new RegExp(`^0*${digits.split("").join("\\D*")}$`, "i")
+      : null;
+
+    // Try multiple matching strategies: exact empId, normalizedEmpId, alternateEmpIds (both raw and digits)
+    const employee = await Employee.findOne({
+      $or: [
+        { empId: raw },
+        ...(regex ? [{ empId: { $regex: regex } }] : []),
+        { alternateEmpIds: raw },
+        ...(regex ? [{ alternateEmpIds: { $regex: regex } }] : []),
+      ],
+    });
     if (!employee) {
       return res.status(404).json({ success: false, message: "Employee not found" });
+    }
+    // Hide resigned employees from non-privileged callers
+    if (employee.isResigned) {
+      let canSee = false;
+      try {
+        const callerId = req.user?.id || req.user?._id;
+        if (callerId) {
+          const caller = await User.findById(callerId).lean();
+          canSee = Boolean(
+            caller && (
+              caller.userType === 'developer' ||
+              caller.isAdmin ||
+              caller.canAccessDeveloper ||
+              caller.canSeeDev ||
+              caller.canAccessNotifications ||
+              caller.canManageNotifications ||
+              caller.canViewNotifications
+            )
+          );
+        }
+      } catch (_) {}
+      if (!canSee) {
+        return res.status(404).json({ success: false, message: "Employee not found" });
+      }
     }
     res.json({ success: true, data: employee });
   } catch (err) {
     console.error("Error in getEmployeeByEmpId:", err);
     res.status(500).json({ success: false, message: "Server Error" });
+  }
+};
+
+// Mark an employee as resigned (developer/admin only)
+export const resignEmployee = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason, resignedAt } = req.body || {};
+
+    // Permission check
+    const callerId = req.user?.id || req.user?._id;
+    const caller = callerId ? await User.findById(callerId).lean() : null;
+    if (!caller || !(
+      caller.userType === 'developer' || caller.isAdmin || caller.canAccessDeveloper || caller.canSeeDev
+    )) {
+      return res.status(403).json({ success: false, message: 'Forbidden' });
+    }
+
+    const update = {
+      isResigned: true,
+      resignedAt: resignedAt ? new Date(resignedAt) : new Date(),
+      resignedReason: reason || undefined,
+    };
+  const employee = await Employee.findByIdAndUpdate(id, { $set: update }, { new: true });
+    if (!employee) return res.status(404).json({ success: false, message: 'Employee not found' });
+
+    // Graylist trainings: mark participant as resigned
+    try {
+      const empId = employee.empId;
+      if (empId) {
+        const Training = (await import('../models/Training.js')).default;
+        await Training.updateMany(
+          { 'participants.empId': empId },
+          { $set: { 'participants.$[elem].resigned': true } },
+          { arrayFilters: [{ 'elem.empId': empId }] }
+        );
+      }
+    } catch (e) {
+      console.error('Failed to graylist trainings for resigned employee', e);
+    }
+
+    // Audit log
+    try {
+      await AuditLog.create({
+        action: 'employee:resign',
+        performedBy: caller?._id,
+        performedByName: caller?.name || caller?.email,
+        details: {
+          employeeId: employee._id,
+          empId: employee.empId,
+          name: employee.name,
+          resignedAt: employee.resignedAt,
+          reason: employee.resignedReason,
+        },
+      });
+    } catch (e) { /* non-fatal */ }
+
+    res.json({ success: true, data: employee });
+  } catch (err) {
+    console.error('resignEmployee error', err);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// Undo resign (developer/admin only)
+export const undoResignEmployee = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const callerId = req.user?.id || req.user?._id;
+    const caller = callerId ? await User.findById(callerId).lean() : null;
+    if (!caller || !(
+      caller.userType === 'developer' || caller.isAdmin || caller.canAccessDeveloper || caller.canSeeDev
+    )) {
+      return res.status(403).json({ success: false, message: 'Forbidden' });
+    }
+
+    const employee = await Employee.findByIdAndUpdate(
+      id,
+      { $set: { isResigned: false }, $unset: { resignedAt: '', resignedReason: '' } },
+      { new: true }
+    );
+    if (!employee) return res.status(404).json({ success: false, message: 'Employee not found' });
+
+    // Remove graylist flag on trainings participants
+    try {
+      const empId = employee.empId;
+      if (empId) {
+        const Training = (await import('../models/Training.js')).default;
+        await Training.updateMany(
+          { 'participants.empId': empId },
+          { $unset: { 'participants.$[elem].resigned': '' } },
+          { arrayFilters: [{ 'elem.empId': empId }] }
+        );
+      }
+    } catch (e) {
+      console.error('Failed to un-graylist trainings for employee', e);
+    }
+
+    // Audit log
+    try {
+      await AuditLog.create({
+        action: 'employee:undo-resign',
+        performedBy: caller?._id,
+        performedByName: caller?.name || caller?.email,
+        details: {
+          employeeId: employee._id,
+          empId: employee.empId,
+          name: employee.name,
+        },
+      });
+    } catch (e) { /* non-fatal */ }
+
+    res.json({ success: true, data: employee });
+  } catch (err) {
+    console.error('undoResignEmployee error', err);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// Aggregate all records tied to an employee (developer/admin only)
+export const getEmployeeRecords = async (req, res) => {
+  try {
+    const { id } = req.params; // Employee _id
+    // Permission check
+    const callerId = req.user?.id || req.user?._id;
+    const caller = callerId ? await User.findById(callerId).lean() : null;
+    if (!caller || !(
+      caller.userType === 'developer' || caller.isAdmin || caller.canAccessDeveloper || caller.canSeeDev
+    )) {
+      return res.status(403).json({ success: false, message: 'Forbidden' });
+    }
+
+    const employee = await Employee.findById(id).lean();
+    if (!employee) return res.status(404).json({ success: false, message: 'Employee not found' });
+
+    const empId = employee.empId;
+    const employeeObjectId = employee._id;
+
+    const [docs, payslipRequests, genLogs, salary, trainings] = await Promise.all([
+      empId ? EmployeeDoc.find({ empId }).sort({ createdAt: -1 }).lean() : [],
+      empId ? PayslipRequest.find({ employeeId: empId }).sort({ createdAt: -1 }).lean() : [],
+      empId ? DTRGenerationLog.find({ employeeId: empId }).sort({ createdAt: -1 }).lean() : [],
+      EmployeeSalary.findOne({ employeeId: employeeObjectId }).lean(),
+      empId ? Training.find({ 'participants.empId': empId }).sort({ trainingDate: -1 }).lean() : [],
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        employee,
+        docs: docs || [],
+        payslipRequests: payslipRequests || [],
+        dtrGenerationLogs: genLogs || [],
+        salary: salary || null,
+        trainings: trainings || [],
+      }
+    });
+  } catch (err) {
+    console.error('getEmployeeRecords error', err);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// Delete an employee and cascade delete related records (developer/admin only)
+export const deleteEmployeeCascade = async (req, res) => {
+  try {
+    const { id } = req.params; // Employee _id
+
+    // Permission check
+    const callerId = req.user?.id || req.user?._id;
+    const caller = callerId ? await User.findById(callerId).lean() : null;
+    if (!caller || !(
+      caller.userType === 'developer' || caller.isAdmin || caller.canAccessDeveloper || caller.canSeeDev
+    )) {
+      return res.status(403).json({ success: false, message: 'Forbidden' });
+    }
+
+    const employee = await Employee.findById(id).lean();
+    if (!employee) return res.status(404).json({ success: false, message: 'Employee not found' });
+
+    const empId = employee.empId;
+
+    // Perform deletions/removals
+    const deletions = [];
+    if (empId) {
+      deletions.push(EmployeeDoc.deleteMany({ empId }));
+      deletions.push(PayslipRequest.deleteMany({ employeeId: empId }));
+      deletions.push(DTRGenerationLog.deleteMany({ employeeId: empId }));
+      deletions.push(Training.updateMany(
+        { 'participants.empId': empId },
+        { $pull: { participants: { empId } } }
+      ));
+    }
+    deletions.push(EmployeeSalary.deleteOne({ employeeId: employee._id }));
+
+    await Promise.all(deletions);
+
+    // Finally delete the employee
+    await Employee.findByIdAndDelete(id);
+
+    try {
+      await AuditLog.create({
+        action: 'employee:delete',
+        performedBy: caller?._id,
+        performedByName: caller?.name || caller?.email,
+        details: { employeeId: id, empId, name: employee.name },
+      });
+    } catch (_) {}
+
+    res.json({ success: true, message: 'Employee and related records deleted' });
+  } catch (err) {
+    console.error('deleteEmployeeCascade error', err);
+    res.status(500).json({ success: false, message: 'Server error' });
   }
 };

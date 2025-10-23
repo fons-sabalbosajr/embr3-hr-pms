@@ -36,6 +36,10 @@ const employeeSchema = new mongoose.Schema(
     sectionOrUnit: { type: String },
     emails: { type: [String], default: [] },
     acNo: { type: String },
+    // Employment status
+    isResigned: { type: Boolean, default: false, index: true },
+    resignedAt: { type: Date },
+    resignedReason: { type: String },
     // Signatory fields
     isSignatory: { type: Boolean, default: false },
     isSignatoryActive: { type: Boolean, default: true }, // New field
@@ -60,6 +64,11 @@ employeeSchema.pre("save", function (next) {
   }
   next();
 });
+
+// Helpful indexes (define before model compilation)
+employeeSchema.index({ empId: 1 });
+employeeSchema.index({ alternateEmpIds: 1 });
+employeeSchema.index({ createdAt: -1 });
 
 const Employee = mongoose.model("Employee", employeeSchema);
 export default Employee;

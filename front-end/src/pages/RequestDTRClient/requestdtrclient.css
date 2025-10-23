@@ -1,0 +1,88 @@
+/* Compact styling for DTR preview modal and table */
+.dtr-preview-modal .ant-modal-body {
+	font-size: 11px;
+	line-height: 1.2;
+}
+
+.dtr-preview-modal .ant-modal-title {
+	font-size: 14px;
+}
+
+.dtr-preview-modal .dtr-table-compact {
+	font-size: 11px;
+}
+
+.dtr-preview-modal .dtr-table-compact .time-cell {
+	font-size: 14px;
+    text-align: center;
+}
+
+.dtr-preview-modal .dtr-table-compact .date-cell {
+	font-size: 14px;
+    text-align: center;
+}
+
+.dtr-preview-modal .dtr-table-compact .ant-table-thead > tr > th,
+.dtr-preview-modal .dtr-table-compact .ant-table-tbody > tr > td {
+	padding: 4px 6px;
+}
+
+.dtr-preview-modal .dtr-table-compact .ant-table-thead > tr > th {
+	background: #fafafa;
+}
+
+.dtr-preview-modal .ant-skeleton {
+	transform: scale(0.95);
+	transform-origin: top left;
+}
+
+/* Creative banner for encoded biometrics cut-offs */
+.cutoff-banner {
+	display: flex;
+	gap: 12px;
+	align-items: center;
+	padding: 10px 12px;
+	margin-bottom: 12px;
+	border-radius: 10px;
+	background: linear-gradient(135deg, rgba(30,144,255,0.12), rgba(50,205,50,0.12));
+	border: 1px solid rgba(0,0,0,0.05);
+}
+.cutoff-banner__icon {
+	height: 36px;
+	width: 36px;
+	min-width: 36px;
+	border-radius: 8px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: linear-gradient(135deg, #1677ff, #52c41a);
+	color: white;
+	box-shadow: 0 2px 8px rgba(22,119,255,0.25);
+	font-size: 18px;
+}
+.cutoff-banner__content { flex: 1; }
+.cutoff-banner__title {
+	font-weight: 600;
+	font-size: 14px;
+	margin-bottom: 2px;
+}
+.cutoff-banner__desc { font-size: 12px; color: #444; }
+.cutoff-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.cutoff-pill {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 4px 8px;
+	border-radius: 999px;
+	background: #f6ffed;
+	color: #135200;
+	border: 1px solid #b7eb8f;
+	font-size: 12px;
+}
+.cutoff-pill .anticon { color: #52c41a; }
+
+/* Recent single-line style */
+.cutoff-recent { display: inline-flex; align-items: center; gap: 6px; }
+.cutoff-recent .anticon { color: #52c41a; }
+.cutoff-recent__label { margin-right: 6px; color: #333; }
+

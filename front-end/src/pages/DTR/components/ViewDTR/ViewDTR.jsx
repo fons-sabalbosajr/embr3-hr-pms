@@ -1,8 +1,9 @@
 import React from "react";
-import { Modal, Table, Typography, Divider, Button, message, Spin } from "antd";
+import { Modal, Table, Typography, Divider, Button, message, Spin, Tooltip } from "antd";
 import dayjs from "dayjs";
 import "./viewdtr.css";
 import axios from "axios";
+import axiosInstance from "../../../../api/axiosInstance";
 import { generateDTRPdf } from "../../../../../utils/generateDTRpdf";
 
 const { Text } = Typography;
@@ -421,6 +422,29 @@ const ViewDTR = ({
           ? { children: null, props: { colSpan: 0 } }
           : record.status,
     },
+    {
+      title: "Reminder",
+      key: "reminder",
+      align: "center",
+      width: 140,
+      render: (_, record) => {
+        const hasEmail = Array.isArray(employee.emails) && employee.emails.length > 0;
+        const noTimeRecord = !record.isWeekend && !record.isHoliday && !record.isTraining && !record.timeIn && !record.breakOut && !record.breakIn && !record.timeOut;
+        const disabled = !hasEmail || !noTimeRecord;
+        const reason = !hasEmail ? "Employee has no email on record" : (!noTimeRecord ? "Reminder available only for days with no time record" : "");
+        const btn = (
+          <Button
+            size="small"
+            type="default"
+            disabled={disabled}
+            onClick={() => handleSendReminder(record)}
+          >
+            Send Reminder
+          </Button>
+        );
+        return disabled ? <Tooltip title={reason}><span>{btn}</span></Tooltip> : btn;
+      }
+    }
   ];
 
   const handlePreviewForm48 = () => {
@@ -432,6 +456,123 @@ const ViewDTR = ({
       onSaveToTray(employee, selectedRecord);
       message.success("DTR has been added to the Printer Tray!");
     }
+  };
+
+  const getMissingDates = () => {
+    // Derive dates with no time record (non-weekend/holiday/training)
+    return (tableData || [])
+      .filter(r => !r.isWeekend && !r.isHoliday && !r.isTraining && !r.timeIn && !r.breakOut && !r.breakIn && !r.timeOut)
+      .map(r => {
+        // r.key is YYYY-MM-DD; prefer it, fallback to convert r.date
+        if (r.key) return r.key;
+        try {
+          const [mm, dd, yyyy] = String(r.date).split('/')
+          return `${yyyy}-${String(mm).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;
+        } catch { return r.date; }
+      });
+  };
+
+  const handleSendAllMissing = () => {
+    const hasEmail = Array.isArray(employee.emails) && employee.emails.length > 0;
+    if (!hasEmail) {
+      message.warning("Employee has no email inputted yet.");
+      return;
+    }
+    const missingDates = getMissingDates();
+    if (!missingDates.length) {
+      message.info("No missing time records for this cut-off.");
+      return;
+    }
+
+    const start = dayjs(selectedRecord.DTR_Cut_Off.start).format("MMM D, YYYY");
+    const end = dayjs(selectedRecord.DTR_Cut_Off.end).format("MMM D, YYYY");
+    const periodLabel = `${start} - ${end}`;
+
+    Modal.confirm({
+      title: "Send Reminder for All Missing Days",
+      width: 600,
+      content: (
+        <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+          <p>
+            This will send an email to <strong>{employee.emails[0]}</strong> listing all days with no time records for <strong>{periodLabel}</strong>.
+          </p>
+          <div style={{ marginTop: 8, padding: 12, background: "#fafafa", border: "1px solid #eee", borderRadius: 6 }}>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>Preview (first 15 days shown)</div>
+            <ul style={{ margin: 0, paddingLeft: 18 }}>
+              {missingDates.slice(0,15).map(d => (
+                <li key={d}>{dayjs(d).isValid() ? dayjs(d).format('MMMM D, YYYY') : d}</li>
+              ))}
+            </ul>
+            {missingDates.length > 15 && (
+              <div style={{ marginTop: 6, color: '#888' }}>+ {missingDates.length - 15} more…</div>
+            )}
+          </div>
+        </div>
+      ),
+      okText: "Send Reminder",
+      cancelText: "Cancel",
+      onOk: async () => {
+        try {
+          await axiosInstance.post('/notifications/no-time-record/bulk', {
+            employeeId: employee.empId,
+            email: employee.emails[0],
+            name: employee.name,
+            dates: missingDates,
+            periodLabel,
+          });
+          message.success("Bulk reminder sent");
+        } catch (e) {
+          message.error("Failed to send bulk reminder");
+        }
+      }
+    });
+  };
+
+  const handleSendReminder = (row) => {
+    const hasEmail = Array.isArray(employee.emails) && employee.emails.length > 0;
+    if (!hasEmail) {
+      message.warning("Employee has no email inputted yet.");
+      return;
+    }
+    const dateStr = row?.key || row?.date; // key is YYYY-MM-DD; date is MM/DD/YYYY (display)
+    const displayDate = row?.date || dateStr;
+    const name = employee.name || "Employee";
+    const empId = employee.empId;
+
+    Modal.confirm({
+      title: "Send No Time Record Reminder",
+      content: (
+        <div style={{ lineHeight: 1.6 }}>
+          <p>
+            This will send an email to <strong>{employee.emails[0]}</strong> notifying that there is no recorded time entry on <strong>{displayDate}</strong>.
+          </p>
+          <div style={{ marginTop: 8, padding: 12, background: "#fafafa", border: "1px solid #eee", borderRadius: 6 }}>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>Preview</div>
+            <div style={{ fontSize: 13 }}>
+              <p>Good day <strong>{name}</strong>{empId ? ` (ID: ${empId})` : ''},</p>
+              <p>We noticed that there is <strong>no recorded time entry</strong> for <strong>{displayDate}</strong> in the Daily Time Record system.</p>
+              <p>If you reported for duty on that date, please coordinate with HR or your immediate supervisor to update your record accordingly.</p>
+              <p style={{ marginTop: 12 }}>Thank you,<br/>HR Unit, EMB Region III</p>
+            </div>
+          </div>
+        </div>
+      ),
+      okText: "Send Reminder",
+      cancelText: "Cancel",
+      onOk: async () => {
+        try {
+          await axiosInstance.post("/notifications/no-time-record", {
+            employeeId: empId,
+            email: employee.emails[0],
+            name,
+            date: dateStr,
+          });
+          message.success("Reminder sent");
+        } catch (e) {
+          message.error("Failed to send reminder");
+        }
+      }
+    });
   };
 
   return (
@@ -477,13 +618,36 @@ const ViewDTR = ({
         </div>
       </div>
 
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
-        <Button type="primary" onClick={handlePreviewForm48}>
-          Preview DTR Form 48
-        </Button>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+        <div>
+          {Array.isArray(employee.emails) && employee.emails.length > 0 ? (
+            <Tooltip title="Send one email listing all days in this cut-off with no time records">
+              <Button onClick={handleSendAllMissing}>
+                Send All Missing
+              </Button>
+            </Tooltip>
+          ) : (
+            <Tooltip title="Employee has no email on record">
+              <span>
+                <Button disabled>Send All Missing</Button>
+              </span>
+            </Tooltip>
+          )}
+        </div>
+        <div>
+          <Button type="primary" onClick={handlePreviewForm48}>
+            Preview DTR Form 48
+          </Button>
+        </div>
       </div>
 
       <Divider />
+
+      {!Array.isArray(employee.emails) || employee.emails.length === 0 ? (
+        <div style={{ marginBottom: 12 }}>
+          <Typography.Text type="danger">Employee has no email on record. Send Reminder is disabled.</Typography.Text>
+        </div>
+      ) : null}
 
       <Spin spinning={loading} size="small" tip="Loading DTR data...">
         <Table
