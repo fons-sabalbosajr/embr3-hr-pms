@@ -1,12 +1,23 @@
 import express from "express";
-import { checkDTRExistsForRange, createDTRRequest, getDTRRequests, debugResolveDTR } from "../controllers/dtrRequestController.js";
+import verifyToken from "../middleware/authMiddleware.js";
+import {
+  createDTRRequest,
+  getDTRRequests,
+  markAllDTRRequestsAsRead,
+  markDTRRequestAsRead,
+  updateDTRRequest,
+  deleteDTRRequest,
+} from "../controllers/dtrRequestController.js";
 
 const router = express.Router();
 
-// Public endpoints similar to payslip request
-router.get("/check", checkDTRExistsForRange);
+// Public create endpoint (can be called by landing or public form)
 router.post("/", createDTRRequest);
+// Admin endpoints
 router.get("/", getDTRRequests);
-router.get("/debug/resolve", debugResolveDTR);
+router.put("/:id/read", verifyToken, markDTRRequestAsRead);
+router.put("/:id", verifyToken, updateDTRRequest);
+router.put("/read-all", verifyToken, markAllDTRRequestsAsRead);
+router.delete("/:id", verifyToken, deleteDTRRequest);
 
 export default router;

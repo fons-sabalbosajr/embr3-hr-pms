@@ -3,22 +3,43 @@ import autoTable from "jspdf-autotable";
 import dayjs from "dayjs";
 import letterhead from "../src/assets/letterheademb.PNG"; // adjust path if needed
 
-const positionAcronymsStr = import.meta.env.VITE_POSITION_ACRONYMS;
-let positionAcronyms = {};
-if (positionAcronymsStr) {
-  try {
-    let str = positionAcronymsStr;
-    if (str.startsWith("'") && str.endsWith("'")) {
-      str = str.slice(1, -1);
+// Load and parse position acronyms map from Vite env (expects JSON)
+let POSITION_MAP = {};
+try {
+  if (import.meta?.env?.VITE_POSITION_ACRONYMS) {
+    // Allow either raw JSON or quoted string
+    let raw = import.meta.env.VITE_POSITION_ACRONYMS.trim();
+    if ((raw.startsWith("'") && raw.endsWith("'")) || (raw.startsWith('"') && raw.endsWith('"'))) {
+      raw = raw.slice(1, -1);
     }
-    const jsonString = str.replace(/,(\s*[}\]])/g, "$1");
-    positionAcronyms = JSON.parse(jsonString);
-  } catch (e) {
-    console.error("Could not parse VITE_POSITION_ACRONYMS", e);
+    POSITION_MAP = JSON.parse(raw);
   }
+} catch (e) {
+  console.warn("Failed to parse VITE_POSITION_ACRONYMS", e);
 }
 
-const generatePdfDoc = (payslipData, payslipNumber, isFullMonthRange) => {
+// Apply acronym replacement supporting composite positions & longest match first.
+const applyPositionAcronyms = (value) => {
+  if (!value || typeof value !== 'string') return value || '';
+  const original = value;
+  // Direct match first (case-insensitive by trying upper variant)
+  const direct = POSITION_MAP[original] || POSITION_MAP[original.toUpperCase()];
+  if (direct) return direct;
+  const keys = Object.keys(POSITION_MAP).sort((a,b) => b.length - a.length);
+  const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  let working = original;
+  for (const key of keys) {
+    // Use word boundary when key ends with alnum to avoid partial overlaps
+    const pattern = /[A-Za-z0-9]$/.test(key) ? `\\b${escapeRegex(key)}\\b` : escapeRegex(key);
+    const reg = new RegExp(pattern, 'i');
+    if (reg.test(working)) {
+      working = working.replace(reg, POSITION_MAP[key]);
+    }
+  }
+  return working;
+};
+
+const generatePdfDoc = (payslipData, payslipNumber, isFullMonthRange, maskAmounts = false) => {
   // Ensure payslipData and its nested properties are defined
   const safePayslipData = {
     ...payslipData,
@@ -111,13 +132,12 @@ const generatePdfDoc = (payslipData, payslipNumber, isFullMonthRange) => {
   );
   leftY += 0.18;
 
-  // Position
+  // Position (with acronym replacement)
   doc.text(labels[2], leftX, leftY);
-  const positionValue = safePayslipData.position || "";
-  const upperCasePosition = positionValue.toUpperCase();
-  const positionAcronym = positionAcronyms[upperCasePosition] || positionValue;
-  doc.text(positionAcronym, valueStartX, leftY);
-  if (positionValue) {
+  const positionValueRaw = safePayslipData.position || "";
+  const positionDisplay = applyPositionAcronyms(positionValueRaw);
+  doc.text(positionDisplay, valueStartX, leftY);
+  if (positionDisplay) {
     doc.line(
       valueStartX,
       leftY + underlineOffset,
@@ -194,6 +214,7 @@ const generatePdfDoc = (payslipData, payslipNumber, isFullMonthRange) => {
   doc.setFont("times", "normal");
 
   const formatCurrency = (value) => {
+    if (maskAmounts) return "*****";
     if (typeof value !== "number") {
       return "";
     }
@@ -530,9 +551,10 @@ const generatePdfDoc = (payslipData, payslipNumber, isFullMonthRange) => {
 export const generatePaySlipPreviewRegular = (
   payslipData,
   payslipNumber,
-  isFullMonthRange
+  isFullMonthRange,
+  maskAmounts = false
 ) => {
-  const doc = generatePdfDoc(payslipData, payslipNumber, isFullMonthRange);
+  const doc = generatePdfDoc(payslipData, payslipNumber, isFullMonthRange, maskAmounts);
   const uri = doc.output("datauristring");
   return uri + "#toolbar=0&view=Fit";
 };
@@ -540,9 +562,10 @@ export const generatePaySlipPreviewRegular = (
 export const generatePaySlipPdfRegular = (
   payslipData,
   payslipNumber,
-  isFullMonthRange
+  isFullMonthRange,
+  maskAmounts = false
 ) => {
-  const doc = generatePdfDoc(payslipData, payslipNumber, isFullMonthRange);
+  const doc = generatePdfDoc(payslipData, payslipNumber, isFullMonthRange, maskAmounts);
   doc.save("payslip.pdf");
 };
 
@@ -561,9 +584,10 @@ const dataURItoBlob = (dataURI) => {
 export const openPayslipInNewTabRegular = (
   payslipData,
   payslipNumber,
-  isFullMonthRange
+  isFullMonthRange,
+  maskAmounts = false
 ) => {
-  const doc = generatePdfDoc(payslipData, payslipNumber, isFullMonthRange);
+  const doc = generatePdfDoc(payslipData, payslipNumber, isFullMonthRange, maskAmounts);
   const uri = doc.output("datauristring");
 
   const pdfBlob = dataURItoBlob(uri);

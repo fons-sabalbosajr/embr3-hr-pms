@@ -10,6 +10,22 @@ export const getEmployees = async () => {
   return await axiosInstance.get('/employees');
 };
 
+export const getEmployeesAll = async ({ includeResigned = true, page, pageSize } = {}) => {
+  const params = {};
+  if (includeResigned) params.includeResigned = 'true';
+  if (page !== undefined) params.page = String(page);
+  if (pageSize !== undefined) params.pageSize = String(pageSize);
+  return await axiosInstance.get('/employees', { params });
+};
+
+export const resignEmployee = async (id, { reason, resignedAt } = {}) => {
+  return await axiosInstance.put(`/employees/${id}/resign`, { reason, resignedAt });
+};
+
+export const undoResignEmployee = async (id) => {
+  return await axiosInstance.put(`/employees/${id}/undo-resign`);
+};
+
 export const getSignatoryEmployees = async () => {
   return await axiosInstance.get('/employees/signatories');
 };

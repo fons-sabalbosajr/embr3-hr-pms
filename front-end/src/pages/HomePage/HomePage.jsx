@@ -12,8 +12,11 @@ import {
   Modal,
   Descriptions,
   Tag,
+  Table,
+  Alert,
   Skeleton,
 } from "antd";
+
 import {
   UserOutlined,
   BellOutlined,
@@ -25,11 +28,14 @@ import {
   BulbOutlined,
   EyeOutlined,
   FieldTimeOutlined,
+  BugOutlined,
 } from "@ant-design/icons";
 
 import { useNavigate, Routes, Route } from "react-router-dom";
 import { useEffect, useState, useRef, useCallback, useContext } from "react";
+import useDemoMode from "../../hooks/useDemoMode";
 import useAuth from "../../hooks/useAuth";
+import { secureStore, secureGet } from "../../../utils/secureStorage";
 import emblogo from "../../assets/emblogo.svg";
 import axiosInstance from "../../api/axiosInstance";
 
@@ -53,8 +59,10 @@ import ProfileModal from "./components/ProfileModal";
 import FeatureModal from "./components/FeatureModal";
 import { NotificationsContext } from "../../context/NotificationsContext";
 import socket from "../../../utils/socket";
+import dayjs from "dayjs";
 
 import "./hompage.css";
+import { FloatButton, Form, Input, Upload } from "antd";
 
 const { Text } = Typography;
 const { Header, Content, Sider, Footer } = Layout;
@@ -79,44 +87,114 @@ const HomePage = () => {
   const [employeeDetails, setEmployeeDetails] = useState(null);
   const [employeeLoading, setEmployeeLoading] = useState(false);
   const [employeeError, setEmployeeError] = useState(null);
+  // DTR request inline preview state
+  const [dtrPreviewLoading, setDtrPreviewLoading] = useState(false);
+  const [dtrPreviewRows, setDtrPreviewRows] = useState([]);
+  const [dtrPreviewError, setDtrPreviewError] = useState(null);
+  // Demo mode state
+  const { isDemoActive, isDemoUser, demoSettings } = useDemoMode();
 
-  // Notifications are persisted securely in NotificationsContext
+  useEffect(() => {
+    // 1. Instant preload from secure storage (if any)
+    try {
+      const cached = secureGet("notifications");
+      if (
+        Array.isArray(cached) &&
+        cached.length &&
+        notifications.length === 0
+      ) {
+        // Show cached immediately (optimistic). We'll merge fresh data below.
+        setNotifications(cached.map((n) => ({ ...n, cached: true })));
+      }
+    } catch (_) {
+      /* ignore */
+    }
+    try {
+      secureStore("notifications", notifications);
+    } catch (_) {
+      // non-fatal
+    }
+  }, [notifications]);
 
   useEffect(() => {
     // messages are reserved for future chat feature and intentionally not persisted
   }, [messages]);
 
-   useEffect(() => {
-    // 👇 2. The socket is already connected by AuthContext, so just listen for events
-    socket.on("newNotification", (data) => {
-      setNotifications((prev) => [
-        { ...data, id: data._id || Date.now() },
-        ...prev,
-      ]);
-    });
-
-    // message stream is reserved for future chat feature — ignore incoming message events
-
-    // 👇 3. Remove the return () => socket.disconnect(); from here
-    //    AuthContext is now responsible for disconnecting.
-  }, []);
+  // Socket.io: listen for new notifications and normalize payloads
+  useEffect(() => {
+    const handler = (payload) => {
+      try {
+        if (!payload) return;
+        const d = payload.data || payload;
+        const type = payload.type || d.type;
+        let normalized = null;
+        if (type === "PayslipRequest" || d.period) {
+          normalized = {
+            type: "PayslipRequest",
+            id: d._id || d.id || Date.now(),
+            _id: d._id || d.id,
+            employeeId: d.employeeId,
+            createdAt: d.createdAt || new Date().toISOString(),
+            read: !!d.read,
+            hidden: !!d.hidden,
+            period: d.period,
+            title: `Payslip Request - ${d.employeeId}`,
+          };
+        } else if (type === "DTRRequest" || (d.startDate && d.endDate)) {
+          normalized = {
+            type: "DTRRequest",
+            id: d._id || d.id || Date.now(),
+            _id: d._id || d.id,
+            employeeId: d.employeeId,
+            createdAt: d.createdAt || new Date().toISOString(),
+            read: !!d.read,
+            hidden: !!d.hidden,
+            startDate: d.startDate,
+            endDate: d.endDate,
+            title: d.title || `DTR Request - ${d.employeeId}`,
+            body: d.body,
+          };
+        }
+        if (normalized) {
+          setNotifications((prev) => [normalized, ...prev]);
+        }
+      } catch (_) {
+        // ignore malformed payload
+      }
+    };
+    socket.on("newNotification", handler);
+    return () => {
+      socket.off("newNotification", handler);
+    };
+  }, [setNotifications]);
 
   // Load developer notifications if user is developer/admin and listen for DevSettings updates
   useEffect(() => {
     let mounted = true;
     const fetchDev = async () => {
-    if (!(hasPermission(["canAccessDeveloper"]) || (user && user.userType === 'developer'))) return;
+      if (
+        !(
+          hasPermission(["canAccessDeveloper"]) ||
+          (user && user.userType === "developer")
+        )
+      ) {
+        // Not permitted: ensure loading is not stuck
+        setDevNotificationsLoading(false);
+        return;
+      }
       try {
         setDevNotificationsLoading(true);
-        const { data } = await axiosInstance.get('/dev/notifications');
+        const { data } = await axiosInstance.get("/dev/notifications");
         if (!mounted) return;
-        const items = (data?.data || []).map((n) => ({ ...n, id: n._id || Date.now() }));
+        const items = (data?.data || []).map((n) => ({
+          ...n,
+          id: n._id || Date.now(),
+        }));
         setDevNotifications(items);
       } catch (err) {
         // ignore dev notification load errors
-        console.debug('Failed to load dev notifications', err);
-      }
-      finally {
+        console.debug("Failed to load dev notifications", err);
+      } finally {
         if (mounted) setDevNotificationsLoading(false);
       }
     };
@@ -125,66 +203,134 @@ const HomePage = () => {
 
     const handler = (e) => {
       if (!e || !e.detail) return;
-      const payload = (e.detail || []).map((n) => ({ ...n, id: n._id || Date.now() }));
+      const payload = (e.detail || []).map((n) => ({
+        ...n,
+        id: n._id || Date.now(),
+      }));
       setDevNotifications(payload);
     };
-    window.addEventListener('devNotificationsUpdated', handler);
+    window.addEventListener("devNotificationsUpdated", handler);
 
     return () => {
       mounted = false;
-      window.removeEventListener('devNotificationsUpdated', handler);
+      window.removeEventListener("devNotificationsUpdated", handler);
     };
   }, [hasPermission]);
 
-  // Load initial data from backend
+  // Load initial notifications quickly (cached) then refresh from backend
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        // Try relative endpoints first (dependent on axiosInstance.baseURL). If that fails,
-        // fall back to absolute URL using VITE_API_URL to handle different dev setups.
-        let notifRes;
-        let msgRes;
-        try {
-          [notifRes, msgRes] = await Promise.all([
-            axiosInstance.get("/payslip-requests"),
-            axiosInstance.get("/dtrlogs"),
-          ]);
-        } catch (firstErr) {
-          console.debug('Initial relative fetch failed, trying absolute VITE_API_URL fallback', firstErr);
-          const base = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
-          // If VITE_API_URL isn't configured, rethrow original error
-          if (!base) throw firstErr;
-          [notifRes, msgRes] = await Promise.all([
-            axiosInstance.get(`${base}/payslip-requests`),
-            axiosInstance.get(`${base}/dtrlogs`),
-          ]);
-        }
-
-        console.debug('Fetched notifications response:', notifRes && notifRes.data);
-        console.debug('Fetched messages response:', msgRes && msgRes.data);
-
-        setNotificationsLoading(true);
-        const payslips = (notifRes.data?.data || notifRes.data || []).map((n) => ({ ...n, id: n._id || n.id || Date.now(), type: n.type || "PayslipRequest" }));
-        let dtrReqs = [];
-        try {
-          const dtrReqRes = await axiosInstance.get("/dtr-requests");
-          dtrReqs = (dtrReqRes.data?.data || []).map((n) => ({ ...n, id: n._id || n.id || Date.now(), type: "DTRRequest" }));
-        } catch (e) {
-          // ignore if endpoint not available yet
-        }
-        setNotifications([...dtrReqs, ...payslips]);
-
-        // messages are reserved for future chat; do not populate messages yet
-      } catch (err) {
-        // Initial load failures are non-fatal; UI can still function with empty lists
-        console.error("Failed to load initial data:", err);
+    // 1. Instant preload from secure storage (if any)
+    try {
+      const cached = secureGet("notifications");
+      if (
+        Array.isArray(cached) &&
+        cached.length &&
+        notifications.length === 0
+      ) {
+        // Show cached immediately (optimistic). We'll merge fresh data below.
+        setNotifications(cached.map((n) => ({ ...n, cached: true })));
       }
-      finally {
+    } catch (_) {
+      /* ignore */
+    }
+
+    let aborted = false;
+    const controller = new AbortController();
+    const signal = controller.signal;
+
+    const fetchData = async () => {
+      // In demo mode, avoid slow/blocked network calls: show cached immediately and skip fetch
+      if (isDemoActive && isDemoUser) {
         setNotificationsLoading(false);
+        return;
+      }
+      setNotificationsLoading(true); // Set loading BEFORE network requests
+      // Use Promise.allSettled so one slow endpoint doesn't block the other
+      const base = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+      const relPayslip = axiosInstance
+        .get("/payslip-requests", { signal })
+        .catch((e) => ({ error: e }));
+      const relDtr = axiosInstance
+        .get("/dtr-requests", { signal })
+        .catch((e) => ({ error: e }));
+      const results = await Promise.allSettled([relPayslip, relDtr]);
+      let payslipRes =
+        results[0].status === "fulfilled" ? results[0].value : null;
+      let dtrReqRes =
+        results[1].status === "fulfilled" ? results[1].value : null;
+
+      // Fallback if both failed and VITE_API_URL exists
+      if (!payslipRes && !dtrReqRes && base) {
+        const absPayslip = axiosInstance
+          .get(`${base}/payslip-requests`, { signal })
+          .catch((e) => ({ error: e }));
+        const absDtr = axiosInstance
+          .get(`${base}/dtr-requests`, { signal })
+          .catch((e) => ({ error: e }));
+        const absResults = await Promise.allSettled([absPayslip, absDtr]);
+        payslipRes =
+          absResults[0].status === "fulfilled" ? absResults[0].value : null;
+        dtrReqRes =
+          absResults[1].status === "fulfilled" ? absResults[1].value : null;
+      }
+
+      if (aborted) return;
+      try {
+        const payslipRaw = payslipRes?.data?.data || payslipRes?.data || [];
+        const dtrRaw = dtrReqRes?.data?.data || dtrReqRes?.data || [];
+        const payslip = payslipRaw.map((d) => ({
+          type: "PayslipRequest",
+          id: d._id || d.id || `${Date.now()}_${Math.random()}`,
+          _id: d._id,
+          employeeId: d.employeeId,
+          createdAt: d.createdAt,
+          read: !!d.read,
+          hidden: !!d.hidden,
+          period: d.period,
+          title: `Payslip Request - ${d.employeeId}`,
+        }));
+        const dtr = dtrRaw.map((d) => ({
+          type: "DTRRequest",
+          id: d._id || d.id || `${Date.now()}_${Math.random()}`,
+          _id: d._id || d.id,
+          employeeId: d.employeeId,
+          createdAt: d.createdAt,
+          read: !!d.read,
+          hidden: !!d.hidden,
+          startDate: d.startDate,
+          endDate: d.endDate,
+          title: `DTR Request - ${d.employeeId}`,
+          body: `${
+            d.startDate ? new Date(d.startDate).toLocaleDateString() : ""
+          } - ${d.endDate ? new Date(d.endDate).toLocaleDateString() : ""}`,
+        }));
+
+        // Merge with any cached notifications avoiding duplicates by _id
+        setNotifications((prev) => {
+          const seen = new Set();
+          const combined = [...payslip, ...dtr, ...prev];
+          const deduped = [];
+          for (const n of combined) {
+            const key = n._id || n.id;
+            if (!seen.has(key)) {
+              seen.add(key);
+              deduped.push({ ...n, cached: false });
+            }
+          }
+          return deduped;
+        });
+      } catch (e) {
+        console.error("Failed to process notifications", e);
+      } finally {
+        if (!aborted) setNotificationsLoading(false);
       }
     };
     fetchData();
-  }, []);
+    return () => {
+      aborted = true;
+      controller.abort();
+    };
+  }, [user?.id, isDemoActive, isDemoUser]);
 
   // Socket.io connection is managed by AuthContext; listeners are attached above.
 
@@ -216,32 +362,37 @@ const HomePage = () => {
   const handleSuggestFeature = () => setIsFeatureModalOpen(true);
 
   const getMenuItems = () => {
+    const { isDemoActive, isDemoUser, demoSettings } = useDemoMode();
+    const demoAllowed =
+      demoSettings && Array.isArray(demoSettings.allowedPermissions)
+        ? demoSettings.allowedPermissions
+        : null;
     const allItems = [
       {
         key: "/",
         icon: <DashboardOutlined />,
-            label: "Overview",
+        label: "Overview",
         permissions: ["canViewDashboard"],
       },
       {
         key: "employees",
         icon: <TeamOutlined />,
-            label: "Personnel",
+        label: "Personnel",
         permissions: ["canViewEmployees"],
         children: [
           {
             key: "/employeeinfo",
-                label: "Employee Profile",
+            label: "Employee Profile",
             permissions: ["canViewEmployees"],
           },
           {
             key: "/trainings",
-                label: "Training Records",
+            label: "Training Records",
             permissions: ["canViewTrainings"],
           },
           {
             key: "/benefitsinfo",
-                label: "Compensation",
+            label: "Compensation",
             permissions: ["canViewPayroll"],
           },
         ],
@@ -249,46 +400,50 @@ const HomePage = () => {
       {
         key: "dtr",
         icon: <FieldTimeOutlined />,
-            label: "Timekeeping",
+        label: "Timekeeping",
         permissions: ["canViewDTR"],
         children: [
-              { key: "/dtr/logs", label: "Biometric Logs", permissions: ["canViewDTR"] },
+          {
+            key: "/dtr/logs",
+            label: "Biometric Logs",
+            permissions: ["canViewDTR"],
+          },
           {
             key: "/dtr/process",
-                label: "Generate DTR",
+            label: "Generate DTR",
             permissions: ["canProcessDTR"],
           },
           {
             key: "/dtr/reports",
-                label: "DTR Reports",
+            label: "DTR Reports",
             permissions: ["canViewDTR"],
           },
-              {
-                key: "/dtr/holidays",
-                label: "Holidays & Suspensions",
-                permissions: ["canViewDTR"],
-              },
+          {
+            key: "/dtr/holidays",
+            label: "Holidays & Suspensions",
+            permissions: ["canViewDTR"],
+          },
         ],
       },
       {
         key: "settings",
         icon: <SettingOutlined />,
-            label: "Administration",
+        label: "Administration",
         permissions: ["canAccessSettings"],
         children: [
           {
             key: "/settings/account",
-                label: "Account Preferences",
+            label: "Account Preferences",
             permissions: ["canAccessSettings"],
           },
           {
             key: "/settings/deductions",
-                label: "Deductions",
+            label: "Deductions",
             permissions: ["canChangeDeductions"],
           },
           {
             key: "/settings/access",
-                label: "User Access",
+            label: "User Access",
             permissions: ["canManageUsers"],
           },
           // {
@@ -298,7 +453,7 @@ const HomePage = () => {
           // },
           {
             key: "/settings/backup",
-                label: "Backup",
+            label: "Backup",
             permissions: ["canPerformBackup"],
           },
           {
@@ -311,22 +466,27 @@ const HomePage = () => {
       },
     ];
 
-    const filterItems = (items) => {
-      return items.reduce((acc, item) => {
-        if (hasPermission(item.permissions)) {
+    const filterItems = (items) =>
+      items.reduce((acc, item) => {
+        const permitted = hasPermission(item.permissions);
+        // In demo mode for the demo user, restrict to allowedPermissions when configured; otherwise don't hide menus.
+        const demoFilterActive = isDemoActive && isDemoUser;
+        const demoPermitted =
+          !demoFilterActive ||
+          (Array.isArray(demoAllowed) && demoAllowed.length > 0
+            ? (item.permissions || []).some((p) => demoAllowed.includes(p))
+            : true);
+        if (permitted && demoPermitted) {
           if (item.children) {
             const filteredChildren = filterItems(item.children);
-            if (filteredChildren.length > 0) {
+            if (filteredChildren.length)
               acc.push({ ...item, children: filteredChildren });
-            }
           } else {
             acc.push(item);
           }
         }
         return acc;
       }, []);
-    };
-
     return filterItems(allItems);
   };
 
@@ -335,7 +495,12 @@ const HomePage = () => {
     // Mark read (optimistic) and open modal
     try {
       if (!n.read) {
-        await axiosInstance.put(`/payslip-requests/${n.id}/read`);
+        // Route to correct endpoint depending on request type
+        if (n.type === "PayslipRequest" || n.period) {
+          await axiosInstance.put(`/payslip-requests/${n.id}/read`);
+        } else if (n.type === "DTRRequest" || (n.startDate && n.endDate)) {
+          await axiosInstance.put(`/dtr-requests/${n.id}/read`);
+        }
         setNotifications((prev) =>
           prev.map((notif) =>
             notif.id === n.id ? { ...notif, read: true } : notif
@@ -355,11 +520,53 @@ const HomePage = () => {
       setEmployeeError(null);
       setEmployeeDetails(null);
       try {
-        const { data } = await axiosInstance.get(`/employees/by-emp-id/${encodeURIComponent(n.employeeId)}`);
-        if (data?.success) {
-          setEmployeeDetails(data.data);
+        // Build candidate IDs: original and digits-only without leading zeros
+        const rawId = String(n.employeeId || "");
+        const digitsOnly = (rawId.match(/\d+/g) || []).join("");
+        const noLeadingZeros = digitsOnly.replace(/^0+/, "");
+        const candidates = Array.from(
+          new Set(
+            [
+              rawId,
+              noLeadingZeros && noLeadingZeros !== rawId
+                ? noLeadingZeros
+                : null,
+            ].filter(Boolean)
+          )
+        );
+
+        // Helper to try fetch against a base prefix ("" for relative, or absolute base)
+        const tryFetch = async (basePrefix, id) => {
+          const path = `${basePrefix}/employees/by-emp-id/${encodeURIComponent(
+            id
+          )}`.replace(/([^:]\/)\/+/g, "$1/");
+          return axiosInstance.get(path);
+        };
+
+        const bases = [""];
+        const absBase = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+        if (absBase) bases.push(absBase);
+
+        let found = null;
+        for (const id of candidates) {
+          for (const base of bases) {
+            try {
+              const resp = await tryFetch(base, id);
+              if (resp?.data?.success) {
+                found = resp.data.data;
+                break;
+              }
+            } catch (_) {
+              // try next
+            }
+          }
+          if (found) break;
+        }
+
+        if (found) {
+          setEmployeeDetails(found);
         } else {
-          setEmployeeError(data?.message || 'Employee not found');
+          setEmployeeError("Employee not found");
         }
       } catch (err) {
         setEmployeeError("Failed to load employee details");
@@ -370,6 +577,119 @@ const HomePage = () => {
       setEmployeeDetails(null);
     }
   };
+
+  // Load inline DTR preview for DTRRequest notifications
+  useEffect(() => {
+    const n = selectedNotification;
+    const isDTR =
+      n && n.type === "DTRRequest" && n.startDate && n.endDate && n.employeeId;
+    if (!isNotificationModalOpen || !isDTR) {
+      setDtrPreviewRows([]);
+      setDtrPreviewError(null);
+      setDtrPreviewLoading(false);
+      return;
+    }
+    let cancelled = false;
+    const load = async () => {
+      try {
+        setDtrPreviewLoading(true);
+        setDtrPreviewError(null);
+        setDtrPreviewRows([]);
+        const { data } = await axiosInstance.get("/dtrlogs/merged", {
+          params: {
+            startDate: dayjs(n.startDate).format("YYYY-MM-DD"),
+            endDate: dayjs(n.endDate).format("YYYY-MM-DD"),
+            empIds: n.employeeId,
+          },
+        });
+        if (cancelled) return;
+        const logs = data?.data || [];
+        // Group logs by day
+        const byDate = logs.reduce((acc, log) => {
+          const dateKey = dayjs(log.time).format("YYYY-MM-DD");
+          if (!acc[dateKey]) acc[dateKey] = [];
+          acc[dateKey].push(log);
+          return acc;
+        }, {});
+
+        const start = dayjs(n.startDate).startOf("day");
+        const end = dayjs(n.endDate).startOf("day");
+        const totalDays = end.diff(start, "day") + 1;
+        const rows = Array.from({ length: totalDays }).map((_, idx) => {
+          const date = start.add(idx, "day");
+          const key = date.format("YYYY-MM-DD");
+          const list = (byDate[key] || []).map((l) => ({
+            time: dayjs(l.time),
+            state: l.state,
+          }));
+
+          const timeInCandidates = list
+            .filter((l) => l.state === "C/In" && l.time.hour() < 12)
+            .sort((a, b) => a.time - b.time);
+          const timeOutCandidates = list
+            .filter((l) => l.state === "C/Out" && l.time.hour() >= 12)
+            .sort((a, b) => a.time - b.time);
+          const breakOutCandidates = list
+            .filter(
+              (l) =>
+                l.state === "Out" && l.time.hour() >= 12 && l.time.hour() < 13
+            )
+            .sort((a, b) => a.time - b.time);
+          const breakInCandidates = list
+            .filter(
+              (l) =>
+                l.state === "Out Back" &&
+                l.time.hour() >= 12 &&
+                l.time.hour() < 14
+            )
+            .sort((a, b) => a.time - b.time);
+
+          let timeIn = timeInCandidates.length
+            ? timeInCandidates[0].time.format("h:mm")
+            : "";
+          let timeOut = timeOutCandidates.length
+            ? timeOutCandidates[timeOutCandidates.length - 1].time.format(
+                "h:mm"
+              )
+            : "";
+          let breakOut = breakOutCandidates.length
+            ? breakOutCandidates[0].time.format("h:mm")
+            : "";
+          let breakIn = breakInCandidates.length
+            ? breakInCandidates[0].time.format("h:mm")
+            : "";
+
+          if (timeIn && timeOut && !breakOut && !breakIn) {
+            breakOut = "12:00";
+            breakIn = "1:00";
+          }
+
+          return {
+            key,
+            date: date.format("MM/DD/YYYY"),
+            timeIn: timeIn || "---",
+            breakOut: breakOut || "---",
+            breakIn: breakIn || "---",
+            timeOut: timeOut || "---",
+          };
+        });
+        setDtrPreviewRows(rows);
+      } catch (err) {
+        if (!cancelled)
+          setDtrPreviewError(
+            err?.response?.data?.message ||
+              err.message ||
+              "Failed to load DTR preview"
+          );
+      } finally {
+        if (!cancelled) setDtrPreviewLoading(false);
+      }
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [isNotificationModalOpen, selectedNotification]);
 
   // ---- Messages Modal Logic ----
   const openMessageModal = async (m) => {
@@ -411,24 +731,27 @@ const HomePage = () => {
         }}
       >
         <Text strong>Notifications</Text>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {hasAccess("canManageNotifications") && (
-          <Button
-            type="link"
-            size="small"
-            onClick={async () => {
-              try {
-                await axiosInstance.put("/payslip-requests/read-all");
-                setNotifications((prev) =>
-                  prev.map((n) => ({ ...n, read: true }))
-                );
-              } catch (error) {
-                message.error("Failed to mark all notifications as read");
-              }
-            }}
-          >
-            Mark all as read
-          </Button>
+            <Button
+              type="link"
+              size="small"
+              onClick={async () => {
+                try {
+                  await Promise.all([
+                    axiosInstance.put("/payslip-requests/read-all"),
+                    axiosInstance.put("/dtr-requests/read-all"),
+                  ]);
+                  setNotifications((prev) =>
+                    prev.map((n) => ({ ...n, read: true }))
+                  );
+                } catch (error) {
+                  message.error("Failed to mark all notifications as read");
+                }
+              }}
+            >
+              Mark all as read
+            </Button>
           )}
 
           {/* Developer notifications are shown but hidden items are excluded */}
@@ -439,69 +762,82 @@ const HomePage = () => {
         <div style={{ padding: 12 }}>
           <Skeleton active paragraph={{ rows: 3 }} />
         </div>
-      ) : (() => {
-        // Always exclude hidden dev notifications from the bell popover
-        const visibleDev = devNotifications.filter((d) => !d.hidden);
-        // Respect dataVisible flag: if a dev notification has dataVisible === false
-        // replace its body/title with a placeholder when merging for the bell popover
-        const normalizedDev = visibleDev.map((d) => ({
-          ...d,
-          title: d.dataVisible === false ? '[hidden]' : d.title,
-          body: d.dataVisible === false ? '[hidden]' : d.body,
-        }));
-        // Exclude hidden regular notifications as well
-        let merged = [...normalizedDev, ...notifications.filter((n) => !n.hidden)];
+      ) : (
+        (() => {
+          // Always exclude hidden dev notifications from the bell popover
+          const visibleDev = devNotifications.filter((d) => !d.hidden);
+          // Respect dataVisible flag: if a dev notification has dataVisible === false
+          // replace its body/title with a placeholder when merging for the bell popover
+          const normalizedDev = visibleDev.map((d) => ({
+            ...d,
+            title: d.dataVisible === false ? "[hidden]" : d.title,
+            body: d.dataVisible === false ? "[hidden]" : d.body,
+          }));
+          // Exclude hidden regular notifications as well
+          let merged = [
+            ...normalizedDev,
+            ...notifications.filter((n) => !n.hidden),
+          ];
 
-        if (merged.length === 0) {
-          return (
-            <Text type="secondary" style={{ padding: "8px 12px", display: "block" }}>
-              No new notifications
-            </Text>
-          );
-        }
-
-        // Sort: unread first, then by createdAt descending (newest first)
-        merged = merged.sort((a, b) => {
-          if ((a.read ? 1 : 0) !== (b.read ? 1 : 0)) {
-            return (a.read ? 1 : 0) - (b.read ? 1 : 0);
-          }
-          const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-          const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-          return tb - ta;
-        });
-
-        return merged.map((n) => (
-          <div
-            key={n.id}
-            style={{
-              padding: "8px 12px",
-              borderBottom: "1px solid #f0f0f0",
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              opacity: n.read ? 0.6 : 1,
-            }}
-          >
-            <div>
-              <Text strong>{n.title || `Notification${n.employeeId ? ' - ' + n.employeeId : ''}`}</Text>
-              <br />
-              <Text type="secondary" style={{ fontSize: "12px" }}>
-                {n.createdAt ? new Date(n.createdAt).toLocaleString() : ''}
+          if (merged.length === 0) {
+            return (
+              <Text
+                type="secondary"
+                style={{ padding: "8px 12px", display: "block" }}
+              >
+                No new notifications
               </Text>
-            </div>
-            <Button
-              size="small"
-              type="link"
-              onClick={(e) => {
-                e.stopPropagation();
-                openNotificationModal(n);
+            );
+          }
+
+          // Sort: unread first, then by createdAt descending (newest first)
+          merged = merged.sort((a, b) => {
+            if ((a.read ? 1 : 0) !== (b.read ? 1 : 0)) {
+              return (a.read ? 1 : 0) - (b.read ? 1 : 0);
+            }
+            const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+            const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+            return tb - ta;
+          });
+
+          return merged.map((n) => (
+            <div
+              key={n.id}
+              style={{
+                padding: "8px 12px",
+                borderBottom: "1px solid #f0f0f0",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                opacity: n.read ? 0.6 : 1,
               }}
             >
-              View
-            </Button>
-          </div>
-        ));
-      })()}
+              <div>
+                <Text strong>
+                  {n.title ||
+                    `Notification${n.employeeId ? " - " + n.employeeId : ""}`}
+                </Text>
+                <br />
+                <Text type="secondary" style={{ fontSize: "12px" }}>
+                  {n.createdAt ? new Date(n.createdAt).toLocaleString() : ""}
+                </Text>
+              </div>
+              {!(isDemoActive && isDemoUser) && (
+                <Button
+                  size="small"
+                  type="link"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openNotificationModal(n);
+                  }}
+                >
+                  View
+                </Button>
+              )}
+            </div>
+          ));
+        })()
+      )}
     </div>
   );
 
@@ -510,14 +846,73 @@ const HomePage = () => {
       open={isNotificationModalOpen}
       title={
         selectedNotification
-          ? `Payslip Request - ${selectedNotification.employeeId}`
+          ? `${
+              selectedNotification.type === "DTRRequest"
+                ? "DTR Request"
+                : "Payslip Request"
+            } - ${selectedNotification.employeeId}`
           : "Notification"
       }
       onCancel={() => setIsNotificationModalOpen(false)}
+      className="dtr-admin-modal"
       footer={[
         <Button key="close" onClick={() => setIsNotificationModalOpen(false)}>
           Close
         </Button>,
+        // If this is a payslip request, provide a quick "Send Payslip" action when HR already has a generated PDF
+        selectedNotification &&
+          (selectedNotification.type === "PayslipRequest" ||
+            selectedNotification.period) && (
+            <Button
+              key="sendPayout"
+              onClick={async () => {
+                try {
+                  // Ask for a pre-generated base64 PDF data URI
+                  const pdfBase64 = window.__LAST_GENERATED_PAYSLIP_BASE64__;
+                  if (!pdfBase64) {
+                    Modal.info({
+                      title: "Attach Payslip PDF",
+                      content:
+                        'Please generate or open the payslip first so it can be attached. After generating, click "Send Payslip" again.',
+                    });
+                    return;
+                  }
+                  const n = selectedNotification;
+                  const confirm = await new Promise((resolve) => {
+                    Modal.confirm({
+                      title: "Send payslip to employee? ",
+                      content: `Employee ${n.employeeId} • Period ${
+                        n.period || ""
+                      }`,
+                      onOk: () => resolve(true),
+                      onCancel: () => resolve(false),
+                    });
+                  });
+                  if (!confirm) return;
+                  // Call backend to send email
+                  await axiosInstance.post(
+                    `/payslip-requests/${encodeURIComponent(
+                      n._id || n.id
+                    )}/send-email`,
+                    {
+                      pdfBase64,
+                      filename: `payslip_${n.employeeId}_${(
+                        n.period || ""
+                      ).replace(/\//g, "-")}.pdf`,
+                    }
+                  );
+                  message.success("Payslip emailed successfully");
+                } catch (err) {
+                  message.error(
+                    err?.response?.data?.message ||
+                      "Failed to send payslip email"
+                  );
+                }
+              }}
+            >
+              Send Payslip
+            </Button>
+          ),
         selectedNotification && (
           <Button
             key="process"
@@ -527,15 +922,21 @@ const HomePage = () => {
               const notif = selectedNotification;
               let target = null;
               // Simple heuristic: payslip requests go to benefits/payroll page, others maybe DTR
-              if (notif.period || notif.reason === 'payslip' || /payslip/i.test(notif.type || '')) {
-                const empQ = notif.employeeId ? `&empId=${encodeURIComponent(notif.employeeId)}` : '';
+              if (
+                notif.period ||
+                notif.reason === "payslip" ||
+                /payslip/i.test(notif.type || "")
+              ) {
+                const empQ = notif.employeeId
+                  ? `&empId=${encodeURIComponent(notif.employeeId)}`
+                  : "";
                 target = `/dtr/reports?payslip=1${empQ}`;
-              } else if (/dtr/i.test(notif.type || '') || notif.dtrId) {
-                target = '/dtr/process';
+              } else if (/dtr/i.test(notif.type || "") || notif.dtrId) {
+                target = "/dtr/process";
               }
               if (!target) {
                 // default fallback
-                target = '/dtr/reports';
+                target = "/dtr/reports";
               }
               setIsNotificationModalOpen(false);
               navigate(target);
@@ -543,100 +944,212 @@ const HomePage = () => {
           >
             Process Request
           </Button>
-        )
+        ),
       ]}
     >
       {selectedNotification && (
-        <Descriptions
-          size="small"
-          column={1}
-          bordered
-          labelStyle={{ width: 130 }}
-          contentStyle={{ background: "transparent" }}
-        >
-          {selectedNotification.employeeName && (
-            <Descriptions.Item label="Employee">
-              {selectedNotification.employeeName} ({selectedNotification.employeeId})
-            </Descriptions.Item>
-          )}
-          {!selectedNotification.employeeName && selectedNotification.employeeId && (
-            <Descriptions.Item label="Employee">
-              {selectedNotification.employeeId}
-            </Descriptions.Item>
-          )}
-          {employeeLoading && (
-            <Descriptions.Item label="Employee Details">
-              Loading...
-            </Descriptions.Item>
-          )}
-          {employeeError && (
-            <Descriptions.Item label="Employee Details">
-              <span style={{ color: 'red' }}>{employeeError}</span>
-            </Descriptions.Item>
-          )}
-          {employeeDetails && (
-            <>
-              <Descriptions.Item label="Full Name">
-                {employeeDetails.fullName || employeeDetails.name || `${employeeDetails.firstName || ''} ${employeeDetails.lastName || ''}`.trim()}
+        <>
+          <Descriptions
+            size="small"
+            column={1}
+            bordered
+            styles={{
+              label: { width: 130 },
+              content: { background: "transparent" },
+            }}
+          >
+            {selectedNotification.employeeName && (
+              <Descriptions.Item label="Employee">
+                {selectedNotification.employeeName} (
+                {selectedNotification.employeeId})
               </Descriptions.Item>
-              {employeeDetails.position && (
-                <Descriptions.Item label="Position">
-                  {employeeDetails.position}
+            )}
+            {!selectedNotification.employeeName &&
+              selectedNotification.employeeId && (
+                <Descriptions.Item label="Employee">
+                  {selectedNotification.employeeId}
                 </Descriptions.Item>
               )}
-              {employeeDetails.division && (
-                <Descriptions.Item label="Division">
-                  {employeeDetails.division}
+            {employeeLoading && (
+              <Descriptions.Item label="Employee Details">
+                Loading...
+              </Descriptions.Item>
+            )}
+            {employeeError && (
+              <Descriptions.Item label="Employee Details">
+                <span style={{ color: "red" }}>{employeeError}</span>
+              </Descriptions.Item>
+            )}
+            {employeeDetails && (
+              <>
+                <Descriptions.Item label="Full Name">
+                  {employeeDetails.fullName ||
+                    employeeDetails.name ||
+                    `${employeeDetails.firstName || ""} ${
+                      employeeDetails.lastName || ""
+                    }`.trim()}
                 </Descriptions.Item>
-              )}
-              {(employeeDetails.sectionOrUnit || employeeDetails.section || employeeDetails.unit) && (
-                <Descriptions.Item label="Section / Unit">
-                  {employeeDetails.sectionOrUnit || employeeDetails.section || employeeDetails.unit}
-                </Descriptions.Item>
-              )}
-              {employeeDetails.employmentStatus && (
-                <Descriptions.Item label="Employment Status">
-                  {employeeDetails.employmentStatus}
-                </Descriptions.Item>
-              )}
-              {employeeDetails.empType && !employeeDetails.employmentStatus && (
-                <Descriptions.Item label="Employment Type">
-                  {employeeDetails.empType}
-                </Descriptions.Item>
-              )}
-            </>
-          )}
-          {selectedNotification.reason && (
-            <Descriptions.Item label="Reason">
-              {selectedNotification.dataVisible === false ? '[hidden]' : selectedNotification.reason}
+                {employeeDetails.position && (
+                  <Descriptions.Item label="Position">
+                    {employeeDetails.position}
+                  </Descriptions.Item>
+                )}
+                {employeeDetails.division && (
+                  <Descriptions.Item label="Division">
+                    {employeeDetails.division}
+                  </Descriptions.Item>
+                )}
+                {(employeeDetails.sectionOrUnit ||
+                  employeeDetails.section ||
+                  employeeDetails.unit) && (
+                  <Descriptions.Item label="Section / Unit">
+                    {employeeDetails.sectionOrUnit ||
+                      employeeDetails.section ||
+                      employeeDetails.unit}
+                  </Descriptions.Item>
+                )}
+                {employeeDetails.employmentStatus && (
+                  <Descriptions.Item label="Employment Status">
+                    {employeeDetails.employmentStatus}
+                  </Descriptions.Item>
+                )}
+                {employeeDetails.empType &&
+                  !employeeDetails.employmentStatus && (
+                    <Descriptions.Item label="Employment Type">
+                      {employeeDetails.empType}
+                    </Descriptions.Item>
+                  )}
+              </>
+            )}
+            {selectedNotification.reason && (
+              <Descriptions.Item label="Reason">
+                {selectedNotification.dataVisible === false
+                  ? "[hidden]"
+                  : selectedNotification.reason}
+              </Descriptions.Item>
+            )}
+            {selectedNotification.type === "DTRRequest" && (
+              <>
+                {selectedNotification.startDate && (
+                  <Descriptions.Item label="Start Date">
+                    {new Date(
+                      selectedNotification.startDate
+                    ).toLocaleDateString()}
+                  </Descriptions.Item>
+                )}
+                {selectedNotification.endDate && (
+                  <Descriptions.Item label="End Date">
+                    {new Date(
+                      selectedNotification.endDate
+                    ).toLocaleDateString()}
+                  </Descriptions.Item>
+                )}
+              </>
+            )}
+            {selectedNotification.period && (
+              <Descriptions.Item label="Period">
+                {selectedNotification.period}
+              </Descriptions.Item>
+            )}
+            {selectedNotification.createdAt && (
+              <Descriptions.Item label="Requested At">
+                {new Date(selectedNotification.createdAt).toLocaleString()}
+              </Descriptions.Item>
+            )}
+            <Descriptions.Item label="Status">
+              <Tag color={selectedNotification.read ? "green" : "blue"}>
+                {selectedNotification.read ? "Read" : "Unread"}
+              </Tag>
             </Descriptions.Item>
-          )}
-          {selectedNotification.period && (
-            <Descriptions.Item label="Period">
-              {selectedNotification.period}
-            </Descriptions.Item>
-          )}
-          {selectedNotification.createdAt && (
-            <Descriptions.Item label="Requested At">
-              {new Date(selectedNotification.createdAt).toLocaleString()}
-            </Descriptions.Item>
-          )}
-          <Descriptions.Item label="Status">
-            <Tag color={selectedNotification.read ? "green" : "blue"}>
-              {selectedNotification.read ? "Read" : "Unread"}
-            </Tag>
-          </Descriptions.Item>
-          {selectedNotification.notes && (
-            <Descriptions.Item label="Notes">
-              {selectedNotification.dataVisible === false ? '[hidden]' : selectedNotification.notes}
-            </Descriptions.Item>
-          )}
-          {selectedNotification._id && (
-            <Descriptions.Item label="Internal ID">
-              {selectedNotification._id}
-            </Descriptions.Item>
-          )}
-        </Descriptions>
+            {selectedNotification.notes && (
+              <Descriptions.Item label="Notes">
+                {selectedNotification.dataVisible === false
+                  ? "[hidden]"
+                  : selectedNotification.notes}
+              </Descriptions.Item>
+            )}
+            {selectedNotification._id && (
+              <Descriptions.Item label="Internal ID">
+                {selectedNotification._id}
+              </Descriptions.Item>
+            )}
+          </Descriptions>
+          {!dtrPreviewLoading &&
+            !dtrPreviewError &&
+            dtrPreviewRows.length > 0 && (
+              <Table
+                size="small"
+                className="dtr-table-compact compact-table"
+                dataSource={dtrPreviewRows}
+                pagination={false}
+                rowKey={(r) => r.key}
+                bordered
+                columns={[
+                  {
+                    title: "Date",
+                    dataIndex: "date",
+                    key: "date",
+                    width: 120,
+                    onCell: () => ({ className: "date-cell" }),
+                  },
+                  {
+                    title: "Time In",
+                    dataIndex: "timeIn",
+                    key: "timeIn",
+                    width: 100,
+                    onCell: () => ({ className: "time-cell" }),
+                  },
+                  {
+                    title: "Break Out",
+                    dataIndex: "breakOut",
+                    key: "breakOut",
+                    width: 100,
+                    onCell: () => ({ className: "time-cell" }),
+                  },
+                  {
+                    title: "Break In",
+                    dataIndex: "breakIn",
+                    key: "breakIn",
+                    width: 100,
+                    onCell: () => ({ className: "time-cell" }),
+                  },
+                  {
+                    title: "Time Out",
+                    dataIndex: "timeOut",
+                    key: "timeOut",
+                    width: 100,
+                    onCell: () => ({ className: "time-cell" }),
+                  },
+                ]}
+              />
+            )}
+          {!dtrPreviewLoading &&
+            !dtrPreviewError &&
+            dtrPreviewRows.length > 0 &&
+            dtrPreviewRows.every(
+              (r) =>
+                r.timeIn === "---" &&
+                r.breakOut === "---" &&
+                r.breakIn === "---" &&
+                r.timeOut === "---"
+            ) && (
+              <Alert
+                style={{ marginTop: 8 }}
+                type="warning"
+                showIcon
+                message="No biometrics encoded yet for the selected period."
+              />
+            )}
+          {!dtrPreviewLoading &&
+            !dtrPreviewError &&
+            dtrPreviewRows.length === 0 && (
+              <Alert
+                type="warning"
+                showIcon
+                message="No biometrics encoded yet for the selected period."
+              />
+            )}
+        </>
       )}
     </Modal>
   );
@@ -675,8 +1188,10 @@ const HomePage = () => {
           size="small"
           column={1}
           bordered
-          labelStyle={{ width: 130 }}
-          contentStyle={{ background: "transparent" }}
+          styles={{
+            label: { width: 130 },
+            content: { background: "transparent" },
+          }}
         >
           {selectedMessage.employeeId && (
             <Descriptions.Item label="Employee ID">
@@ -690,13 +1205,17 @@ const HomePage = () => {
           )}
           {employeeError && (
             <Descriptions.Item label="Employee Details">
-              <span style={{ color: 'red' }}>{employeeError}</span>
+              <span style={{ color: "red" }}>{employeeError}</span>
             </Descriptions.Item>
           )}
           {employeeDetails && (
             <>
               <Descriptions.Item label="Full Name">
-                {employeeDetails.fullName || employeeDetails.name || `${employeeDetails.firstName || ''} ${employeeDetails.lastName || ''}`.trim()}
+                {employeeDetails.fullName ||
+                  employeeDetails.name ||
+                  `${employeeDetails.firstName || ""} ${
+                    employeeDetails.lastName || ""
+                  }`.trim()}
               </Descriptions.Item>
               {employeeDetails.position && (
                 <Descriptions.Item label="Position">
@@ -854,7 +1373,7 @@ const HomePage = () => {
         onCollapse={setCollapsed}
         collapsedWidth={80}
         className="sider"
-        style={{ background: 'var(--app-sider-bg, #001529)' }}
+        style={{ background: "var(--app-sider-bg, #001529)" }}
       >
         <div className={`logo-container ${collapsed ? "collapsed" : ""}`}>
           <Tooltip title="EMBR3 DTR Management System" placement="right">
@@ -864,27 +1383,33 @@ const HomePage = () => {
             <span className="logo-text">EMBR3 DTR Management System</span>
           )}
         </div>
-        {hasPermission(["canManipulateBiometrics"]) && (
-          <div style={{ padding: "12px", textAlign: "center" }}>
-            {collapsed ? (
-              <Tooltip title="Import Biometrics" placement="right">
+        {/* Import Biometrics button visibility now also considers demo exposed menus when in demo */}
+        {hasPermission(["canManipulateBiometrics"]) &&
+          (!isDemoActive ||
+            !isDemoUser ||
+            (demoSettings?.allowedPermissions || []).includes(
+              "canManipulateBiometrics"
+            )) && (
+            <div style={{ padding: "12px", textAlign: "center" }}>
+              {collapsed ? (
+                <Tooltip title="Import Biometrics" placement="right">
+                  <Button
+                    shape="circle"
+                    icon={<FieldTimeOutlined />}
+                    onClick={() => setIsImportModalOpen(true)}
+                    className="animated-gradient-button"
+                  />
+                </Tooltip>
+              ) : (
                 <Button
-                  shape="circle"
-                  icon={<FieldTimeOutlined />}
                   onClick={() => setIsImportModalOpen(true)}
                   className="animated-gradient-button"
-                />
-              </Tooltip>
-            ) : (
-              <Button
-                onClick={() => setIsImportModalOpen(true)}
-                className="animated-gradient-button"
-              >
-                Import Biometrics
-              </Button>
-            )}
-          </div>
-        )}
+                >
+                  Import Biometrics
+                </Button>
+              )}
+            </div>
+          )}
         <Menu
           theme="dark"
           mode="inline"
@@ -901,11 +1426,15 @@ const HomePage = () => {
           open={isImportModalOpen}
           onClose={() => setIsImportModalOpen(false)}
           currentUser={user}
+          isDemo={isDemoActive && isDemoUser}
         />
       )}
 
-  <Layout>
-  <Header className="header" style={{ background: 'var(--app-header-bg, #ffffff)' }}>
+      <Layout>
+        <Header
+          className="header"
+          style={{ background: "var(--app-header-bg, #ffffff)" }}
+        >
           <div
             style={{
               display: "flex",
@@ -918,6 +1447,89 @@ const HomePage = () => {
               content={notificationContent}
               trigger="click"
               placement="bottomRight"
+              onOpenChange={(visible) => {
+                // Lazy refresh when popover is opened and data is stale (>60s old)
+                if (visible) {
+                  if (isDemoActive && isDemoUser) return; // skip refresh in demo for fast open
+                  const newest = notifications.reduce((a, b) => {
+                    const ta = a?.createdAt
+                      ? new Date(a.createdAt).getTime()
+                      : 0;
+                    const tb = b?.createdAt
+                      ? new Date(b.createdAt).getTime()
+                      : 0;
+                    return tb > ta ? b : a;
+                  }, null);
+                  const ageMs = newest
+                    ? Date.now() - new Date(newest.createdAt).getTime()
+                    : Infinity;
+                  if (ageMs > 60_000 && !notificationsLoading) {
+                    // trigger lightweight refresh without cached preload logic
+                    (async () => {
+                      try {
+                        setNotificationsLoading(true);
+                        const [payslipRes, dtrReqRes] = await Promise.all([
+                          axiosInstance.get("/payslip-requests"),
+                          axiosInstance.get("/dtr-requests"),
+                        ]);
+                        const payslipRaw =
+                          payslipRes.data?.data || payslipRes.data || [];
+                        const dtrRaw =
+                          dtrReqRes.data?.data || dtrReqRes.data || [];
+                        const payslip = payslipRaw.map((d) => ({
+                          type: "PayslipRequest",
+                          id: d._id || d.id || `${Date.now()}_${Math.random()}`,
+                          _id: d._id,
+                          employeeId: d.employeeId,
+                          createdAt: d.createdAt,
+                          read: !!d.read,
+                          hidden: !!d.hidden,
+                          period: d.period,
+                          title: `Payslip Request - ${d.employeeId}`,
+                        }));
+                        const dtr = dtrRaw.map((d) => ({
+                          type: "DTRRequest",
+                          id: d._id || d.id || `${Date.now()}_${Math.random()}`,
+                          _id: d._id || d.id,
+                          employeeId: d.employeeId,
+                          createdAt: d.createdAt,
+                          read: !!d.read,
+                          hidden: !!d.hidden,
+                          startDate: d.startDate,
+                          endDate: d.endDate,
+                          title: `DTR Request - ${d.employeeId}`,
+                          body: `${
+                            d.startDate
+                              ? new Date(d.startDate).toLocaleDateString()
+                              : ""
+                          } - ${
+                            d.endDate
+                              ? new Date(d.endDate).toLocaleDateString()
+                              : ""
+                          }`,
+                        }));
+                        setNotifications((prev) => {
+                          const seen = new Set();
+                          const combined = [...payslip, ...dtr, ...prev];
+                          const deduped = [];
+                          for (const n of combined) {
+                            const key = n._id || n.id;
+                            if (!seen.has(key)) {
+                              seen.add(key);
+                              deduped.push(n);
+                            }
+                          }
+                          return deduped;
+                        });
+                      } catch (e) {
+                        console.debug("Lazy refresh failed", e);
+                      } finally {
+                        setNotificationsLoading(false);
+                      }
+                    })();
+                  }
+                }
+              }}
             >
               <Badge
                 count={(() => {
@@ -958,7 +1570,7 @@ const HomePage = () => {
           </div>
         </Header>
 
-  <Content style={{ margin: "16px", paddingBottom: 0 }}>
+        <Content style={{ margin: "16px", paddingBottom: 0 }}>
           <div className="content-wrapper">
             <Routes>
               <Route
@@ -1081,6 +1693,78 @@ const HomePage = () => {
           © {new Date().getFullYear()} EMBR3 Daily Time Record Management System
         </Footer>
       </Layout>
+
+      {/* Report a bug floating button */}
+      <FloatButton
+        icon={<BugOutlined />}
+        tooltip="Report a bug"
+        type="primary"
+        style={{ right: 24, bottom: 96 }}
+        onClick={() => setIsBugOpen(true)}
+      />
+
+      <Modal
+        title="Report a bug"
+        open={isBugOpen}
+        onCancel={() => {
+          if (!bugSubmitting) {
+            setIsBugOpen(false);
+          }
+        }}
+        okText={bugSubmitting ? "Sending..." : "Send"}
+        onOk={submitBugReport}
+        confirmLoading={bugSubmitting}
+        destroyOnClose
+      >
+        <Form form={bugForm} layout="vertical" preserve={false}>
+          <Form.Item
+            name="title"
+            label="Title"
+            rules={[{ required: true, message: "Please add a short title" }]}
+          >
+            <Input maxLength={180} placeholder="Short summary" />
+          </Form.Item>
+          <Form.Item
+            name="description"
+            label="Description"
+            rules={[{ required: true, message: "Please describe the issue" }]}
+          >
+            <Input.TextArea
+              rows={6}
+              placeholder="What happened? Steps to reproduce, expected vs actual, etc."
+            />
+          </Form.Item>
+          <Form.Item label="Screenshot (optional)">
+            <Upload
+              beforeUpload={beforeUploadScreenshot}
+              maxCount={1}
+              accept="image/*"
+              listType="picture-card"
+              showUploadList={{ showPreviewIcon: false }}
+            >
+              Upload
+            </Upload>
+            {bugScreenshot && (
+              <div style={{ marginTop: 8 }}>
+                <img
+                  src={bugScreenshot}
+                  alt="screenshot"
+                  style={{
+                    maxWidth: "100%",
+                    border: "1px solid #eee",
+                    borderRadius: 4,
+                  }}
+                />
+              </div>
+            )}
+          </Form.Item>
+          <Alert
+            type="info"
+            showIcon
+            message="Your report will be sent to embrhrpms@gmail.com. We include page URL and browser info for faster fixes."
+          />
+        </Form>
+      </Modal>
 
       <ProfileModal
         open={isProfileModalOpen}

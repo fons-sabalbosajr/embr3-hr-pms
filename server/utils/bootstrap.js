@@ -17,42 +17,46 @@ export const ensureUserTypes = async () => {
     const adminExists = await User.findOne({ userType: "administrator" });
 
     if (devExists || adminExists) {
-      //console.log("Bootstrap skipped (developer/admin already exists).");
       // Even if developers/admins exist, ensure their elevated flags are set correctly
       try {
-        const devUsers = await User.find({ $or: [{ userType: 'developer' }, { isAdmin: true }] });
-        for (const u of devUsers) {
-          let dirty = false;
-          const devFlags = {
-            isAdmin: true,
-            canManageUsers: true,
-            canViewDashboard: true,
-            canViewEmployees: true,
-            canEditEmployees: true,
-            canViewDTR: true,
-            canProcessDTR: true,
-            canViewPayroll: true,
-            canProcessPayroll: true,
-            canViewTrainings: true,
-            canEditTrainings: true,
-            canAccessSettings: true,
-            canChangeDeductions: true,
-            canPerformBackup: true,
-            canAccessNotifications: true,
-            canManageNotifications: true,
-            canViewNotifications: true,
-            canViewMessages: true,
-            canManageMessages: true,
-            canAccessConfigSettings: true,
-            canAccessDeveloper: true,
-          };
-          Object.keys(devFlags).forEach((k) => {
-            if (!u[k]) { u[k] = devFlags[k]; dirty = true; }
-          });
-          if (dirty) await u.save();
+        const devFlags = {
+          isAdmin: true,
+          canManageUsers: true,
+          canViewDashboard: true,
+          canViewEmployees: true,
+          canEditEmployees: true,
+          canViewDTR: true,
+          canProcessDTR: true,
+          canViewPayroll: true,
+          canProcessPayroll: true,
+          canViewTrainings: true,
+          canEditTrainings: true,
+          canAccessSettings: true,
+          canChangeDeductions: true,
+          canPerformBackup: true,
+          canAccessNotifications: true,
+          canManageNotifications: true,
+          canViewNotifications: true,
+          canViewMessages: true,
+          canManageMessages: true,
+          canAccessConfigSettings: true,
+          canAccessDeveloper: true,
+          canSeeDev: true,
+          canManipulateBiometrics: true,
+          showSalaryAmounts: true,
+        };
+
+        // Use updateMany with $set to avoid full document validation (some legacy users may be missing required fields like name)
+        const updateResult = await User.updateMany(
+          { $or: [{ userType: "developer" }, { isAdmin: true }] },
+          { $set: devFlags },
+          { runValidators: false }
+        );
+        if (updateResult.modifiedCount > 0) {
+          console.log(`Ensured developer/admin flags on ${updateResult.modifiedCount} user(s)`);
         }
       } catch (e) {
-        console.error('Failed to ensure developer flags during bootstrap', e);
+        console.error("Failed to ensure developer flags during bootstrap", e);
       }
       return;
     }
@@ -61,8 +65,12 @@ export const ensureUserTypes = async () => {
     const oldestUser = await User.findOne().sort({ createdAt: 1 });
 
     if (oldestUser) {
-      oldestUser.userType = "developer";
-      await oldestUser.save();
+      // Update via updateOne to avoid triggering validation on potentially legacy, partial documents
+      await User.updateOne(
+        { _id: oldestUser._id },
+        { $set: { userType: "developer" } },
+        { runValidators: false }
+      );
       console.log(`Bootstrap complete: ${oldestUser.username} promoted to "developer"`);
     }
   } catch (error) {

@@ -1,9 +1,11 @@
-import React, { useContext } from "react";
+import React, { useContext, useEffect, useState } from "react";
 import { Card, Typography, Button, Form, Input, DatePicker, message } from "antd";
 import { Link } from "react-router-dom";
 import bgImage from "../../assets/bgemb.webp";
 import axiosInstance from "../../api/axiosInstance";
 import "./paysliprequest.css";
+import dayjs from "dayjs";
+import { CalendarOutlined } from "@ant-design/icons";
 
 // ✅ Make sure you have NotificationsContext or pass setNotifications from props
 import { NotificationsContext } from "../../context/NotificationsContext";
@@ -13,8 +15,44 @@ const { Title, Text } = Typography;
 const PayslipRequest = () => {
   const [form] = Form.useForm();
   const { setNotifications } = useContext(NotificationsContext); // ✅ add context
+  const [submitting, setSubmitting] = useState(false);
+  const [latestCutoff, setLatestCutoff] = useState(null);
+  const [cutoffLoading, setCutoffLoading] = useState(true);
+
+  // Load latest encoded biometrics (DTR cut-off) for quick visibility
+  useEffect(() => {
+    let mounted = true;
+    const load = async () => {
+      try {
+        setCutoffLoading(true);
+        const { data } = await axiosInstance.get("/dtrdatas");
+        const list = data?.data || [];
+        if (!mounted) return;
+        if (list.length) {
+          const sorted = [...list].sort((a, b) => {
+            const as = dayjs(a?.DTR_Cut_Off?.start);
+            const bs = dayjs(b?.DTR_Cut_Off?.start);
+            return bs.valueOf() - as.valueOf();
+          });
+          setLatestCutoff(sorted[0]);
+        } else {
+          setLatestCutoff(null);
+        }
+      } catch (_) {
+        if (mounted) setLatestCutoff(null);
+      } finally {
+        if (mounted) setCutoffLoading(false);
+      }
+    };
+    load();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const onFinish = async (values) => {
+    if (submitting) return; // prevent double submit
+    setSubmitting(true);
     try {
       const response = await axiosInstance.post("/payslip-requests", {
         employeeId: values.employeeId,
@@ -22,16 +60,17 @@ const PayslipRequest = () => {
         email: values.email,
       });
 
-      if (response.data.success) {
+      if (response.data?.success) {
+        const request = response.data?.data;
         message.success("Payslip request submitted successfully!");
 
-        // ✅ Push into notifications so it appears in bell popover (local session)
-        if (response.data.data) {
+        // ✅ Push into notifications so it appears in bell popover
+        if (request) {
           setNotifications((prev) => [
             {
-              id: response.data.data._id || Date.now(),
-              employeeId: response.data.data.employeeId,
-              createdAt: response.data.data.createdAt || new Date(),
+              id: request._id || Date.now(),
+              employeeId: request.employeeId,
+              createdAt: request.createdAt || new Date(),
               read: false,
               type: "PayslipRequest",
             },
@@ -41,17 +80,32 @@ const PayslipRequest = () => {
 
         form.resetFields();
       } else {
-        message.error(response.data.message || "Failed to submit payslip request.");
+        // Handle limit reached or general failure
+        const msg = response.data?.message || "Failed to submit payslip request.";
+        if (response.status === 429 || response.data?.code === 'REQUEST_LIMIT_REACHED') {
+          message.warning(msg);
+        } else {
+          message.error(msg);
+        }
       }
     } catch (error) {
-      message.error("An error occurred while submitting the request.");
+      if (error.response?.status === 429 || error.response?.data?.code === 'REQUEST_LIMIT_REACHED') {
+        message.warning(
+          error.response?.data?.message ||
+            "You already have 3 pending requests. Please wait for HR verification."
+        );
+      } else {
+        message.error("An error occurred while submitting the request.");
+      }
       console.error("Payslip request error:", error);
+    } finally {
+      setSubmitting(false);
     }
   };
 
   return (
     <div
-      className="auth-container"
+      className="payslip-request-container"
       style={{
         backgroundImage: `linear-gradient(
           135deg,
@@ -61,7 +115,45 @@ const PayslipRequest = () => {
         ), url(${bgImage})`,
       }}
     >
-      <Card className="auth-card">
+      <Card className="payslip-request-card">
+        {/* Latest encoded biometrics summary */}
+        <div className="cutoff-banner">
+          <div className="cutoff-banner__icon">
+            <CalendarOutlined />
+          </div>
+          <div className="cutoff-banner__content">
+            <div className="cutoff-banner__title">Latest Encoded Biometrics</div>
+            <div className="cutoff-banner__desc">
+              {cutoffLoading ? (
+                <span>Loading latest coverage…</span>
+              ) : latestCutoff ? (
+                (() => {
+                  const s = latestCutoff?.DTR_Cut_Off?.start
+                    ? dayjs(latestCutoff.DTR_Cut_Off.start)
+                    : null;
+                  const e = latestCutoff?.DTR_Cut_Off?.end
+                    ? dayjs(latestCutoff.DTR_Cut_Off.end)
+                    : null;
+                  const label = s && e
+                    ? (s.isSame(e, 'month')
+                        ? `${s.format('MMM D')}–${e.format('D, YYYY')}`
+                        : `${s.format('MMM D, YYYY')} – ${e.format('MMM D, YYYY')}`)
+                    : (latestCutoff?.DTR_Record_Name || 'Cut-off');
+                  return (
+                    <span className="cutoff-recent">
+                      <CalendarOutlined />
+                      <span className="cutoff-recent__label">Recent Biometrics:</span>
+                      <strong>{label}</strong>
+                    </span>
+                  );
+                })()
+              ) : (
+                <span>No DTR cut-offs published yet. Your payslip request will be queued once available.</span>
+              )}
+            </div>
+          </div>
+        </div>
+
         <Title level={3} className="auth-title">
           Payslip Request
         </Title>
@@ -85,8 +177,15 @@ const PayslipRequest = () => {
             label="Payslip Month"
             name="month"
             rules={[{ required: true, message: "Please select a month" }]}
+            className="responsive-month-picker-item"
           >
-            <DatePicker picker="month" style={{ width: "100%" }} />
+            <DatePicker
+              picker="month"
+              style={{ width: "100%" }}
+              getPopupContainer={(trigger) => trigger.parentNode}
+              popupClassName="mobile-friendly-month-picker"
+              placement="bottomLeft"
+            />
           </Form.Item>
 
           <Form.Item
@@ -101,8 +200,8 @@ const PayslipRequest = () => {
           </Form.Item>
 
           <Form.Item>
-            <Button type="primary" htmlType="submit" block>
-              Submit Request
+            <Button type="primary" htmlType="submit" block loading={submitting} disabled={submitting}>
+              {submitting ? 'Submitting…' : 'Submit Request'}
             </Button>
           </Form.Item>
         </Form>

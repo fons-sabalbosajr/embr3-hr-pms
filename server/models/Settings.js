@@ -12,8 +12,8 @@ const settingsSchema = new mongoose.Schema({
   dtr: {
     defaultStartTime: { type: String, default: "08:00" },
     defaultEndTime: { type: String, default: "17:00" },
-  autoFillBreakOut: { type: String, default: "12:00" },
-  autoFillBreakIn: { type: String, default: "1:00" },
+    autoFillBreakOut: { type: String, default: "12:00" },
+    autoFillBreakIn: { type: String, default: "1:00" },
     // Developer override for cutoff used by dashboard/employee attendance
     overrideCutoff: {
       enabled: { type: Boolean, default: false },
@@ -44,6 +44,25 @@ const settingsSchema = new mongoose.Schema({
     passwordMinLength: { type: Number, default: 8 },
     passwordRequiresNumber: { type: Boolean, default: true },
     passwordRequiresSymbol: { type: Boolean, default: true },
+  },
+
+  // Demo Mode Settings
+  demo: {
+    enabled: { type: Boolean, default: false },
+    startDate: { type: Date },
+    endDate: { type: Date },
+    // Credentials are optional; if not set, default username/password can be used by UI
+    credentials: {
+      username: { type: String, default: "demo_user" },
+      passwordHash: { type: String },
+      updatedAt: { type: Date },
+    },
+    // Restrict visibility for demo users; store permission keys to enable for demo
+    allowedPermissions: { type: [String], default: [] },
+    // Defaults for safety
+    maskSensitiveData: { type: Boolean, default: true },
+    allowSubmissions: { type: Boolean, default: false },
+    showActiveBanner: { type: Boolean, default: true },
   },
 });
 

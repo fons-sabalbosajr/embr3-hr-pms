@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   Table,
   Button,
@@ -13,6 +13,7 @@ import {
 } from "antd";
 import { PlusOutlined, EditOutlined, DeleteOutlined } from "@ant-design/icons";
 import axiosInstance from "../../api/axiosInstance.js";
+import useDemoMode from "../../hooks/useDemoMode";
 
 const { Option } = Select;
 
@@ -21,6 +22,8 @@ const DeductionSettings = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingDeduction, setEditingDeduction] = useState(null);
   const [form] = Form.useForm();
+  const { readOnly, isDemoActive, isDemoUser } = useDemoMode();
+  const [newlyAddedIds, setNewlyAddedIds] = useState(new Set());
 
   const fetchDeductionTypes = async () => {
     try {
@@ -77,10 +80,14 @@ const DeductionSettings = () => {
         });
       } else {
         // Create new deduction
-        await axiosInstance.post("/deduction-types", values);
+        const { data } = await axiosInstance.post("/deduction-types", values);
         notification.success({
           message: "Deduction type added successfully",
         });
+        // Track as newly added for this session (allow delete even in demo)
+        if (data && (data._id || data.id)) {
+          setNewlyAddedIds((prev) => new Set([...Array.from(prev), data._id || data.id]));
+        }
       }
       fetchDeductionTypes();
       setIsModalOpen(false);
@@ -97,6 +104,12 @@ const DeductionSettings = () => {
     setIsModalOpen(false);
     form.resetFields();
   };
+
+  const canDelete = useMemo(() => (record) => {
+    if (!(isDemoActive && isDemoUser)) return true; // non-demo unaffected
+    // In demo: allow delete only for newly added in this session
+    return newlyAddedIds.has(record._id);
+  }, [isDemoActive, isDemoUser, newlyAddedIds]);
 
   const columns = [
     {
@@ -144,6 +157,7 @@ const DeductionSettings = () => {
             icon={<EditOutlined />}
             onClick={() => handleEdit(record)}
             style={{ marginRight: 8 }}
+            disabled={readOnly && isDemoActive && isDemoUser}
           >
             Edit
           </Button>
@@ -153,7 +167,7 @@ const DeductionSettings = () => {
             okText="Yes"
             cancelText="No"
           >
-            <Button icon={<DeleteOutlined />} danger>
+            <Button icon={<DeleteOutlined />} danger disabled={!canDelete(record)}>
               Delete
             </Button>
           </Popconfirm>
@@ -169,6 +183,7 @@ const DeductionSettings = () => {
         icon={<PlusOutlined />}
         onClick={handleAdd}
         style={{ marginBottom: 16 }}
+        disabled={readOnly && isDemoActive && isDemoUser}
       >
         Add Deduction/Incentive
       </Button>
@@ -184,6 +199,7 @@ const DeductionSettings = () => {
         open={isModalOpen}
         onOk={handleOk}
         onCancel={handleCancel}
+        okButtonProps={{ disabled: readOnly && isDemoActive && isDemoUser }}
       >
         <Form form={form} layout="vertical">
           <Form.Item
@@ -191,14 +207,14 @@ const DeductionSettings = () => {
             label="Name"
             rules={[{ required: true, message: "Please enter a name" }]}
           >
-            <Input />
+            <Input disabled={readOnly && isDemoActive && isDemoUser} />
           </Form.Item>
           <Form.Item
             name="type"
             label="Type"
             rules={[{ required: true, message: "Please select a type" }]}
           >
-            <Select>
+            <Select disabled={readOnly && isDemoActive && isDemoUser}>
               <Option value="deduction">Deduction</Option>
               <Option value="incentive">Incentive</Option>
             </Select>
@@ -209,7 +225,7 @@ const DeductionSettings = () => {
             initialValue="fixed"
             rules={[{ required: true, message: 'Please select a calculation type' }]}
           >
-            <Radio.Group>
+            <Radio.Group disabled={readOnly && isDemoActive && isDemoUser}>
                 <Radio value="fixed">Fixed Amount</Radio>
                 <Radio value="formula">Formula</Radio>
             </Radio.Group>
@@ -225,7 +241,7 @@ const DeductionSettings = () => {
                     label="Formula"
                     rules={[{ required: true, message: 'Please enter the formula' }]}
                 >
-                    <Input.TextArea rows={2} placeholder="e.g., salary * 0.1" />
+                    <Input.TextArea rows={2} placeholder="e.g., salary * 0.1" disabled={readOnly && isDemoActive && isDemoUser} />
                 </Form.Item>
               ) : (
                 <Form.Item
@@ -233,7 +249,7 @@ const DeductionSettings = () => {
                     label="Amount"
                     rules={[{ required: true, message: "Please enter an amount" }]}
                 >
-                    <InputNumber style={{ width: '100%' }} min={0} />
+                    <InputNumber style={{ width: '100%' }} min={0} disabled={readOnly && isDemoActive && isDemoUser} />
                 </Form.Item>
               )
             }
@@ -243,7 +259,7 @@ const DeductionSettings = () => {
             label="Description"
             rules={[{ required: true, message: "Please enter a description" }]}
           >
-            <Input.TextArea rows={4} />
+            <Input.TextArea rows={4} disabled={readOnly && isDemoActive && isDemoUser} />
           </Form.Item>
         </Form>
       </Modal>

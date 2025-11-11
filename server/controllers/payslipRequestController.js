@@ -1,6 +1,10 @@
 import PayslipRequest from "../models/PayslipRequest.js";
 import { getSocketInstance } from "../socket.js";
 import User from "../models/User.js";
+import AuditLog from "../models/AuditLog.js";
+import Employee from "../models/Employee.js";
+import nodemailer from "nodemailer";
+import { buildPayslipEmail } from "../utils/emailTemplates.js";
 
 export const createPayslipRequest = async (req, res) => {
   try {
@@ -8,6 +12,22 @@ export const createPayslipRequest = async (req, res) => {
 
     if (!employeeId || !period || !email) {
       return res.status(400).json({ success: false, message: "employeeId, period, and email are required" });
+    }
+
+    // 🔒 Rate limit: max 3 pending requests per employee until HR verification
+    try {
+      const pendingCount = await PayslipRequest.countDocuments({ employeeId, status: 'pending' });
+      if (pendingCount >= 3) {
+        return res.status(429).json({
+          success: false,
+          code: 'REQUEST_LIMIT_REACHED',
+          message: 'You already have 3 pending payslip requests. Please wait for HR to verify before submitting another.',
+          pendingCount
+        });
+      }
+    } catch (countErr) {
+      console.warn('Failed to count pending payslip requests', { employeeId, err: countErr });
+      // Non-fatal: allow request to proceed
     }
 
     const newRequest = await PayslipRequest.create({ employeeId, period, email });
@@ -116,5 +136,110 @@ export const deletePayslipRequest = async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, message: 'Failed to delete payslip request' });
+  }
+};
+
+// Send payslip email with attached PDF (base64) and update request
+export const sendPayslipEmail = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { pdfBase64, filename = 'payslip.pdf', subject, bodyHtml } = req.body || {};
+    if (!pdfBase64) return res.status(400).json({ success: false, message: 'pdfBase64 is required' });
+
+    const callerId = req.user?.id || req.user?._id;
+    const caller = callerId ? await User.findById(callerId) : null;
+    if (!caller || !(caller.isAdmin || caller.canManageNotifications || caller.canAccessNotifications || caller.canSeeDev || caller.canViewPayroll)) {
+      return res.status(403).json({ success: false, message: 'Forbidden: insufficient permissions' });
+    }
+
+  const row = await PayslipRequest.findById(id);
+    if (!row) return res.status(404).json({ success: false, message: 'Payslip request not found' });
+
+    if (row.sentAt) {
+      return res.status(409).json({ success: false, message: 'Payslip already emailed', alreadySent: true, sentAt: row.sentAt });
+    }
+
+    // Validate env configuration
+    const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_SECURE } = process.env;
+    if (!SMTP_HOST || !SMTP_PORT || !SMTP_USER || !SMTP_PASS) {
+      return res.status(500).json({ success: false, message: 'SMTP configuration missing. Please set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS.' });
+    }
+
+    const transporter = nodemailer.createTransport({
+      host: SMTP_HOST,
+      port: Number(SMTP_PORT),
+      secure: SMTP_SECURE === 'true',
+      auth: { user: SMTP_USER, pass: SMTP_PASS },
+    });
+
+    // Retrieve employee document early for template enrichment
+    let employeeDoc = null;
+    try {
+      if (row.employeeId) {
+        employeeDoc = await Employee.findOne({ empId: row.employeeId }).lean();
+      }
+    } catch (_) {}
+
+    // Use shared template builder (allows future branding tweaks in one place)
+    const html = bodyHtml || buildPayslipEmail({ period: row.period, employee: employeeDoc });
+
+    let info;
+    try {
+      info = await transporter.sendMail({
+        from: `HR Payroll <${SMTP_USER}>`,
+        to: row.email,
+        subject: subject || `Payslip ${row.period}`,
+        html,
+        attachments: [
+          {
+            filename,
+            content: pdfBase64.split(',').pop(), // support data:application/pdf;base64,<data>
+            encoding: 'base64',
+            contentType: 'application/pdf',
+          },
+        ],
+      });
+    } catch (mailErr) {
+      console.error('Failed to send payslip email', mailErr);
+      return res.status(502).json({ success: false, message: 'Failed to send email', error: mailErr.message });
+    }
+
+    row.sentAt = new Date();
+    row.sentBy = caller._id?.toString() || caller.id || 'unknown';
+    row.status = 'sent';
+    row.emailMessageId = info?.messageId;
+    await row.save();
+
+    // Audit log: record email sent under employee records/history
+    try {
+      await AuditLog.create({
+        action: 'payslip:email-sent',
+        performedBy: caller?._id,
+        performedByName: caller?.name || caller?.email,
+        details: {
+          requestId: row._id?.toString(),
+          empId: row.employeeId,
+          employeeObjectId: employeeDoc?._id || null,
+          period: row.period,
+          email: row.email,
+          filename,
+          messageId: row.emailMessageId,
+          sentAt: row.sentAt,
+        },
+      });
+    } catch (e) {
+      // non-fatal
+      console.warn('Failed to write payslip email audit log', e);
+    }
+
+    const io = getSocketInstance();
+    if (io) {
+      io.emit('payslipSent', { id: row._id, employeeId: row.employeeId, period: row.period, sentAt: row.sentAt });
+    }
+
+    res.json({ success: true, data: row });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: 'Unexpected error sending payslip email' });
   }
 };

@@ -12,6 +12,7 @@ const suspensionSchema = new mongoose.Schema(
     attachmentUrl: { type: String },
     notes: { type: String },
     createdBy: { type: String },
+    active: { type: Boolean, default: true }, // inactive suspensions ignored from DTR logic
   },
   { timestamps: true }
 );

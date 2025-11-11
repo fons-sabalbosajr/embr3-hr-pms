@@ -1,8 +1,11 @@
 import React from "react";
+import useDemoMode from "../../../../../hooks/useDemoMode";
 import { Table, Button, message } from "antd";
 import dayjs from "dayjs";
 
 const DailyLogsTable = ({ dailySummary, onSendReminder }) => {
+  const { readOnly, isDemoActive, isDemoUser, allowSubmissions } = useDemoMode();
+  const demoReadOnly = isDemoActive && !allowSubmissions;
   if (!dailySummary) return null;
 
   const { rawLogs, timeIn, breakOut, breakIn, timeOut } = dailySummary;
@@ -74,6 +77,7 @@ const DailyLogsTable = ({ dailySummary, onSendReminder }) => {
         <Button
           type="primary"
           size="small"
+          disabled={demoReadOnly}
           onClick={() => {
             if (onSendReminder) {
               onSendReminder(record);

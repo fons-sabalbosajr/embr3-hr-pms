@@ -1,6 +1,5 @@
 // client/src/App.jsx
 import { Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider } from "./context/AuthContext";
 import useAuth from "./hooks/useAuth";
 
 import AuthPage from "./pages/AuthPage/AuthPage";
@@ -30,20 +29,22 @@ const AppRoutes = () => {
 
       {/* 🌐 Public Requests (no login required) */}
       <Route path="/requests" element={<PublicRequests />} />
+      {/* Back-compat: singular "/request" should go to the public portal */}
+      <Route path="/request" element={<Navigate to="/requests" replace />} />
       <Route path="/payslip" element={<PayslipRequest />} />
       <Route path="/dtr-employee-request" element={<RequestDTRClient />} />
 
       {/* 🔒 Protected app (requires login) */}
       <Route
         path="/*"
-        element={isAuthenticated ? <HomePage /> : <Navigate to="/auth" replace />}
+        element={
+          isAuthenticated ? <HomePage /> : <Navigate to="/auth" replace />
+        }
       />
     </Routes>
   );
 };
 
-const App = () => (
-  <AppRoutes />
-);
+const App = () => <AppRoutes />;
 
 export default App;

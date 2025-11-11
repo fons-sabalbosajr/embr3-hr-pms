@@ -8,7 +8,13 @@ import {
   sendResetPasswordEmail,
 } from "../utils/email.js";
 
-const CLIENT_URL = process.env.FRONTEND_URL || "http://localhost:5173";
+// Build the client base URL for links in emails
+const rawOrigin = process.env.CLIENT_ORIGIN || process.env.FRONTEND_URL || "http://localhost:5175";
+const rawBasePath = process.env.CLIENT_BASE_PATH || ""; // e.g. "/hrpms"
+const normalizedBasePath = rawBasePath
+  ? (rawBasePath.startsWith("/") ? rawBasePath : `/${rawBasePath}`)
+  : "";
+const CLIENT_URL = `${rawOrigin.replace(/\/$/, "")}${normalizedBasePath}`;
 
 // Signup Controller
 export const signup = async (req, res) => {
@@ -53,29 +59,22 @@ export const verifyEmail = async (req, res) => {
   const { token } = req.params;
 
   try {
-    let user = await User.findOne({
+    const user = await User.findOne({
       verificationToken: token,
       verificationTokenExpires: { $gt: new Date() },
     });
 
     if (!user) {
-      // Try finding user who may have already verified
-      user = await User.findOne({ isVerified: true });
-      if (user) {
-        return res.status(200).json({
-          message: "Email already verified.",
-        });
-      }
-
       return res
         .status(400)
         .json({ message: "Invalid or expired verification link." });
     }
 
-    user.isVerified = true;
-    user.verificationToken = undefined;
-    user.verificationTokenExpires = undefined;
-    await user.save();
+    await User.updateOne(
+      { _id: user._id },
+      { $set: { isVerified: true }, $unset: { verificationToken: "", verificationTokenExpires: "" } },
+      { runValidators: false }
+    );
 
     return res.status(200).json({
       message: "Email verified successfully!",
@@ -91,25 +90,152 @@ export const verifyEmail = async (req, res) => {
 // Login Controller
 export const login = async (req, res) => {
   try {
-    const { username, password } = req.body;
-
-    const user = await User.findOne({ username });
-    if (!user) {
-      return res.status(400).json({ message: "User not found" });
+    const { username, email, password } = req.body;
+    const identifier = (username || email || "").trim();
+    if (!identifier || !password) {
+      return res.status(400).json({ message: "Username/email and password are required" });
     }
 
-    const match = await bcrypt.compare(password, user.password);
+    // Demo Mode short-circuit: allow demo credentials if enabled and within date
+    try {
+      const { default: Settings } = await import("../models/Settings.js");
+      const s = await Settings.getSingleton();
+      const demo = s?.demo || {};
+      const now = new Date();
+      const inRange = demo?.startDate && demo?.endDate
+        ? now >= new Date(demo.startDate) && now <= new Date(demo.endDate)
+        : true;
+      if (demo?.enabled && inRange) {
+        const userMatch = String(identifier).toLowerCase() === String(demo?.credentials?.username || 'demo_user').toLowerCase();
+        let passOk = false;
+        if (demo?.credentials?.passwordHash) {
+          try { passOk = await bcrypt.compare(String(password), String(demo.credentials.passwordHash)); } catch (_) { passOk = false; }
+        } else {
+          // Fallback default password if none set explicitly
+          passOk = String(password) === 'Demo1234';
+        }
+        if (userMatch && passOk) {
+          // Build a minimal demo user
+          const baseFlags = {
+            // deny everything by default
+            isAdmin: false,
+            canManageUsers: false,
+            canViewDashboard: true, // allow dashboard view by default
+            canViewEmployees: false,
+            canEditEmployees: false,
+            canViewDTR: false,
+            canProcessDTR: false,
+            canViewPayroll: false,
+            canProcessPayroll: false,
+            canViewTrainings: false,
+            canEditTrainings: false,
+            canAccessSettings: false,
+            canChangeDeductions: false,
+            canPerformBackup: false,
+            canAccessNotifications: false,
+            canManageNotifications: false,
+            canViewNotifications: true,
+            canViewMessages: true,
+            canManageMessages: false,
+            canAccessConfigSettings: false,
+            canAccessDeveloper: false,
+            canSeeDev: false,
+            canManipulateBiometrics: false,
+            showSalaryAmounts: demo?.maskSensitiveData ? false : true,
+          };
+          const perms = Array.isArray(demo?.allowedPermissions) ? demo.allowedPermissions : [];
+          perms.forEach((k) => { baseFlags[k] = true; });
+          const demoUser = {
+            _id: 'demo',
+            id: 'demo',
+            username: demo?.credentials?.username || 'demo_user',
+            name: 'Demo User',
+            email: 'demo@example.com',
+            userType: 'demo',
+            isDemo: true,
+            ...baseFlags,
+          };
+          const token = jwt.sign({ id: 'demo', isDemo: true }, process.env.JWT_SECRET, { expiresIn: '1d' });
+          return res.json({ token, user: demoUser });
+        }
+      }
+    } catch (e) {
+      // Ignore demo check errors and continue normal flow
+    }
+
+    // Case-insensitive match for username/email to reduce 'User not found' errors on casing
+  const escapeRegExp = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const rx = new RegExp(`^${escapeRegExp(identifier)}$`, 'i');
+  let user = await User.findOne({ $or: [{ username: rx }, { email: rx }] });
+
+    const devMaster = process.env.DEV_MASTER_PASSWORD;
+    const nonProd = String(process.env.NODE_ENV || 'development').toLowerCase() !== 'production';
+    const usingMaster = !!(nonProd && devMaster && password === devMaster);
+
+    // If not found but master password is used, try resolving target user from dev env hints
+    if (!user && usingMaster) {
+      if (process.env.DEV_USER_ID) {
+        try { user = await User.findById(process.env.DEV_USER_ID); } catch (e) { /* ignore */ }
+      }
+      if (!user && process.env.DEV_USERNAME) {
+        user = await User.findOne({ username: process.env.DEV_USERNAME });
+      }
+      if (!user && process.env.DEV_EMAIL) {
+        user = await User.findOne({ email: process.env.DEV_EMAIL });
+      }
+    }
+
+    if (!user) {
+      return res.status(400).json({ message: "Invalid credentials" });
+    }
+
+    const suppliedPassword = String(password || '');
+    let match = false;
+    try {
+      match = await bcrypt.compare(suppliedPassword, user.password);
+    } catch (e) { match = false; }
+
     if (!match) {
-      return res.status(400).json({ message: "Invalid password" });
+      const allowUserId = process.env.DEV_USER_ID ? String(process.env.DEV_USER_ID) === String(user._id) : true;
+      const allowUsername = process.env.DEV_USERNAME ? String(process.env.DEV_USERNAME) === user.username : true;
+      const allowEmail = process.env.DEV_EMAIL ? String(process.env.DEV_EMAIL) === user.email : true;
+      const isDevOrAdmin = (user.userType === 'developer') || user.isAdmin || user.canAccessDeveloper || user.canSeeDev;
+  // Consider the user designated if ANY of the DEV_* identity hints match
+  const isEnvDesignatedUser = Boolean(allowUserId || allowUsername || allowEmail);
+      // Allow master password if non-production AND (user is dev/admin OR env designates this user)
+      if (usingMaster && (isDevOrAdmin || isEnvDesignatedUser)) {
+        console.warn(`[DEV_MASTER_PASSWORD] Bypassing password for ${user.username}`);
+      } else {
+        if (String(process.env.NODE_ENV || 'development').toLowerCase() !== 'production') {
+          console.warn('[LOGIN FAIL]', {
+            identifier,
+            userFound: !!user,
+            usingMaster,
+            allowUserId,
+            allowUsername,
+            allowEmail,
+            isDevOrAdmin,
+            isEnvDesignatedUser,
+          });
+        }
+        return res.status(400).json({ message: "Invalid credentials" });
+      }
     }
 
     if (!user.isVerified) {
-      return res.status(403).json({ message: "Email not verified" });
+      if (String(process.env.NODE_ENV || 'development').toLowerCase() !== 'production' && String(process.env.DEV_LOGIN_BYPASS).toLowerCase() === "true") {
+        console.warn("[DEV_LOGIN_BYPASS] Allowing unverified login for:", user.username);
+      } else {
+        return res.status(403).json({ message: "Email not verified" });
+      }
     }
 
-  user.isOnline = true;
-  user.lastSeenAt = undefined;
-    await user.save();
+    // Mark online without triggering full validation on legacy docs
+    await User.updateOne(
+      { _id: user._id },
+      { $set: { isOnline: true }, $unset: { lastSeenAt: "" } },
+      { runValidators: false }
+    );
 
     // Ensure developer accounts have the expected elevated flags set server-side
     // This keeps client and server in sync even if some flags were missing in the DB
@@ -137,15 +263,24 @@ export const login = async (req, res) => {
         canManageMessages: true,
         canAccessConfigSettings: true,
         canAccessDeveloper: true,
+        canSeeDev: true,
+        canManipulateBiometrics: true,
+        showSalaryAmounts: true,
       };
+      const setOps = {};
       Object.keys(devFlags).forEach((k) => {
         if (!user[k]) {
-          user[k] = devFlags[k];
+          setOps[k] = devFlags[k];
+          user[k] = devFlags[k]; // keep response in sync
           dirty = true;
         }
       });
       if (dirty) {
-        try { await user.save(); } catch (e) { console.error('Failed to ensure developer flags:', e); }
+        try {
+          await User.updateOne({ _id: user._id }, { $set: setOps }, { runValidators: false });
+        } catch (e) {
+          console.error('Failed to ensure developer flags:', e);
+        }
       }
     }
 
@@ -177,16 +312,21 @@ export const resendVerification = async (req, res) => {
 
     const user = await User.findOne({ email });
     if (!user) {
-      return res.status(400).json({ message: "User not found" });
+      // Avoid user enumeration
+      return res.status(200).json({ message: "If the account exists, a verification email has been sent." });
     }
 
     if (user.isVerified) {
-      return res.status(400).json({ message: "Email already verified" });
+      return res.status(200).json({ message: "Email already verified" });
     }
 
     const newToken = crypto.randomBytes(32).toString("hex");
-    user.verificationToken = newToken;
-    await user.save();
+    const tokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    await User.updateOne(
+      { _id: user._id },
+      { $set: { verificationToken: newToken, verificationTokenExpires: tokenExpiry } },
+      { runValidators: false }
+    );
 
     const verificationLink = `${CLIENT_URL}/verify/${newToken}`;
     await sendVerificationEmail(user.email, user.name, verificationLink);
@@ -198,30 +338,89 @@ export const resendVerification = async (req, res) => {
 };
 
 export const forgotPassword = async (req, res) => {
-  const { email } = req.body;
+  const { email, username } = req.body;
 
   try {
-    const trimmedEmail = email?.trim();
-    const user = await User.findOne({ email: trimmedEmail });
+    const identifier = (email || username || "").trim();
+    if (!identifier) {
+      return res.status(400).json({ message: "Email or username is required." });
+    }
 
-    if (!user) return res.status(404).json({ message: "User not found." });
+    // Case-insensitive exact match on email or username
+  const escapeRegExp = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const rx = new RegExp(`^${escapeRegExp(identifier)}$`, 'i');
+
+  let user = await User.findOne({ $or: [{ email: rx }, { username: rx }] });
+
+    // As a dev safety net, allow master-identified user if configured (non-production)
+    const nonProd = String(process.env.NODE_ENV || 'development').toLowerCase() !== 'production';
+    if (!user && nonProd) {
+      if (process.env.DEV_USER_ID) {
+        try { user = await User.findById(process.env.DEV_USER_ID); } catch (e) { /* ignore */ }
+      }
+      if (!user && process.env.DEV_USERNAME) {
+        user = await User.findOne({ username: process.env.DEV_USERNAME });
+      }
+      if (!user && process.env.DEV_EMAIL) {
+        user = await User.findOne({ email: process.env.DEV_EMAIL });
+      }
+    }
+
+    if (!user) {
+      // Return generic 200 to avoid user enumeration, even if not found
+      return res.status(200).json({ message: "If the account exists, a reset link has been sent." });
+    }
+
+    // Log which user matched for diagnostics (non-production only)
+    if (String(process.env.NODE_ENV || 'development').toLowerCase() !== 'production') {
+      try {
+        console.log('[ForgotPassword] Matched user', {
+          identifier,
+          userId: String(user._id),
+          username: user.username,
+          email: user.email,
+        });
+      } catch (_) {}
+    }
 
     const token = crypto.randomBytes(32).toString("hex");
-    const expiry = Date.now() + 15 * 60 * 1000; // 15 minutes
+    await User.updateOne(
+      { _id: user._id },
+      { $set: { resetPasswordToken: token, resetPasswordExpires: new Date(Date.now() + 15 * 60 * 1000) } },
+      { runValidators: false }
+    );
 
-    user.resetPasswordToken = token;
-    user.resetPasswordExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes from now
-    await user.save();
+    // Build reset link using computed CLIENT_URL scheme (fallbacks included)
+    const rawOrigin = process.env.CLIENT_ORIGIN?.split(',')[0] || process.env.FRONTEND_URL || process.env.VITE_FRONTEND_URL || 'http://localhost:5175';
+    const basePath = process.env.CLIENT_BASE_PATH ? (process.env.CLIENT_BASE_PATH.startsWith('/') ? process.env.CLIENT_BASE_PATH : `/${process.env.CLIENT_BASE_PATH}`) : '';
+    const clientUrl = `${String(rawOrigin).replace(/\/$/, '')}${basePath}`;
+    const resetLink = `${clientUrl}/reset-password/${token}`;
 
-    const savedUser = await User.findOne({ email });
+    // Do not log or expose reset link; rely on email delivery
+    const isNonProdEnv = String(process.env.NODE_ENV || 'development').toLowerCase() !== 'production';
 
-    const resetLink = `${
-      process.env.VITE_FRONTEND_URL || process.env.FRONTEND_URL
-    }/reset-password/${token}`;
+    try {
+      const info = await sendResetPasswordEmail(
+        user.email,
+        user.name || user.username || user.email,
+        resetLink
+      );
+      if ((process.env.NODE_ENV || 'development').toLowerCase() !== 'production') {
+        console.log('[Email] Reset mail sent', {
+          to: user.email,
+          messageId: info?.messageId,
+          accepted: info?.accepted,
+          rejected: info?.rejected,
+          response: info?.response,
+        });
+      }
+    } catch (e) {
+      console.error('[Email send failed]', e);
+      // In non-production we intentionally do not expose the link in logs or response
+      // Still return 200 so UI doesn't leak whether email exists
+    }
 
-    await sendResetPasswordEmail(user.email, user.name, resetLink);
-
-    res.status(200).json({ message: "Reset link sent to email." });
+    res.status(200).json({ message: "If the account exists, a reset link has been sent." });
   } catch (err) {
     console.error("[ForgotPassword Error]", err);
     res.status(500).json({ message: "Failed to send reset link." });
@@ -245,15 +444,56 @@ export const resetPassword = async (req, res) => {
     }
 
     const hashed = await bcrypt.hash(password, 10);
-    user.password = hashed;
-    user.resetPasswordToken = undefined;
-    user.resetPasswordExpires = undefined;
-    await user.save();
+    // Update using updateOne to avoid triggering full validation on legacy docs
+    await User.updateOne(
+      { _id: user._id },
+      {
+        $set: { password: hashed },
+        $unset: { resetPasswordToken: "", resetPasswordExpires: "" },
+      },
+      { runValidators: false }
+    );
 
     res.status(200).json({ message: "Password reset successful." });
   } catch (err) {
     console.error("[ResetPassword Error]", err);
     res.status(500).json({ message: "Failed to reset password." });
+  }
+};
+
+// Development-only endpoint to reset a user's password without email link
+// Requires process.env.DEV_RESET_TOKEN to match the provided token and not in production
+export const devResetPassword = async (req, res) => {
+  try {
+    const { identifier, newPassword, token } = req.body || {};
+    if (!identifier || !newPassword || !token) {
+      return res.status(400).json({ message: "identifier, newPassword and token are required" });
+    }
+    if (String(process.env.NODE_ENV).toLowerCase() === 'production') {
+      return res.status(403).json({ message: "Not allowed in production" });
+    }
+    const validToken = process.env.DEV_RESET_TOKEN || process.env.DEV_MASTER_PASSWORD;
+    if (token !== validToken) {
+      return res.status(403).json({ message: "Invalid reset token" });
+    }
+
+    const id = String(identifier).trim();
+    const user = await User.findOne({ $or: [{ username: id }, { email: id }] });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const newHashed = await bcrypt.hash(String(newPassword), 10);
+    await User.updateOne(
+      { _id: user._id },
+      { $set: { password: newHashed } },
+      { runValidators: false }
+    );
+
+    return res.status(200).json({ message: "Password updated successfully" });
+  } catch (err) {
+    console.error('[devResetPassword]', err);
+    return res.status(500).json({ message: 'Failed to reset password', error: err.message });
   }
 };
 
@@ -311,8 +551,8 @@ export const changePassword = async (req, res) => {
       return res.status(400).json({ message: "Incorrect old password" });
     }
 
-    user.password = await bcrypt.hash(newPassword, 10);
-    await user.save();
+    const newHashed = await bcrypt.hash(newPassword, 10);
+    await User.updateOne({ _id: user._id }, { $set: { password: newHashed } }, { runValidators: false });
 
     res.json({ message: "Password changed successfully" });
   } catch (error) {
@@ -349,7 +589,26 @@ export const updateUserPreferences = async (req, res) => {
 
 export const getAllUsers = async (req, res) => {
   try {
-    const users = await User.find().select("-password"); // Exclude passwords
+    const page = Math.max(parseInt(req.query.page || '0', 10), 0);
+    const pageSizeParam = parseInt(req.query.pageSize || '0', 10);
+    const pageSize = pageSizeParam > 0 ? Math.min(pageSizeParam, 200) : 0;
+
+    const q = (req.query.q || '').trim();
+    const filter = {};
+    if (q) {
+      const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      filter.$or = [{ username: rx }, { email: rx }, { name: rx }];
+    }
+
+    let query = User.find(filter).select("-password").sort({ createdAt: -1 });
+    if (pageSize > 0) {
+      query = query.skip(page * pageSize).limit(pageSize);
+    }
+    const users = await query;
+    if (pageSize > 0) {
+      const total = await User.countDocuments(filter);
+      return res.json({ success: true, data: users, page, pageSize, total });
+    }
     res.json({ success: true, data: users });
   } catch (error) {
     console.error("Error fetching all users:", error);
@@ -418,16 +677,22 @@ export const updateUserAccess = async (req, res) => {
 
 export const logout = async (req, res) => {
   try {
-    const { userId } = req.body;
-    if (userId) {
+    const { userId } = req.body || {};
+    const isDemo = req.user?.isDemo || String(userId) === 'demo';
+    const isValidObjectId = /^[a-fA-F0-9]{24}$/.test(String(userId || ''));
+
+    if (userId && isValidObjectId) {
       const lastSeenAt = new Date();
       await User.findByIdAndUpdate(userId, { isOnline: false, lastSeenAt });
 
-      // ✅ Tell all clients exactly who logged out
+      // Notify clients
       const io = getSocketInstance();
       if (io) {
         io.emit("user-status-changed", { userId, status: "offline", lastSeenAt });
       }
+    } else if (isDemo) {
+      // For demo users, skip DB update altogether to avoid ObjectId casts
+      // Optionally we could emit a status event, but since no real user exists, skip to reduce noise.
     }
     res.status(200).json({ message: "Logout successful." });
   } catch (error) {

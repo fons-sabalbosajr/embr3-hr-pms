@@ -94,21 +94,35 @@ const Trainings = ({ employee }) => {
               const colorB = divisionColors[b.division] || "#ccc";
               return colorA.localeCompare(colorB);
             })
-            .map((p) => (
-              <Tag
-                key={p.empId}
-                color={divisionColors[p.division] || "#ccc"}
-                style={{ cursor: "pointer", fontSize: 10 }}
-                onClick={() =>
-                  setSelectedParticipant({
-                    ...p,
-                    trainings: participantTrainingsMap[p.empId],
-                  })
-                }
-              >
-                {p.name}
-              </Tag>
-            ))}
+            .map((p) => {
+              const isResigned = !!p.resigned;
+              const baseColor = divisionColors[p.division] || "#ccc";
+              const style = {
+                cursor: isResigned ? "not-allowed" : "pointer",
+                fontSize: 10,
+                opacity: isResigned ? 0.5 : 1,
+                textDecoration: isResigned ? "line-through" : undefined,
+                borderStyle: isResigned ? "dashed" : undefined,
+              };
+              const handleClick = () => {
+                if (isResigned) return; // disabled
+                setSelectedParticipant({
+                  ...p,
+                  trainings: participantTrainingsMap[p.empId],
+                });
+              };
+              return (
+                <Tag
+                  key={p.empId}
+                  color={baseColor}
+                  style={style}
+                  onClick={handleClick}
+                  title={isResigned ? "Resigned" : undefined}
+                >
+                  {p.name}
+                </Tag>
+              );
+            })}
         </div>
       ),
     },
