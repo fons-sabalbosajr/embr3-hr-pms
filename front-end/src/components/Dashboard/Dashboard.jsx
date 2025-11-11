@@ -30,6 +30,7 @@ import "./dashboard.css";
 import OnlineUsers from "./component/OnlineUsers";
 import useAuth from "../../hooks/useAuth";
 import socket from "../../../utils/socket";
+import useDemoMode from "../../hooks/useDemoMode";
 
 const PieChartComponent = lazy(() =>
   import("../Dashboard/component/PieChart/PieChartComponent")
@@ -56,6 +57,8 @@ const Dashboard = () => {
   const [offlineUsers, setOfflineUsers] = useState([]);
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { isDemoActive, isDemoUser } = useDemoMode();
+  const demoDisabled = isDemoActive && isDemoUser;
 
   const [searchValue, setSearchValue] = useState("");
   const [searchOptions, setSearchOptions] = useState([]);
@@ -510,12 +513,26 @@ const Dashboard = () => {
                 role="button"
                 tabIndex={0}
                 className="emp-tile emp-tile--amber"
-                onClick={() => handleGenerateReports(selectedEmployee)}
+                onClick={() => {
+                  if (demoDisabled) {
+                    message.warning("Generate Reports is disabled in demo mode.");
+                    return;
+                  }
+                  handleGenerateReports(selectedEmployee);
+                }}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ")
+                  if (e.key === "Enter" || e.key === " ") {
+                    if (demoDisabled) {
+                      e.preventDefault();
+                      message.warning("Generate Reports is disabled in demo mode.");
+                      return;
+                    }
                     handleGenerateReports(selectedEmployee);
+                  }
                 }}
                 aria-label="Generate Reports"
+                aria-disabled={demoDisabled}
+                style={demoDisabled ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
               >
                 {tileLoading.payslip ? (
                   <div className="emp-tile-icon">
@@ -534,12 +551,26 @@ const Dashboard = () => {
                 role="button"
                 tabIndex={0}
                 className="emp-tile emp-tile--green"
-                onClick={() => handleOpenDTR(selectedEmployee)}
+                onClick={() => {
+                  if (demoDisabled) {
+                    message.warning("Open DTR is disabled in demo mode.");
+                    return;
+                  }
+                  handleOpenDTR(selectedEmployee);
+                }}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ")
+                  if (e.key === "Enter" || e.key === " ") {
+                    if (demoDisabled) {
+                      e.preventDefault();
+                      message.warning("Open DTR is disabled in demo mode.");
+                      return;
+                    }
                     handleOpenDTR(selectedEmployee);
+                  }
                 }}
                 aria-label="Open DTR"
+                aria-disabled={demoDisabled}
+                style={demoDisabled ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
               >
                 {tileLoading.dtr ? (
                   <div className="emp-tile-icon">

@@ -2,8 +2,8 @@ import { useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { Card, Form, Input, Button, Typography } from "antd";
 import Swal from "sweetalert2";
-import axios from "axios";
-import "./resetpassword.css"; // For fade animation
+import axios from "../../api/axiosInstance";
+import "./ResetPassword.css"; // For fade animation
 
 const { Title, Text } = Typography;
 
@@ -26,10 +26,7 @@ const ResetPassword = () => {
 
     setLoading(true);
     try {
-      await axios.post(
-        `${import.meta.env.VITE_API_URL}/users/reset-password/${token}`,
-        { password }
-      );
+      await axios.post(`/users/reset-password/${token}`, { password });
 
       await Swal.fire({
         icon: "success",

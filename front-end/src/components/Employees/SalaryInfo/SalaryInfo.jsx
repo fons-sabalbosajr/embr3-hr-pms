@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import useDemoMode from "../../../hooks/useDemoMode";
 import {
   Input,
   Select,
@@ -25,6 +26,8 @@ import EditSalaryInfo from "./EditSalaryInfo/EditSalaryInfo";
 const { Option } = Select;
 
 const SalaryInfo = () => {
+  const { readOnly, isDemoActive, isDemoUser } = useDemoMode();
+  const demoDeleteDisabled = isDemoActive; // Disable deletes in demo
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalType, setModalType] = useState("add"); // 'add' or 'edit'
   const [employeeData, setEmployeeData] = useState([]);
@@ -195,18 +198,19 @@ const SalaryInfo = () => {
           <Tooltip title="Edit Salary Info">
             <Button
               size="small"
+              type="primary"
               icon={<EditOutlined />}
               onClick={() => showModal("edit", record.salaryInfo)}
               disabled={!record.salaryInfo} // Disable if no salary info exists
             />
           </Tooltip>
-          <Tooltip title="Delete Salary Info">
+          <Tooltip title={demoDeleteDisabled ? "Delete disabled in demo mode" : "Delete Salary Info"}>
             <Button
               size="small"
               danger
               icon={<DeleteOutlined />}
               onClick={() => handleDelete(record.salaryInfo?._id)}
-              disabled={!record.salaryInfo} // Disable if no salary info exists
+              disabled={!record.salaryInfo || demoDeleteDisabled}
             />
           </Tooltip>
         </Space>
@@ -260,18 +264,19 @@ const SalaryInfo = () => {
           <Tooltip title="Edit Salary Info">
             <Button
               size="small"
+              type="primary"
               icon={<EditOutlined />}
               onClick={() => showModal("edit", record.salaryInfo)}
               disabled={!record.salaryInfo} // Disable if no salary info exists
             />
           </Tooltip>
-          <Tooltip title="Delete Salary Info">
+          <Tooltip title={demoDeleteDisabled ? "Delete disabled in demo mode" : "Delete Salary Info"}>
             <Button
               size="small"
               danger
               icon={<DeleteOutlined />}
               onClick={() => handleDelete(record.salaryInfo?._id)}
-              disabled={!record.salaryInfo} // Disable if no salary info exists
+              disabled={!record.salaryInfo || demoDeleteDisabled}
             />
           </Tooltip>
         </Space>
@@ -297,7 +302,7 @@ const SalaryInfo = () => {
           />
         </Space>
 
-        <Button type="primary" onClick={() => showModal("add")}>
+        <Button type="primary" onClick={() => showModal("add")} disabled={readOnly && isDemoActive && isDemoUser}>
           Add Salary Info
         </Button>
 

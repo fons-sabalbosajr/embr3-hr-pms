@@ -1,133 +1,111 @@
 import DTRRequest from "../models/DTRRequest.js";
-import DTRLog from "../models/DTRLog.js";
-import Employee from "../models/Employee.js";
-import dayjs from "dayjs";
 import { getSocketInstance } from "../socket.js";
-import mongoose from "mongoose";
-
-// Build a tolerant regex that matches AC-No with optional non-digits and leading zeros
-// Example: digits "3946" -> /^0*\D*3\D*9\D*4\D*6\D*$/i which matches "03-946", "0003 9 4 6", etc.
-const buildLooseAcNoRegex = (digits) => {
-  const seq = String(digits || "").replace(/\D/g, "").replace(/^0+/, "");
-  if (!seq) return null;
-  const parts = seq.split("").map((ch) => `\\D*${ch}`);
-  return new RegExp(`^0*${parts.join("")}\\D*$`, "i");
-};
-
-const resolveAcNosForEmployee = async (employeeId) => {
-  // Try by empId first
-  const emp = await Employee.findOne({ empId: employeeId }).lean();
-  const candidates = [];
-  if (emp) {
-    const base = (emp.empId || "").replace(/\D/g, "").replace(/^0+/, "");
-    if (base) candidates.push(base);
-    (emp.alternateEmpIds || []).forEach((id) => {
-      const clean = (id || "").replace(/\D/g, "").replace(/^0+/, "");
-      if (clean) candidates.push(clean);
-    });
-  }
-  // Fallback: treat employeeId as AC-No directly
-  if (!candidates.length) {
-    const clean = (employeeId || "").replace(/\D/g, "").replace(/^0+/, "");
-    if (clean) candidates.push(clean);
-  }
-  return [...new Set(candidates)].filter(Boolean);
-};
-
-export const checkDTRExistsForRange = async (req, res) => {
-  try {
-    const { employeeId, startDate, endDate } = req.query;
-    if (!employeeId || !startDate || !endDate) {
-      return res.status(400).json({ success: false, message: "employeeId, startDate and endDate are required" });
-    }
-
-    const acNos = await resolveAcNosForEmployee(employeeId);
-    if (!acNos.length) return res.json({ success: true, data: { available: false } });
-
-    const start = dayjs(startDate).startOf("day").toDate();
-    const end = dayjs(endDate).endOf("day").toDate();
-
-    // Query using normalizedAcNo or a tolerant regex on raw AC-No
-    const orConds = [{ normalizedAcNo: { $in: acNos } }];
-    acNos.forEach((d) => {
-      const rx = buildLooseAcNoRegex(d);
-      if (rx) orConds.push({ "AC-No": { $regex: rx } });
-    });
-    const count = await DTRLog.countDocuments({ Time: { $gte: start, $lte: end }, $or: orConds });
-
-    return res.json({ success: true, data: { available: count > 0, total: count } });
-  } catch (err) {
-    console.error("checkDTRExistsForRange error:", err);
-    return res.status(500).json({ success: false, message: "Server Error" });
-  }
-};
+import User from "../models/User.js";
 
 export const createDTRRequest = async (req, res) => {
   try {
-    const { employeeId, startDate, endDate, email } = req.body;
+    const { employeeId, startDate, endDate, email } = req.body || {};
     if (!employeeId || !startDate || !endDate || !email) {
       return res.status(400).json({ success: false, message: "employeeId, startDate, endDate and email are required" });
     }
 
-    // Validate biometrics exist in the given range
-    const acNos = await resolveAcNosForEmployee(employeeId);
-    const start = dayjs(startDate).startOf("day").toDate();
-    const end = dayjs(endDate).endOf("day").toDate();
-    // Count logs using same tolerant matching as the checker
-    const orConds = [{ normalizedAcNo: { $in: acNos } }];
-    acNos.forEach((d) => {
-      const rx = buildLooseAcNoRegex(d);
-      if (rx) orConds.push({ "AC-No": { $regex: rx } });
-    });
-    const count = await DTRLog.countDocuments({ Time: { $gte: start, $lte: end }, $or: orConds });
-    if (count <= 0) {
-      return res.status(400).json({ success: false, message: "DTR for that cut off is not yet available." });
-    }
-
-    const request = await DTRRequest.create({ employeeId, startDate: start, endDate: end, email });
+    const doc = await DTRRequest.create({ employeeId, startDate, endDate, email });
 
     const io = getSocketInstance();
     if (io) {
-      const payload = { ...request.toObject(), type: "DTRRequest" };
-      io.emit("newNotification", payload);
+      // Emit normalized notification payload
+      io.emit("newNotification", {
+        type: "DTRRequest",
+        id: String(doc._id),
+        employeeId: doc.employeeId,
+        createdAt: doc.createdAt,
+        read: !!doc.read,
+        hidden: !!doc.hidden,
+        title: `DTR Request - ${doc.employeeId}`,
+        body: `${new Date(doc.startDate).toLocaleDateString()} - ${new Date(doc.endDate).toLocaleDateString()}`,
+      });
     }
 
-    return res.status(201).json({ success: true, data: request });
+    res.status(201).json({ success: true, data: doc });
   } catch (err) {
-    console.error("createDTRRequest error:", err);
-    return res.status(500).json({ success: false, message: "Failed to create DTR request" });
+    console.error(err);
+    res.status(500).json({ success: false, message: "Failed to create DTR request" });
   }
 };
 
-export const getDTRRequests = async (req, res) => {
+export const getDTRRequests = async (_req, res) => {
   try {
-    const items = await DTRRequest.find().sort({ createdAt: -1 });
-    res.json({ success: true, data: items });
+    const rows = await DTRRequest.find().sort({ createdAt: -1 });
+    res.json({ success: true, data: rows });
   } catch (err) {
-    console.error("getDTRRequests error:", err);
+    console.error(err);
     res.status(500).json({ success: false, message: "Failed to fetch DTR requests" });
   }
 };
 
-// Optional: debug endpoint to inspect resolution and matching
-export const debugResolveDTR = async (req, res) => {
+export const markDTRRequestAsRead = async (req, res) => {
   try {
-    const { employeeId, startDate, endDate } = req.query;
-    const acNos = await resolveAcNosForEmployee(employeeId || "");
-    const start = startDate ? dayjs(startDate).startOf("day").toDate() : null;
-    const end = endDate ? dayjs(endDate).endOf("day").toDate() : null;
-
-    const match = start && end ? { Time: { $gte: start, $lte: end } } : {};
-    const sampleDocs = await DTRLog.find(match).sort({ Time: 1 }).limit(50).lean();
-    const sample = sampleDocs.map((doc) => ({
-      Time: doc.Time,
-      ACNo: doc["AC-No"],
-      normalizedAcNo: doc.normalizedAcNo,
-      normalizedRaw: String(doc["AC-No"] || "").replace(/\D/g, "").replace(/^0+/, ""),
-    }));
-    res.json({ success: true, data: { acNos, sample } });
+    const { id } = req.params;
+    const row = await DTRRequest.findById(id);
+    if (!row) return res.status(404).json({ success: false, message: "Request not found" });
+    row.read = true;
+    await row.save();
+    res.json({ success: true, data: row });
   } catch (err) {
-    console.error("debugResolveDTR error:", err);
-    res.status(500).json({ success: false, message: "Server Error" });
+    console.error(err);
+    res.status(500).json({ success: false, message: "Failed to mark as read" });
+  }
+};
+
+export const markAllDTRRequestsAsRead = async (_req, res) => {
+  try {
+    await DTRRequest.updateMany({}, { $set: { read: true } });
+    res.json({ success: true, message: "All dtr requests marked as read" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: "Failed to mark all as read" });
+  }
+};
+
+export const updateDTRRequest = async (req, res) => {
+  try {
+    const callerId = req.user?.id || req.user?._id;
+    let caller = null;
+    if (callerId) caller = await User.findById(callerId);
+    if (!caller && req.user && typeof req.user === 'object') caller = req.user;
+    if (!caller) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+    const allowed = !!(caller.isAdmin || caller.canManageNotifications || caller.canAccessNotifications || caller.canSeeDev || caller.userType === 'developer');
+    if (!allowed) return res.status(403).json({ success: false, message: 'Forbidden' });
+
+    const { id } = req.params;
+    const body = req.body || {};
+    const whitelist = ['hidden'];
+    const changes = {};
+    Object.keys(body).forEach(k => { if (whitelist.includes(k)) changes[k] = body[k]; });
+    const updated = await DTRRequest.findByIdAndUpdate(id, { $set: changes }, { new: true });
+    if (!updated) return res.status(404).json({ success: false, message: 'Not found' });
+    res.json({ success: true, data: updated });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: 'Failed to update DTR request' });
+  }
+};
+
+export const deleteDTRRequest = async (req, res) => {
+  try {
+    const callerId = req.user?.id || req.user?._id;
+    const caller = callerId ? await User.findById(callerId) : null;
+    if (!caller || !(caller.isAdmin || caller.canManageNotifications || caller.canAccessNotifications || caller.canSeeDev)) {
+      return res.status(403).json({ success: false, message: 'Forbidden' });
+    }
+
+    const { id } = req.params;
+    const deleted = await DTRRequest.findByIdAndDelete(id);
+    if (!deleted) return res.status(404).json({ success: false, message: 'Not found' });
+    res.json({ success: true, data: deleted });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: 'Failed to delete DTR request' });
   }
 };

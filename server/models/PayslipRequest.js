@@ -3,11 +3,14 @@ import mongoose from "mongoose";
 const payslipRequestSchema = new mongoose.Schema(
   {
     employeeId: { type: String, required: true },
-    period: { type: String, required: true },
+    period: { type: String, required: true }, // YYYY-MM
     email: { type: String, required: true },
-    status: { type: String, default: "pending" },
-  read: { type: Boolean, default: false }, // 👈 Add read field
-  hidden: { type: Boolean, default: false },
+    status: { type: String, default: "pending" }, // pending | processed | sent | rejected
+    read: { type: Boolean, default: false },
+    hidden: { type: Boolean, default: false },
+    sentAt: { type: Date }, // when payslip email was sent
+    sentBy: { type: String }, // userId or username of HR who sent
+    emailMessageId: { type: String }, // provider message id tracking
   },
   { timestamps: true }
 );

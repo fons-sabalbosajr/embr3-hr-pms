@@ -68,4 +68,12 @@ const userSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Helpful indexes for common lookups
+// email and username already have unique indexes via schema; avoid duplicate definitions
+userSchema.index({ verificationToken: 1 }, { sparse: true });
+userSchema.index({ resetPasswordToken: 1 }, { sparse: true });
+userSchema.index({ userType: 1 });
+userSchema.index({ isOnline: 1, updatedAt: -1 });
+userSchema.index({ createdAt: -1 });
+
 export default mongoose.model("User", userSchema);

@@ -1,0 +1,73 @@
+/* Payslip request responsive styling */
+.payslip-request-container {
+	min-height: 100vh;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 32px;
+	background-size: cover;
+	background-position: center;
+}
+
+.payslip-request-card {
+	width: 100%;
+	max-width: 520px;
+	border-radius: 16px;
+	box-shadow: 0 8px 22px rgba(0,0,0,0.18);
+}
+
+/* Reuse cutoff banner styling from DTR page for consistency */
+.cutoff-banner {
+	display: flex;
+	gap: 12px;
+	align-items: center;
+	padding: 10px 12px;
+	margin-bottom: 12px;
+	border-radius: 10px;
+	background: linear-gradient(135deg, rgba(30,144,255,0.12), rgba(50,205,50,0.12));
+	border: 1px solid rgba(0,0,0,0.05);
+}
+.cutoff-banner__icon {
+	height: 36px;
+	width: 36px;
+	min-width: 36px;
+	border-radius: 8px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: linear-gradient(135deg, #1677ff, #52c41a);
+	color: white;
+	box-shadow: 0 2px 8px rgba(22,119,255,0.25);
+	font-size: 18px;
+}
+.cutoff-banner__content { flex: 1; }
+.cutoff-banner__title { font-weight: 600; font-size: 14px; margin-bottom: 2px; }
+.cutoff-banner__desc { font-size: 12px; color: #444; }
+.cutoff-recent { display: inline-flex; align-items: center; gap: 6px; }
+.cutoff-recent .anticon { color: #52c41a; }
+.cutoff-recent__label { margin-right: 6px; color: #333; }
+
+/* Mobile-friendly month picker popup */
+.mobile-friendly-month-picker .ant-picker-panel-container { max-width: 100vw; }
+.mobile-friendly-month-picker { width: 100% !important; }
+.responsive-month-picker-item .ant-picker { width: 100%; }
+@media (max-width: 575.98px) {
+	.mobile-friendly-month-picker .ant-picker-panel-container { width: 100% !important; }
+	.mobile-friendly-month-picker .ant-picker-header { padding: 4px 8px; }
+	.mobile-friendly-month-picker .ant-picker-body { padding: 4px 8px; }
+}
+
+@media (max-width: 767.98px) {
+	.payslip-request-container { padding: 16px; }
+	.payslip-request-card { border-radius: 14px; }
+	.payslip-request-card .auth-title { font-size: 20px; }
+}
+
+@media (max-width: 479.98px) {
+	.payslip-request-container { padding: 12px; }
+	.payslip-request-card { border-radius: 12px; }
+	.payslip-request-card .ant-form-item-label > label { font-size: 12px; }
+	.payslip-request-card .ant-input, .payslip-request-card .ant-picker { font-size: 12px; }
+	.payslip-request-card .ant-btn { height: 36px; font-size: 14px; }
+	.mobile-friendly-month-picker { left: 0 !important; right: 0 !important; width: auto !important; }
+}

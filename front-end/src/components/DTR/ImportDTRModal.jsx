@@ -7,11 +7,13 @@ import {
   DatePicker,
   Form,
   message,
+  Alert,
 } from "antd";
 import { UploadOutlined } from "@ant-design/icons";
 import * as XLSX from "xlsx";
 import PropTypes from "prop-types";
 import { useState } from "react";
+import useDemoMode from "../../hooks/useDemoMode";
 import dayjs from "dayjs";
 import customParseFormat from "dayjs/plugin/customParseFormat";
 import axios from "../../api/axiosInstance";
@@ -61,7 +63,7 @@ const EditableCell = ({
   </td>
 );
 
-const ImportDTRModal = ({ open, onClose, currentUser }) => {
+const ImportDTRModal = ({ open, onClose, currentUser, isDemo }) => {
   const [data, setData] = useState([]);
   const [filteredData, setFilteredData] = useState([]); // NEW for search
   const [columns, setColumns] = useState([]);
@@ -206,6 +208,12 @@ const ImportDTRModal = ({ open, onClose, currentUser }) => {
       message.error("Please fill all required fields before submitting.");
       return;
     }
+    // In demo, enforce a safe max rows limit to keep UX responsive
+    if (isDemo && data.length > 1500) {
+      message.warning("Demo mode: Limiting to first 1500 records for simulation.");
+      setFilteredData((prev) => prev.slice(0, 1500));
+      setData((prev) => prev.slice(0, 1500));
+    }
     submitForm.resetFields();
     setSubmitModalVisible(true);
   };
@@ -242,9 +250,22 @@ const ImportDTRModal = ({ open, onClose, currentUser }) => {
       setUploading(true);
       setHasSubmitted(true);
 
-      const res = await axios.post("/dtr/upload", payload);
-      if (res.status === 200) {
-        message.success("DTR Data imported successfully.");
+      // In demo mode: simulate success without uploading to server
+      if (isDemo) {
+        await new Promise((r) => setTimeout(r, 600));
+        message.success("Demo mode: Import simulated successfully (no data saved).");
+        // Log demo import for diagnostics (non-blocking)
+        try {
+          const total = uploadRows.length;
+          await axios.post("/public/demo-import-log", {
+            userId: currentUser?._id,
+            uploadedBy: currentUser?.name,
+            totalRecords: total,
+            cutOffStart: values.cutOffRange?.[0]?.toISOString?.() || undefined,
+            cutOffEnd: values.cutOffRange?.[1]?.toISOString?.() || undefined,
+            note: "import-biometrics-simulated",
+          });
+        } catch (_) { /* ignore logging failure */ }
         setFileUploaded(false);
         setData([]);
         setFilteredData([]);
@@ -252,8 +273,19 @@ const ImportDTRModal = ({ open, onClose, currentUser }) => {
         setSubmitModalVisible(false);
         onClose();
       } else {
-        message.error("Unexpected response from server.");
-        setHasSubmitted(false);
+        const res = await axios.post("/dtr/upload", payload);
+        if (res.status === 200) {
+          message.success("DTR Data imported successfully.");
+          setFileUploaded(false);
+          setData([]);
+          setFilteredData([]);
+          setColumns([]);
+          setSubmitModalVisible(false);
+          onClose();
+        } else {
+          message.error("Unexpected response from server.");
+          setHasSubmitted(false);
+        }
       }
     } catch (err) {
       console.error(err);
@@ -300,6 +332,15 @@ const ImportDTRModal = ({ open, onClose, currentUser }) => {
         footer={null}
         width={1000}
       >
+        {isDemo && (
+          <Alert
+            style={{ marginBottom: 12 }}
+            type="info"
+            showIcon
+            message="Demo Simulation"
+            description="This is a demo environment. Import will simulate success and will not save any data."
+          />
+        )}
         {!fileUploaded && (
           <Dragger
             beforeUpload={parseExcel}
@@ -446,6 +487,7 @@ ImportDTRModal.propTypes = {
     _id: PropTypes.string.isRequired,
     name: PropTypes.string.isRequired,
   }).isRequired,
+  isDemo: PropTypes.bool,
 };
 
 export default ImportDTRModal;

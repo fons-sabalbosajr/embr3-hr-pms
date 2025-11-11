@@ -1,7 +1,9 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import maintenanceMiddleware from './middleware/maintenanceMiddleware.js';
+import maintenanceMiddleware from "./middleware/maintenanceMiddleware.js";
+import compression from "compression";
+import helmet from "helmet";
 
 // Import your routes
 import authRoutes from "./routes/authRoutes.js";
@@ -21,47 +23,46 @@ import dtrGenerationLogRoutes from "./routes/dtrGenerationLogRoutes.js";
 import devRoutes from "./routes/devRoutes.js";
 import localHolidayRoutes from "./routes/localHolidayRoutes.js";
 import suspensionRoutes from "./routes/suspensionRoutes.js";
+import notificationRoutes from "./routes/notificationRoutes.js";
+import uploadRoutes from "./routes/uploadRoutes.js";
+import publicRoutes from "./routes/publicRoutes.js";
 
 dotenv.config();
 const app = express();
 
-// Flexible CORS: allow comma-separated origins in CLIENT_ORIGIN
-const parseAllowedOrigins = (value) =>
-  String(value || "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-const allowedOrigins = parseAllowedOrigins(process.env.CLIENT_ORIGIN);
-
-const corsOptions = {
-  origin: (origin, callback) => {
-    // Allow non-browser or same-origin requests (no Origin header)
-    if (!origin) return callback(null, true);
-    // Match against allowlist
-    if (allowedOrigins.includes(origin)) return callback(null, true);
-    // Optional: allow localhost convenience if explicitly configured later
-    return callback(new Error(`Not allowed by CORS: ${origin}`));
-  },
-  credentials: true,
-};
-
-app.use(cors(corsOptions));
-// Ensure preflight requests succeed universally (Express 5: avoid '*' path)
-app.options(/.*/, cors(corsOptions));
+// Allow multiple client origins via comma-separated env
+const originEnv = process.env.CLIENT_ORIGIN || process.env.FRONTEND_URL || "";
+const allowedOrigins = originEnv
+  .split(",")
+  .map((s) => s && s.trim())
+  .filter(Boolean);
+app.use(
+  cors({
+    origin: allowedOrigins.length ? allowedOrigins : true,
+    credentials: true,
+  })
+);
+// Security and performance middleware
+app.use(
+  helmet({
+    contentSecurityPolicy: false, // keep simple unless you define CSP for your app
+  })
+);
+app.use(compression());
 app.use(express.json({ limit: "20mb" }));
 app.use(express.urlencoded({ extended: true, limit: "20mb" }));
 
-// Apply maintenance middleware for most routes, but allow auth and dev routes to pass so
-// developers can still login and access dev endpoints during maintenance.
+// Apply maintenance middleware for most routes, but allow auth routes to pass so
+// users can still login and verify during maintenance. Dev routes are not bypassed here.
 app.use((req, res, next) => {
-  const path = req.path || '';
-  if (path.startsWith('/api/users') || path.startsWith('/api/dev')) return next();
+  const path = req.path || "";
+  if (path.startsWith("/api/users")) return next();
   return maintenanceMiddleware(req, res, next);
 });
 
 // --- API Routes ---
 app.use("/api/users", authRoutes);
+app.use("/api/public", publicRoutes);
 app.use("/api/protected", protectedRoutes);
 app.use("/api/employees", employeeRoutes);
 app.use("/api/dtr", dtrRoutes);
@@ -75,8 +76,11 @@ app.use("/api/settings", settingsRoutes);
 app.use("/api/deduction-types", deductionTypeRoutes);
 app.use("/api/payslip-requests", payslipRequestRoutes);
 app.use("/api/dtr-requests", dtrRequestRoutes);
+// Mount developer routes (protected via auth + role checks inside the routes/controllers)
 app.use("/api/dev", devRoutes);
 app.use("/api/local-holidays", localHolidayRoutes);
 app.use("/api/suspensions", suspensionRoutes);
+app.use("/api/notifications", notificationRoutes);
+app.use("/api/uploads", uploadRoutes);
 
 export default app;

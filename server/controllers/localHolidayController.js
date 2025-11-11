@@ -29,7 +29,10 @@ export const create = async (req, res) => {
 export const update = async (req, res) => {
   try {
     const { id } = req.params;
-    const doc = await LocalHoliday.findByIdAndUpdate(id, req.body, { new: true });
+    const allowed = ["name","date","endDate","location","notes"]; // controlled update fields
+    const payload = {};
+    Object.entries(req.body || {}).forEach(([k,v])=>{ if (allowed.includes(k)) payload[k]=v; });
+    const doc = await LocalHoliday.findByIdAndUpdate(id, payload, { new: true });
     res.json({ success: true, data: doc });
   } catch (e) {
     res.status(400).json({ success: false, message: e.message });

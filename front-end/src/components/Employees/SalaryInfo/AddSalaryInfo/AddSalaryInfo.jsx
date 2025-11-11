@@ -13,6 +13,7 @@ import {
 import { MinusCircleOutlined, PlusOutlined } from "@ant-design/icons";
 import axiosInstance from "../../../../api/axiosInstance";
 import { secureGet } from "../../../../../utils/secureStorage";
+import useDemoMode from "../../../../hooks/useDemoMode";
 
 const { Option } = Select;
 
@@ -25,7 +26,10 @@ const AddSalaryInfo = ({ onClose }) => {
   const [selectedSalaryType, setSelectedSalaryType] = useState(null);
 
   const currentUser = secureGet("user");
-  const showSalaryAmounts = currentUser?.showSalaryAmounts ?? true;
+  const baseShowSalary = currentUser?.showSalaryAmounts ?? true;
+  const { isDemoActive } = useDemoMode();
+  const [demoShowAmounts, setDemoShowAmounts] = useState(false);
+  const showSalaryAmounts = isDemoActive ? demoShowAmounts : baseShowSalary;
 
   useEffect(() => {
     fetchEmployeesAndSalaries();
@@ -160,6 +164,17 @@ const AddSalaryInfo = ({ onClose }) => {
         </Form.Item>
       )}
 
+      {isDemoActive && (
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ marginRight: 8 }}>Demo: Show rates while adding</label>
+          <input
+            type="checkbox"
+            checked={demoShowAmounts}
+            onChange={(e) => setDemoShowAmounts(e.target.checked)}
+          />
+        </div>
+      )}
+
       {selectedSalaryType === "Contract of Service" ? (
         <>
           <Row gutter={16}>
@@ -174,7 +189,7 @@ const AddSalaryInfo = ({ onClose }) => {
                   }
                   parser={(value) => value.replace(/₱\s?|(,*)/g, "")}
                   style={{ width: "100%" }}
-                  disabled={!showSalaryAmounts}
+                  disabled={false}
                 />
               </Form.Item>
             </Col>
@@ -189,7 +204,7 @@ const AddSalaryInfo = ({ onClose }) => {
                   }
                   parser={(value) => value.replace(/₱\s?|(,*)/g, "")}
                   style={{ width: "100%" }}
-                  disabled
+                  disabled={!showSalaryAmounts}
                 />
               </Form.Item>
             </Col>
@@ -204,7 +219,7 @@ const AddSalaryInfo = ({ onClose }) => {
                   }
                   parser={(value) => value.replace(/₱\s?|(,*)/g, "")}
                   style={{ width: "100%" }}
-                  disabled={!showSalaryAmounts}
+                  disabled={false}
                 />
               </Form.Item>
             </Col>
@@ -224,7 +239,7 @@ const AddSalaryInfo = ({ onClose }) => {
                   }
                   parser={(value) => value.replace(/₱\s?|(,*)/g, "")}
                   style={{ width: "100%" }}
-                  disabled={!showSalaryAmounts}
+                  disabled={false}
                 />
               </Form.Item>
             </Col>
@@ -239,7 +254,7 @@ const AddSalaryInfo = ({ onClose }) => {
                   }
                   parser={(value) => value.replace(/₱\s?|(,*)/g, "")}
                   style={{ width: "100%" }}
-                  disabled
+                  disabled={!showSalaryAmounts}
                 />
               </Form.Item>
             </Col>

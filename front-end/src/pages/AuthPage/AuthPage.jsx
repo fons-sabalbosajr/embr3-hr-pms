@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Tabs, Form, Input, Button, Typography, Card, message } from "antd";
+import { Tabs, Form, Input, Button, Typography, Card, message, Alert, Space, Tag } from "antd";
 import { useNavigate } from "react-router-dom";
 import useAuth from "../../hooks/useAuth";
 import bgImage from "../../assets/bgemb.webp";
@@ -16,6 +16,20 @@ const AuthPage = () => {
   const [form] = Form.useForm();
   const [activeTab, setActiveTab] = useState("1");
   const { login } = useAuth();
+  const [demoInfo, setDemoInfo] = useState(null);
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const res = await fetch('/api/public/demo-info');
+        const data = await res.json();
+        if (mounted) setDemoInfo(data);
+      } catch (_) {
+        if (mounted) setDemoInfo(null);
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -65,7 +79,7 @@ const AuthPage = () => {
   // --- Resend Verification
   const handleResend = async (email) => {
     try {
-      await axios.post("/users/resend-verification", { email });
+      await axios.post("/users/resend", { email });
       message.success("Verification email resent.");
     } catch (err) {
       message.error(err.response?.data?.message || "Resend failed");
@@ -88,12 +102,29 @@ const AuthPage = () => {
         <Title level={3} className="auth-title">
           EMBR3 DTR Management System
         </Title>
+        {demoInfo?.enabled && (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message={
+              <Space direction="vertical" size={2}>
+                <span><strong>Demo Mode Active</strong> — UAT/QA exploration prior to deployment.</span>
+                <span>
+                  Effectivity: {demoInfo.startDate ? new Date(demoInfo.startDate).toLocaleDateString() : 'N/A'}
+                  {' '}– {demoInfo.endDate ? new Date(demoInfo.endDate).toLocaleDateString() : 'N/A'}
+                </span>
+                <span>Default Credentials: <Tag color="blue">demo_user</Tag> / <Tag>Demo1234</Tag></span>
+                {!demoInfo.allowSubmissions && <span style={{ fontSize: 12 }}><em>Submissions disabled • read-only exploration</em></span>}
+              </Space>
+            }
+          />
+        )}
 
-        <Tabs
-          activeKey={tab}
-          onChange={(key) => setTab(key)}
-          centered
-          items={[
+        {(() => {
+          const now = new Date();
+          const active = demoInfo?.enabled && (!demoInfo?.startDate || !demoInfo?.endDate || (now >= new Date(demoInfo.startDate) && now <= new Date(demoInfo.endDate)));
+          const items = [
             {
               label: "Login",
               key: "login",
@@ -136,19 +167,19 @@ const AuthPage = () => {
                     <Button
                       type="link"
                       onClick={async () => {
-                        const { value: email } = await Swal.fire({
+                        const { value: identifier } = await Swal.fire({
                           title: "Forgot Password",
-                          input: "email",
-                          inputLabel: "Enter your registered email",
-                          inputPlaceholder: "you@example.com",
+                          input: "text",
+                          inputLabel: "Enter your email or username",
+                          inputPlaceholder: "you@example.com or yourusername",
                           confirmButtonText: "Send Reset Link",
                           showCancelButton: true,
                           inputValidator: (value) => {
-                            if (!value) return "Email is required";
+                            if (!value) return "Email or username is required";
                           },
                         });
 
-                        if (email) {
+                        if (identifier) {
                           try {
                             // Show loading spinner
                             Swal.fire({
@@ -160,10 +191,10 @@ const AuthPage = () => {
                               },
                             });
 
-                            await axios.post("/users/forgot-password", {
-                              email,
-                            });
-
+                            const payload = identifier.includes('@')
+                              ? { email: identifier }
+                              : { username: identifier };
+                            await axios.post("/users/forgot-password", payload);
                             Swal.fire({
                               icon: "success",
                               title: "Reset Link Sent",
@@ -187,7 +218,9 @@ const AuthPage = () => {
                 </Form>
               ),
             },
-            {
+          ];
+          if (!active) {
+            items.push({
               label: "Sign Up",
               key: "signup",
               children: (
@@ -295,9 +328,17 @@ const AuthPage = () => {
                   </div>
                 </Form>
               ),
-            },
-          ]}
-        />
+            });
+          }
+          return (
+            <Tabs
+              activeKey={tab}
+              onChange={(key) => setTab(key)}
+              centered
+              items={items}
+            />
+          );
+        })()}
       </Card>
     </div>
   );

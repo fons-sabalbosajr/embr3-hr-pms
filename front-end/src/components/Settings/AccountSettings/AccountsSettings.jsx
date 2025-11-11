@@ -17,6 +17,7 @@ import axiosInstance from "../../../api/axiosInstance";
 import { useTheme } from "../../../context/ThemeContext";
 import "./accountsettings.css";
 import useAuth from "../../../hooks/useAuth";
+import useDemoMode from "../../../hooks/useDemoMode";
 
 const { Title } = Typography;
 
@@ -25,6 +26,7 @@ const AccountsSettings = () => {
   const [profileForm] = Form.useForm();
   const [passwordForm] = Form.useForm();
   const { user, updateCurrentUser } = useAuth();
+  const { isDemoActive, isDemoUser } = useDemoMode();
   const { theme, setTheme, userPrimaryPreset, setUserPrimaryPreset, applyPresetToChrome, setApplyPresetToChrome } = useTheme();
 
   useEffect(() => {
@@ -101,7 +103,7 @@ const AccountsSettings = () => {
     <Spin spinning={loading}>
       <Row gutter={[16, 16]}>
         {/* Profile Information Card */}
-        <Col xs={24} md={12}>
+        <Col xs={24} md={isDemoActive && isDemoUser ? 24 : 12}>
           <Card title="Profile Information">
             <Form form={profileForm} layout="vertical" onFinish={handleProfileUpdate}>
               <Form.Item name="name" label="Full Name" rules={[{ required: true }]}>
@@ -119,27 +121,29 @@ const AccountsSettings = () => {
           </Card>
         </Col>
 
-        {/* Change Password Card */}
-        <Col xs={24} md={12}>
-          <Card title="Change Password">
-            <Form form={passwordForm} layout="vertical" onFinish={handlePasswordChange}>
-              <Form.Item name="oldPassword" label="Old Password" rules={[{ required: true }]}>
-                <Input.Password />
-              </Form.Item>
-              <Form.Item name="newPassword" label="New Password" rules={[{ required: true }]}>
-                <Input.Password />
-              </Form.Item>
-              <Form.Item name="confirmPassword" label="Confirm New Password" rules={[{ required: true }]}>
-                <Input.Password />
-              </Form.Item>
-              <Form.Item>
-                <Button type="primary" htmlType="submit">
-                  Change Password
-                </Button>
-              </Form.Item>
-            </Form>
-          </Card>
-        </Col>
+        {/* Change Password Card (hidden in demo mode) */}
+        {!(isDemoActive && isDemoUser) && (
+          <Col xs={24} md={12}>
+            <Card title="Change Password">
+              <Form form={passwordForm} layout="vertical" onFinish={handlePasswordChange}>
+                <Form.Item name="oldPassword" label="Old Password" rules={[{ required: true }]}>
+                  <Input.Password />
+                </Form.Item>
+                <Form.Item name="newPassword" label="New Password" rules={[{ required: true }]}>
+                  <Input.Password />
+                </Form.Item>
+                <Form.Item name="confirmPassword" label="Confirm New Password" rules={[{ required: true }]}>
+                  <Input.Password />
+                </Form.Item>
+                <Form.Item>
+                  <Button type="primary" htmlType="submit">
+                    Change Password
+                  </Button>
+                </Form.Item>
+              </Form>
+            </Card>
+          </Col>
+        )}
 
         {/* Theme Preferences (User-level, fixed presets) */}
         <Col xs={24}>

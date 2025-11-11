@@ -1,5 +1,6 @@
 import React, { createContext, useState, useContext, useMemo, useEffect, useCallback } from 'react';
 import { ConfigProvider, theme } from 'antd';
+import { secureGet, secureStore } from '../../utils/secureStorage';
 import axiosInstance from '../api/axiosInstance';
 import tinycolor from 'tinycolor2';
 import useAuth from '../hooks/useAuth';
@@ -8,29 +9,31 @@ const ThemeContext = createContext(null);
 
 export const ThemeProvider = ({ children }) => {
   // User theme mode (light | dark)
-  const [currentTheme, setCurrentTheme] = useState(localStorage.getItem('theme') || 'light');
+  const [currentTheme, setCurrentTheme] = useState(secureGet('theme') || 'light');
   // User-selected primary color preset (default uses app setting)
-  const [userPrimaryPreset, setUserPrimaryPreset] = useState(localStorage.getItem('userPrimaryPreset') || 'default');
+  const [userPrimaryPreset, setUserPrimaryPreset] = useState(secureGet('userPrimaryPreset') || 'default');
   const [appSettings, setAppSettings] = useState(null);
   // Option: apply user preset to header/sider (chrome)
   const [applyPresetToChrome, setApplyPresetToChrome] = useState(() => {
-    const stored = localStorage.getItem('applyPresetToChrome');
-    return stored === null ? true : stored === 'true';
+    const stored = secureGet('applyPresetToChrome');
+    if (stored === null || typeof stored === 'undefined') return true;
+    if (typeof stored === 'boolean') return stored;
+    return String(stored) === 'true';
   });
 
   const setTheme = (newTheme) => {
     setCurrentTheme(newTheme);
-    localStorage.setItem('theme', newTheme);
+    secureStore('theme', newTheme);
   };
 
   const setPrimaryPreset = (preset) => {
     setUserPrimaryPreset(preset);
-    localStorage.setItem('userPrimaryPreset', preset);
+    secureStore('userPrimaryPreset', preset);
   };
 
   const applyCssVars = useCallback((settings) => {
     // Base content variables per mode
-  const isDark = (localStorage.getItem('theme') || 'light') === 'dark';
+  const isDark = (secureGet('theme') || 'light') === 'dark';
   // Align with Ant Design default dark theme tokens
   // colorBgLayout ≈ #0a0a0a, colorBgContainer ≈ #141414, text ≈ rgba(255,255,255,0.85)
   const contentBg = isDark ? '#0a0a0a' : '#f5f5f5';
@@ -99,6 +102,7 @@ export const ThemeProvider = ({ children }) => {
         const res = await axiosInstance.get('/settings');
         if (!mounted) return;
         setAppSettings(res.data);
+        try { secureStore('appSettings', res.data); } catch(_) {}
         applyCssVars(res.data);
       } catch (e) {
         // Non-fatal if not available yet (e.g., not authenticated).
@@ -127,6 +131,7 @@ export const ThemeProvider = ({ children }) => {
   useEffect(() => {
     if (appSettings) {
       applyCssVars(appSettings);
+      try { secureStore('appSettings', appSettings); } catch(_) {}
     }
   }, [applyPresetToChrome, userPrimaryPreset]);
 
@@ -168,7 +173,7 @@ export const ThemeProvider = ({ children }) => {
     userPrimaryPreset,
     setUserPrimaryPreset: setPrimaryPreset,
     applyPresetToChrome,
-    setApplyPresetToChrome: (v) => { setApplyPresetToChrome(v); localStorage.setItem('applyPresetToChrome', String(v)); },
+    setApplyPresetToChrome: (v) => { setApplyPresetToChrome(v); secureStore('applyPresetToChrome', v); },
   };
 
   return (

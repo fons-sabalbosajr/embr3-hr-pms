@@ -15,6 +15,7 @@ import {
   Tooltip,
 } from "antd";
 import { InfoCircleOutlined } from "@ant-design/icons";
+import useDemoMode from "../../../../../hooks/useDemoMode";
 import dayjs from "dayjs";
 import axiosInstance from "../../../../../api/axiosInstance";
 
@@ -71,6 +72,8 @@ const OtherDetails = ({ employee }) => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatingDocId, setGeneratingDocId] = useState(null);
   const [form] = Form.useForm();
+  const { isDemoActive } = useDemoMode();
+  const demoDisabled = isDemoActive;
 
   useEffect(() => {
     if (!employee?.empId) return;
@@ -92,6 +95,10 @@ const OtherDetails = ({ employee }) => {
   };
 
   const handleAddDoc = async (values) => {
+    if (demoDisabled) {
+      message.warning("Action disabled in demo mode");
+      return;
+    }
     try {
       const payload = {
         ...values,
@@ -113,6 +120,10 @@ const OtherDetails = ({ employee }) => {
   };
 
   const handleDeleteDoc = async (docId) => {
+    if (demoDisabled) {
+      message.warning("Action disabled in demo mode");
+      return;
+    }
     try {
       const res = await axiosInstance.delete(`/employee-docs/${docId}`);
       if (res.data.success) {
@@ -125,6 +136,10 @@ const OtherDetails = ({ employee }) => {
   };
 
   const handleViewDoc = async (record) => {
+    if (demoDisabled) {
+      message.warning("Action disabled in demo mode");
+      return;
+    }
     setGeneratingDocId(record._id);
     setIsGenerating(true);
 
@@ -132,21 +147,26 @@ const OtherDetails = ({ employee }) => {
       switch (record.docType) {
         case "DTR": {
           message.loading({ content: "Generating DTR...", key: "pdf" });
-          // NOTE: Assumes an endpoint exists to fetch DTR record metadata by its name.
-          const dtrDataRes = await axiosInstance.get(`/dtrdata/by-name/${record.reference}`);
-          const selectedRecord = dtrDataRes.data;
+          // Fetch available DTR records and find by record reference (name)
+          const listRes = await axiosInstance.get('/dtrdatas');
+          const list = listRes?.data?.data || [];
+          const selectedRecord = list.find((r) => r.DTR_Record_Name === record.reference);
 
           if (!selectedRecord) {
             throw new Error("DTR record not found.");
           }
 
-          const { start, end } = selectedRecord.DTR_Cut_Off;
-          const logsRes = await axiosInstance.get('/dtr-logs/work-calendar', {
+          const { start, end } = selectedRecord.DTR_Cut_Off || {};
+          if (!start || !end) {
+            throw new Error("Invalid DTR cut-off period.");
+          }
+
+          const logsRes = await axiosInstance.get('/dtrlogs/work-calendar', {
             params: { employeeId: employee._id, startDate: start, endDate: end }
           });
 
           const dtrLogs = transformLogsForDTR(logsRes.data.data, employee);
-          
+
           await generateDTRPdf({
             employee,
             dtrLogs,
@@ -248,7 +268,7 @@ const OtherDetails = ({ employee }) => {
             style={{ padding: 0 }}
             onClick={() => handleViewDoc(record)}
             loading={generatingDocId === record._id}
-            disabled={isGenerating}
+            disabled={isGenerating || demoDisabled}
           >
             View
           </Button>
@@ -259,7 +279,7 @@ const OtherDetails = ({ employee }) => {
               cancelText="No"
               onConfirm={() => handleDeleteDoc(record._id)}
             >
-              <Button type="link" danger style={{ padding: 0 }}>Delete</Button>
+              <Button type="link" danger style={{ padding: 0 }} disabled={demoDisabled}>Delete</Button>
             </Popconfirm>
           )}
         </div>
@@ -276,6 +296,7 @@ const OtherDetails = ({ employee }) => {
         type="primary"
         style={{ marginBottom: 16 }}
         onClick={() => setAddModalVisible(true)}
+        disabled={demoDisabled}
       >
         Add Document
       </Button>
@@ -358,8 +379,9 @@ const OtherDetails = ({ employee }) => {
         title="Add Document"
         open={addModalVisible}
         onCancel={() => setAddModalVisible(false)}
-        onOk={() => form.submit()}
+        onOk={() => (!demoDisabled ? form.submit() : message.warning("Action disabled in demo mode"))}
         okText="Save"
+        okButtonProps={{ disabled: demoDisabled }}
       >
         <Form
           form={form}
@@ -374,7 +396,7 @@ const OtherDetails = ({ employee }) => {
               { required: true, message: "Please select a document type" },
             ]}
           >
-            <Select>
+            <Select disabled={demoDisabled}>
               <Option value="Payslip">Payslip</Option>
               <Option value="Certificate of Employment">
                 Certificate of Employment
@@ -390,19 +412,19 @@ const OtherDetails = ({ employee }) => {
             label="Reference (IIS No. or Link)"
             rules={[{ required: true, message: "Reference is required" }]}
           >
-            <Input placeholder="R3-2025-0***** or Google Drive/OneDrive link" />
+            <Input placeholder="R3-2025-0***** or Google Drive/OneDrive link" disabled={demoDisabled} />
           </Form.Item>
 
           <Form.Item name="description" label="Description">
-            <Input.TextArea rows={2} placeholder="Optional description" />
+            <Input.TextArea rows={2} placeholder="Optional description" disabled={demoDisabled} />
           </Form.Item>
 
           <Form.Item name="period" label="Period (optional)">
-            <Input placeholder="e.g. July 2025" />
+            <Input placeholder="e.g. July 2025" disabled={demoDisabled} />
           </Form.Item>
 
           <Form.Item name="dateIssued" label="Date Issued (optional)">
-            <DatePicker style={{ width: "100%" }} />
+            <DatePicker style={{ width: "100%" }} disabled={demoDisabled} />
           </Form.Item>
         </Form>
       </Modal>

@@ -1,9 +1,10 @@
 import axios from "axios";
 import { message } from "antd";
-import { secureRetrieve, secureRemove } from "../../utils/secureStorage";
+import { secureRetrieve, secureRemove, secureStore, secureGet } from "../../utils/secureStorage";
 
+// Prefer explicit API base via VITE_API_URL; fall back to Vite dev proxy path '/api' for local dev
 const axiosInstance = axios.create({
-  baseURL: import.meta.env.VITE_API_URL, // e.g. [http://10.14.77.107:5000/api](http://10.14.77.107:5000/api)
+  baseURL: import.meta.env.VITE_API_URL || "/api", // e.g. http://<server>:5000/api (prod) or '/api' (dev proxy)
   withCredentials: true,
 });
 
@@ -14,6 +15,23 @@ axiosInstance.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    // Client-side read-only enforcement for demo users unless explicitly allowed
+    try {
+      const user = secureGet('user');
+      const app = secureGet('appSettings');
+      const method = String(config.method || 'get').toUpperCase();
+      const isWrite = ['POST','PUT','PATCH','DELETE'].includes(method);
+      if (isWrite && user?.isDemo) {
+        const demo = app?.demo || {};
+        const now = new Date();
+        const inRange = demo?.startDate && demo?.endDate ? (now >= new Date(demo.startDate) && now <= new Date(demo.endDate)) : true;
+        if (demo?.enabled && inRange && !demo?.allowSubmissions) {
+          const err = new Error('Demo mode is read-only. Submissions are disabled.');
+          err.isDemoBlocked = true;
+          return Promise.reject(err);
+        }
+      }
+    } catch(_) { /* ignore */ }
     return config;
   },
   (error) => Promise.reject(error)
@@ -25,7 +43,9 @@ axiosInstance.interceptors.response.use(
   (error) => {
     if (error.response && error.response.status === 401) {
       // Clear token on any 401
-      secureRemove("token");
+  secureRemove("token");
+  // Proactively harden any lingering plaintext values migrated mid-session
+  try { secureStore('__last401', Date.now()); } catch(_){}
 
       // Determine if current location is a public route that should not force redirect
       const base = (import.meta.env.BASE_URL || "/").replace(/\/$/, "");

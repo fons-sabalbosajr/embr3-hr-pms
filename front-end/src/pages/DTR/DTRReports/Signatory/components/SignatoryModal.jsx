@@ -24,6 +24,7 @@ const SignatoryModal = ({
   form,
   sectionOrUnitOptions,
   allEmployees,
+  readOnly = false,
 }) => {
   const isDefaultSignatory = Form.useWatch("isDefaultSignatory", form);
 
@@ -82,6 +83,7 @@ const SignatoryModal = ({
       open={visible}
       onOk={onOk}
       onCancel={onCancel}
+      okButtonProps={{ disabled: readOnly }}
     >
       <Form form={form} layout="vertical">
         <Row gutter={16}>
@@ -103,7 +105,7 @@ const SignatoryModal = ({
                     .toLowerCase()
                     .includes(input.toLowerCase())
                 }
-                disabled={!!editingSignatory} // Disable if editing
+                disabled={!!editingSignatory || readOnly} // Disable if editing or demo read-only
               >
                 {allEmployees.map((employee) => (
                   <Option key={employee.empId} value={employee.empId}>
@@ -120,7 +122,7 @@ const SignatoryModal = ({
               valuePropName="checked"
               rules={[{ required: true }]}
             >
-              <Switch size="small" checkedChildren="Default" unCheckedChildren="Alternate" />
+              <Switch size="small" checkedChildren="Default" unCheckedChildren="Alternate" disabled={readOnly} />
             </Form.Item>
           </Col>
         </Row>
@@ -155,7 +157,7 @@ const SignatoryModal = ({
             },
           ]}
         >
-          <Select mode="multiple" placeholder="Select designations">
+          <Select mode="multiple" placeholder="Select designations" disabled={readOnly}>
             {sectionOrUnitOptions.map((option) => (
               <Option key={option} value={option}>
                 {option}
@@ -180,6 +182,7 @@ const SignatoryModal = ({
                     .toLowerCase()
                     .includes(input.toLowerCase())
                 }
+                disabled={readOnly}
               >
                 {allEmployees.map((employee) => (
                   <Option key={employee.empId} value={employee.empId}>
@@ -196,7 +199,7 @@ const SignatoryModal = ({
               name="alternateDateRange"
               label="Alternate Date of Effectivity"
             >
-              <RangePicker style={{ width: "100%" }} />
+              <RangePicker style={{ width: "100%" }} disabled={readOnly} />
             </Form.Item>
             <Tooltip title="This is the proof or special order of the approved employee as alternate signatory employee.">
               <Form.Item name="iisTransactionNo" label="IIS Transaction No.">
@@ -204,12 +207,13 @@ const SignatoryModal = ({
                   suffix={
                     <InfoCircleOutlined style={{ color: "rgba(0,0,0,.45)" }} />
                   }
+                  disabled={readOnly}
                 />
               </Form.Item>
             </Tooltip>
 
             <Form.Item name="remarks" label="Remarks">
-              <Input.TextArea />
+              <Input.TextArea disabled={readOnly} />
             </Form.Item>
           </>
         )}
