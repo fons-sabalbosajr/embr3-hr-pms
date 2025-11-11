@@ -9,6 +9,7 @@ import {
   Divider,
   Button,
   Tabs,
+  Collapse,
   Form,
   Input,
   InputNumber,
@@ -19,6 +20,7 @@ import {
   Col,
   Popconfirm,
   DatePicker,
+  TimePicker,
   Select,
   Table,
   Modal,
@@ -27,7 +29,9 @@ import dayjs from "dayjs";
 import useAuth from "../../../hooks/useAuth";
 import { ExclamationCircleOutlined } from "@ant-design/icons";
 import { NotificationsContext } from "../../../context/NotificationsContext";
+import SecureStorageDiagnostics from "./SecureStorageDiagnostics";
 import axiosInstance from "../../../api/axiosInstance";
+import DemoModeSettings from "./DemoModeSettings";
 
 const { Title, Text } = Typography;
 
@@ -61,6 +65,7 @@ const DevSettings = () => {
     user?.canSeeDev ||
     user?.canManageNotifications ||
     user?.canAccessNotifications;
+  const isDemoUser = user?.isDemo;
 
   // Consolidated hooks (declare once, in stable order)
   const [settingsLoadingLocal, setSettingsLoadingLocal] = useState(false);
@@ -134,6 +139,15 @@ const DevSettings = () => {
   const [resignedSelected, setResignedSelected] = useState(null);
   const [empRecordsLoading, setEmpRecordsLoading] = useState(false);
   const [empRecords, setEmpRecords] = useState(null);
+  // Biometrics logs filters
+  const [bioRange, setBioRange] = useState(null);
+  const [bioTimeFrom, setBioTimeFrom] = useState(null); // dayjs or null
+  const [bioTimeTo, setBioTimeTo] = useState(null); // dayjs or null
+  const [bioLogs, setBioLogs] = useState([]);
+  const [bioMeta, setBioMeta] = useState(null);
+  const [bioPage, setBioPage] = useState(1);
+  const [bioPageSize] = useState(500);
+  const [bioLoading, setBioLoading] = useState(false);
 
   // Employees filters
   const [empFilterName, setEmpFilterName] = useState("");
@@ -186,14 +200,112 @@ const DevSettings = () => {
     setResignedSelected(emp);
     setResignedDetailsOpen(true);
     setEmpRecords(null);
+    setBioRange(null);
+    setBioTimeFrom(null);
+    setBioTimeTo(null);
+    setBioLogs([]);
+    setBioMeta(null);
+    setBioPage(1);
     try {
       setEmpRecordsLoading(true);
-      const res = await axiosInstance.get(`/employees/${emp._id}/records`);
-      setEmpRecords(res?.data?.data || null);
+      const res = await axiosInstance.get(`/employees/${emp._id}/records`, {
+        params: { page: 1, pageSize: bioPageSize },
+      });
+      const data = res?.data?.data || null;
+      setEmpRecords(data);
+      setBioLogs(data?.biometricLogs || []);
+      setBioMeta(data?.biometricMeta || null);
+      setBioPage(1);
     } catch (err) {
       message.error("Failed to load employee records");
     } finally {
       setEmpRecordsLoading(false);
+    }
+  };
+
+  const refreshBiometricLogs = async () => {
+    if (!resignedSelected) return;
+    try {
+      setBioLoading(true);
+      const params = { page: 1, pageSize: bioPageSize };
+      if (bioRange && bioRange[0] && bioRange[1]) {
+        params.dateFrom = bioRange[0].startOf('day').toISOString();
+        params.dateTo = bioRange[1].endOf('day').toISOString();
+      }
+      const res = await axiosInstance.get(`/employees/${resignedSelected._id}/records`, { params });
+      const data = res?.data?.data || {};
+      setEmpRecords((prev) => ({ ...(prev||{}), ...data }));
+      setBioLogs(data?.biometricLogs || []);
+      setBioMeta(data?.biometricMeta || null);
+      setBioPage(1);
+    } catch (e) {
+      message.error('Failed to refresh biometrics');
+    } finally {
+      setBioLoading(false);
+    }
+  };
+
+  const loadMoreBiometrics = async () => {
+    if (!resignedSelected || !bioMeta?.hasMore) return;
+    try {
+      setBioLoading(true);
+      const nextPage = bioPage + 1;
+      const params = { page: nextPage, pageSize: bioPageSize };
+      if (bioRange && bioRange[0] && bioRange[1]) {
+        params.dateFrom = bioRange[0].startOf('day').toISOString();
+        params.dateTo = bioRange[1].endOf('day').toISOString();
+      }
+      const res = await axiosInstance.get(`/employees/${resignedSelected._id}/records`, { params });
+      const data = res?.data?.data || {};
+      const more = data?.biometricLogs || [];
+      setBioLogs((prev)=> [...prev, ...more]);
+      setBioMeta(data?.biometricMeta || null);
+      setBioPage(nextPage);
+    } catch (e) {
+      message.error('Failed to load more biometrics');
+    } finally {
+      setBioLoading(false);
+    }
+  };
+
+  const exportBiometricsCSV = () => {
+    try {
+      // Apply time-of-day filter to current bioLogs
+      const rows = (bioLogs || []).filter((r) => {
+        const t = r?.Time ? dayjs(r.Time) : null;
+        if (!t) return false;
+        // Date range filter (client-side visual filter as extra guard)
+        if (bioRange && bioRange[0] && bioRange[1]) {
+          if (!t.isBetween(bioRange[0], bioRange[1], 'day', '[]')) return false;
+        }
+        // Time-of-day filter
+        if (bioTimeFrom || bioTimeTo) {
+          const minutes = t.hour()*60 + t.minute();
+          const startM = bioTimeFrom ? (bioTimeFrom.hour()*60 + bioTimeFrom.minute()) : null;
+          const endM = bioTimeTo ? (bioTimeTo.hour()*60 + bioTimeTo.minute()) : null;
+          if (startM !== null && minutes < startM) return false;
+          if (endM !== null && minutes > endM) return false;
+        }
+        return true;
+      });
+      const header = ['AC-No','Name','Time','State'];
+      const lines = [header.join(',')].concat(rows.map(r=>[
+        JSON.stringify(r['AC-No']||''),
+        JSON.stringify(r['Name']||''),
+        JSON.stringify(r['Time']?dayjs(r['Time']).format('YYYY-MM-DD HH:mm'):'') ,
+        JSON.stringify(r['State']||'')
+      ].join(',')));
+      const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${(resignedSelected?.empId||'employee')}-biometrics.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      message.error('Failed to export CSV');
     }
   };
 
@@ -213,14 +325,38 @@ const DevSettings = () => {
 
   const deleteResignedEmployee = async (emp) => {
     try {
-      await axiosInstance.delete(`/employees/${emp._id}`);
-      message.success("Employee and records deleted");
-      loadResignedEmployees();
-      if (activeTab === "employees") loadAllEmployees();
-      setResignedDetailsOpen(false);
-      setResignedSelected(null);
+      // Fetch a fresh summary right before deleting
+      const summaryRes = await axiosInstance.get(`/employees/${emp._id}/records`);
+      const s = summaryRes?.data?.data || {};
+      Modal.confirm({
+        width: 700,
+        title: `Delete ${emp.name}?`,
+        okText: 'Yes, delete', okButtonProps: { danger: true }, cancelText: 'Cancel',
+        content: (
+          <div style={{ fontSize: 12 }}>
+            <Alert type="warning" showIcon style={{ marginBottom: 8 }} message="This will permanently remove the employee and all linked records. Emp No will be reordered." />
+            <Space size={8} wrap>
+              <Tag>Docs: {(s.docs||[]).length}</Tag>
+              <Tag color="green">Payslip Requests: {(s.payslipRequests||[]).length}</Tag>
+              <Tag color="geekblue">DTR Gen Logs: {(s.dtrGenerationLogs||[]).length}</Tag>
+              <Tag color="blue">Biometric Logs: {(s.biometricLogs||[]).length}</Tag>
+              <Tag color="purple">DTR Requests: {(s.dtrRequests||[]).length}</Tag>
+              <Tag color={s.salary? 'gold':'default'}>Salary: {s.salary? 'Yes':'No'}</Tag>
+              <Tag color="magenta">Trainings: {(s.trainings||[]).length}</Tag>
+            </Space>
+          </div>
+        ),
+        onOk: async () => {
+          await axiosInstance.delete(`/employees/${emp._id}`);
+          message.success('Employee and related records deleted; Emp No reordered');
+          loadResignedEmployees();
+          if (activeTab === 'employees') loadAllEmployees();
+          setResignedDetailsOpen(false);
+          setResignedSelected(null);
+        }
+      });
     } catch (err) {
-      message.error("Failed to delete employee");
+      message.error(err?.response?.data?.message || 'Failed to delete employee');
     }
   };
 
@@ -900,12 +1036,13 @@ const DevSettings = () => {
           </Row>
 
           <Table
+            className="compact-table"
             columns={attendanceColumns}
             dataSource={attendanceData}
             loading={attendanceLoading}
             size="small"
             rowKey={(r) => `${r.empId}-${r.date}`}
-            pagination={{ pageSize: 10 }}
+            pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: [5,10,20,50] }}
           />
         </Space>
       </Section>
@@ -1081,84 +1218,49 @@ const DevSettings = () => {
     <Space direction="vertical" style={{ width: "100%" }}>
       <Row gutter={[12, 12]}>
         <Col xs={24} md={12}>
-          <Card size="small" title="Database Status">
+          <Card size="small" title="Database Status" bodyStyle={{ fontSize: 12 }}>
             {loading || !devInfo ? (
               <Card loading />
             ) : (
-              <Descriptions size="small" column={1}>
+              <Descriptions size="small" column={1} labelStyle={{ fontSize: 12 }} contentStyle={{ fontSize: 12 }}>
                 <Descriptions.Item label="Connected">
-                  <Tag color={devInfo.db.connected ? "green" : "red"}>
-                    {devInfo.db.connected ? "yes" : "no"}
-                  </Tag>
+                  <Tag color={devInfo.db.connected ? "green" : "red"}>{devInfo.db.connected ? "yes" : "no"}</Tag>
                 </Descriptions.Item>
-                <Descriptions.Item label="DB Name">
-                  {devInfo.db.name || "unknown"}
-                </Descriptions.Item>
-                <Descriptions.Item label="Host">
-                  {devInfo.db.host || "unknown"}
-                </Descriptions.Item>
-                <Descriptions.Item label="Port">
-                  {devInfo.db.port || "unknown"}
-                </Descriptions.Item>
-                <Descriptions.Item label="Runtime">
-                  {devInfo.app.node}
-                </Descriptions.Item>
+                <Descriptions.Item label="DB Name">{devInfo.db.name || "unknown"}</Descriptions.Item>
+                <Descriptions.Item label="Host">{devInfo.db.host || "unknown"}</Descriptions.Item>
+                <Descriptions.Item label="Port">{devInfo.db.port || "unknown"}</Descriptions.Item>
+                <Descriptions.Item label="Runtime">{devInfo.app.node}</Descriptions.Item>
               </Descriptions>
             )}
-            <Button
-              style={{ marginTop: 12 }}
-              onClick={loadCollections}
-              loading={collectionsLoading}
-            >
+            <Button size="small" style={{ marginTop: 12 }} onClick={loadCollections} loading={collectionsLoading}>
               Load Collections
             </Button>
           </Card>
         </Col>
         <Col xs={24} md={12}>
-          <Card size="small" title="Maintenance Mode">
+          <Card size="small" title="Maintenance Mode" bodyStyle={{ fontSize: 12 }}>
             <Space direction="vertical" style={{ width: "100%" }}>
-              <Switch
-                checked={maintenanceEnabled}
-                onChange={(v) => setMaintenanceEnabled(v)}
-              />{" "}
-              Enable Maintenance Mode (developers excluded)
-              <DatePicker.RangePicker
-                value={maintenanceRange}
-                onChange={(vals) => setMaintenanceRange(vals)}
-              />
-              <Input.TextArea
-                rows={3}
-                value={maintenanceMessage}
-                onChange={(e) => setMaintenanceMessage(e.target.value)}
-                placeholder="Maintenance message shown to users"
-              />
+              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+                <Switch checked={maintenanceEnabled} onChange={(v) => setMaintenanceEnabled(v)} />
+                <span>Enable Maintenance Mode (developers excluded)</span>
+              </div>
+              <DatePicker.RangePicker size="small" value={maintenanceRange} onChange={(vals) => setMaintenanceRange(vals)} />
+              <Input.TextArea rows={3} value={maintenanceMessage} onChange={(e) => setMaintenanceMessage(e.target.value)} placeholder="Maintenance message shown to users" />
               <Space>
-                <Button
-                  type="primary"
-                  onClick={() => saveMaintenance(true)}
-                  loading={maintenanceLoading}
-                  disabled={!maintenanceRange || maintenanceRange.length !== 2}
-                >
+                <Button size="small" type="primary" onClick={() => saveMaintenance(true)} loading={maintenanceLoading} disabled={!maintenanceRange || maintenanceRange.length !== 2}>
                   Enable
                 </Button>
-                <Button
-                  danger
-                  onClick={() => saveMaintenance(false)}
-                  loading={maintenanceLoading}
-                >
+                <Button size="small" danger onClick={() => saveMaintenance(false)} loading={maintenanceLoading}>
                   Disable
                 </Button>
               </Space>
               <Card size="small" title="Preview (Non-developer view)">
-                <div style={{ padding: 12, background: "#fff" }}>
-                  <h3 style={{ marginTop: 0 }}>Maintenance</h3>
-                  <p style={{ marginBottom: 4 }}>
-                    {maintenanceMessage || "No message set"}
-                  </p>
+                <div style={{ padding: 12, background: "#fff", fontSize: 12 }}>
+                  <h3 style={{ marginTop: 0, fontSize: 14 }}>Maintenance</h3>
+                  <p style={{ marginBottom: 4 }}>{maintenanceMessage || "No message set"}</p>
                   {maintenanceRange && maintenanceRange.length === 2 && (
-                    <p style={{ color: "#999", fontSize: 12 }}>
-                      {maintenanceRange[0].format("MM/DD/YYYY hh:mm A")} -{" "}
-                      {maintenanceRange[1].format("MM/DD/YYYY hh:mm A")}
+                    <p style={{ color: "#999", fontSize: 11 }}>
+                      {maintenanceRange[0].format("MM/DD/YYYY hh:mm A")} - {maintenanceRange[1].format("MM/DD/YYYY hh:mm A")}
                     </p>
                   )}
                 </div>
@@ -1169,57 +1271,52 @@ const DevSettings = () => {
       </Row>
       <Row gutter={[12, 12]} style={{ marginTop: 12 }}>
         <Col xs={24}>
-          <Card size="small" title="Backup Collections">
+          <Card size="small" title="Backup Collections" bodyStyle={{ fontSize: 12 }}>
             <Space direction="vertical" style={{ width: "100%" }}>
-              <Select
-                placeholder="Select collection"
-                value={selectedCollection}
-                onChange={setSelectedCollection}
-                options={collections.map((c) => ({
-                  label: c.name,
-                  value: c.name,
-                }))}
-                loading={collectionsLoading}
-                style={{ width: "100%" }}
-              />
-              <Select
-                value={backupFormat}
-                onChange={setBackupFormat}
-                options={[
-                  { label: "JSON", value: "json" },
-                  { label: "CSV", value: "csv" },
-                ]}
-                style={{ width: 200 }}
-              />
-              <Space>
-                <Button
-                  onClick={downloadCollectionNow}
-                  disabled={!selectedCollection}
-                >
-                  Download Now
-                </Button>
-                <Button
-                  type="primary"
-                  onClick={handleBackup}
-                  disabled={!selectedCollection}
-                >
-                  Queue Backup
-                </Button>
-              </Space>
-              <Space>
-                <Button onClick={fetchJobs} loading={jobsLoading}>
-                  Refresh Jobs
-                </Button>
-                <Popconfirm
-                  title="Clear completed/failed jobs?"
-                  onConfirm={() => clearJobs("done")}
-                >
-                  <Button danger>Clear Completed</Button>
-                </Popconfirm>
-              </Space>
+              <Row gutter={[8, 8]} align="middle">
+                <Col xs={24} md={12}>
+                  <Select
+                    size="small"
+                    placeholder="Select collection"
+                    value={selectedCollection}
+                    onChange={setSelectedCollection}
+                    options={collections.map((c) => ({ label: c.name, value: c.name }))}
+                    loading={collectionsLoading}
+                    style={{ width: "100%" }}
+                  />
+                </Col>
+                <Col xs={12} md={6}>
+                  <Select
+                    size="small"
+                    value={backupFormat}
+                    onChange={setBackupFormat}
+                    options={[{ label: "JSON", value: "json" }, { label: "CSV", value: "csv" }]}
+                    style={{ width: "100%" }}
+                  />
+                </Col>
+                <Col xs={12} md={6}>
+                  <Space wrap>
+                    <Button size="small" onClick={downloadCollectionNow} disabled={!selectedCollection}>Download</Button>
+                    <Button size="small" type="primary" onClick={handleBackup} disabled={!selectedCollection}>Queue</Button>
+                  </Space>
+                </Col>
+              </Row>
+
+              <Row gutter={[8, 8]} align="middle">
+                <Col>
+                  <Space wrap>
+                    <Button size="small" onClick={fetchJobs} loading={jobsLoading}>Refresh Jobs</Button>
+                    <Popconfirm title="Clear completed/failed jobs?" onConfirm={() => clearJobs("done")}>
+                      <Button size="small" danger>Clear Completed</Button>
+                    </Popconfirm>
+                  </Space>
+                </Col>
+              </Row>
+
               <Row gutter={[8, 8]}>
                 <Col xs={24} sm={12} md={8}>
                   <Select
+                    size="small"
                     value={jobStatusFilter}
                     onChange={setJobStatusFilter}
                     options={[
@@ -1234,58 +1331,39 @@ const DevSettings = () => {
                 </Col>
                 <Col xs={24} sm={12} md={8}>
                   <Select
+                    size="small"
                     value={jobCollectionFilter}
                     onChange={setJobCollectionFilter}
-                    options={[
-                      { label: "All Collections", value: "all" },
-                      ...jobCollections.map((c) => ({ label: c, value: c })),
-                    ]}
+                    options={[{ label: "All Collections", value: "all" }, ...jobCollections.map((c) => ({ label: c, value: c }))]}
                     style={{ width: "100%" }}
                   />
                 </Col>
               </Row>
+
               <Table
+                className="compact-table"
                 size="small"
                 dataSource={filteredJobs}
                 loading={jobsLoading}
                 rowKey={(r) => r._id}
-                pagination={{ pageSize: 5 }}
+                pagination={{ pageSize: 5, showSizeChanger: true, pageSizeOptions: [5,10,20,50] }}
                 columns={[
-                  {
-                    title: "Collection",
-                    dataIndex: "collection",
-                    key: "collection",
-                  },
+                  { title: "Collection", dataIndex: "collection", key: "collection" },
                   { title: "Format", dataIndex: "format", key: "format" },
                   {
                     title: "Status",
                     dataIndex: "status",
                     key: "status",
                     render: (v) => (
-                      <Tag
-                        color={
-                          v === "completed"
-                            ? "green"
-                            : v === "failed"
-                            ? "red"
-                            : "blue"
-                        }
-                      >
-                        {v}
-                      </Tag>
+                      <Tag color={v === "completed" ? "green" : v === "failed" ? "red" : "blue"}>{v}</Tag>
                     ),
                   },
-                  {
-                    title: "Requested By",
-                    dataIndex: "requestedByName",
-                    key: "requestedByName",
-                  },
+                  { title: "Requested By", dataIndex: "requestedByName", key: "requestedByName" },
                   {
                     title: "Created",
                     dataIndex: "createdAt",
                     key: "createdAt",
-                    render: (v) =>
-                      v ? dayjs(v).format("MM/DD/YYYY hh:mm A") : "",
+                    render: (v) => (v ? dayjs(v).format("MM/DD/YYYY hh:mm A") : ""),
                   },
                   {
                     title: "Action",
@@ -1293,24 +1371,14 @@ const DevSettings = () => {
                     render: (_, row) => (
                       <Space>
                         {row.status === "completed" && row.resultPath ? (
-                          <Button
-                            size="small"
-                            onClick={() => downloadBackupJob(row)}
-                          >
-                            Download
-                          </Button>
+                          <Button size="small" onClick={() => downloadBackupJob(row)}>Download</Button>
                         ) : row.status === "failed" ? (
                           <Text type="danger">Failed</Text>
                         ) : (
                           <Text type="secondary">{row.status}</Text>
                         )}
-                        <Popconfirm
-                          title="Delete this job?"
-                          onConfirm={() => deleteJob(row._id)}
-                        >
-                          <Button size="small" danger>
-                            Delete
-                          </Button>
+                        <Popconfirm title="Delete this job?" onConfirm={() => deleteJob(row._id)}>
+                          <Button size="small" danger>Delete</Button>
                         </Popconfirm>
                       </Space>
                     ),
@@ -1332,12 +1400,13 @@ const DevSettings = () => {
         </Button>
       </Space>
       <Table
+        className="compact-table"
         size="small"
         loading={resignedLoading}
         dataSource={resignedEmployees}
         rowKey={(r) => r._id}
         locale={{ emptyText: "No resigned employees found" }}
-        pagination={{ pageSize: 10 }}
+        pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: [5,10,20,50] }}
         columns={[
           { title: "Emp ID", dataIndex: "empId", key: "empId" },
           { title: "Emp No", dataIndex: "empNo", key: "empNo" },
@@ -1370,226 +1439,172 @@ const DevSettings = () => {
       />
 
       <Modal
-        width={900}
-        title={
-          resignedSelected
-            ? `Resigned: ${resignedSelected.name}`
-            : "Resigned Employee"
-        }
+        width={960}
+        styles={{ body: { maxHeight: 600, overflowY: 'auto' } }}
+        title={resignedSelected ? `Resigned: ${resignedSelected.name}` : 'Resigned Employee'}
         open={resignedDetailsOpen}
-        onCancel={() => {
-          setResignedDetailsOpen(false);
-          setResignedSelected(null);
-          setEmpRecords(null);
-        }}
+        onCancel={() => { setResignedDetailsOpen(false); setResignedSelected(null); setEmpRecords(null); setBioRange(null); }}
         footer={null}
       >
-        {!resignedSelected ? null : (
-          <Space direction="vertical" style={{ width: "100%" }} size={12}>
-            <Descriptions size="small" column={2} bordered>
-              <Descriptions.Item label="Emp ID">
-                {resignedSelected.empId}
-              </Descriptions.Item>
-              <Descriptions.Item label="Emp No">
-                {resignedSelected.empNo}
-              </Descriptions.Item>
-              <Descriptions.Item label="Name">
-                {resignedSelected.name}
-              </Descriptions.Item>
-              <Descriptions.Item label="Type">
-                {resignedSelected.empType}
-              </Descriptions.Item>
-              <Descriptions.Item label="Division">
-                {resignedSelected.division}
-              </Descriptions.Item>
-              <Descriptions.Item label="Section/Unit">
-                {resignedSelected.sectionOrUnit}
-              </Descriptions.Item>
-            </Descriptions>
-            <Divider style={{ margin: "8px 0" }} />
-            <Space style={{ justifyContent: "space-between", width: "100%" }}>
-              <Text type="secondary">Employee Records</Text>
-              <Space>
-                <Popconfirm
-                  title="Restore this employee?"
-                  description="This will restore the employee and ungraylist trainings."
-                  okText="Yes, restore"
-                  cancelText="Cancel"
-                  onConfirm={() => restoreResignedEmployee(resignedSelected)}
-                >
-                  <Button type="primary">Restore Employee</Button>
-                </Popconfirm>
-                <Popconfirm
-                  title="Delete this employee?"
-                  description="This will permanently delete the employee and all their records. This action cannot be undone."
-                  okText="Yes, delete"
-                  okButtonProps={{ danger: true }}
-                  cancelText="Cancel"
-                  onConfirm={() => deleteResignedEmployee(resignedSelected)}
-                >
-                  <Button danger>Delete Employee</Button>
-                </Popconfirm>
-              </Space>
-            </Space>
-            <Alert
-              type="warning"
-              showIcon
-              message="Restoration will restore the employee and their training flags. Deletion will remove the employee, salary record, payslip requests, generation logs, employee documents, and remove them from trainings."
-            />
-            <Divider style={{ margin: "8px 0" }} />
-            <Card
-              size="small"
-              title="Records Overview"
-              loading={empRecordsLoading}
-            >
-              {empRecords ? (
-                <Space direction="vertical" style={{ width: "100%" }}>
-                  <Text>Documents: {(empRecords.docs || []).length}</Text>
-                  <Text>
-                    Payslip Requests:{" "}
-                    {(empRecords.payslipRequests || []).length}
-                  </Text>
-                  <Text>
-                    DTR Generation Logs:{" "}
-                    {(empRecords.dtrGenerationLogs || []).length}
-                  </Text>
-                  <Text>Trainings: {(empRecords.trainings || []).length}</Text>
-                  <Text>Salary Record: {empRecords.salary ? "Yes" : "No"}</Text>
-                </Space>
-              ) : null}
-            </Card>
-            <Row gutter={[12, 12]}>
-              <Col xs={24} md={12}>
-                <Card
-                  size="small"
-                  title="Documents"
-                  loading={empRecordsLoading}
-                >
-                  <Table
-                    size="small"
-                    pagination={{ pageSize: 5 }}
-                    rowKey={(r) => r._id}
-                    dataSource={empRecords?.docs || []}
-                    columns={[
-                      { title: "Type", dataIndex: "docType", key: "docType" },
-                      {
-                        title: "Reference",
-                        dataIndex: "reference",
-                        key: "reference",
-                      },
-                      { title: "Period", dataIndex: "period", key: "period" },
-                      {
-                        title: "Issued",
-                        dataIndex: "dateIssued",
-                        key: "dateIssued",
-                        render: (v) => (v ? dayjs(v).format("MM/DD/YYYY") : ""),
-                      },
-                    ]}
-                  />
-                </Card>
-              </Col>
-              <Col xs={24} md={12}>
-                <Card
-                  size="small"
-                  title="Payslip Requests"
-                  loading={empRecordsLoading}
-                >
-                  <Table
-                    size="small"
-                    pagination={{ pageSize: 5 }}
-                    rowKey={(r) => r._id}
-                    dataSource={empRecords?.payslipRequests || []}
-                    columns={[
-                      { title: "Period", dataIndex: "period", key: "period" },
-                      { title: "Email", dataIndex: "email", key: "email" },
-                      { title: "Status", dataIndex: "status", key: "status" },
-                      {
-                        title: "Created",
-                        dataIndex: "createdAt",
-                        key: "createdAt",
-                        render: (v) => (v ? dayjs(v).format("MM/DD/YYYY") : ""),
-                      },
-                    ]}
-                  />
-                </Card>
-              </Col>
-            </Row>
-            <Row gutter={[12, 12]}>
-              <Col xs={24} md={12}>
-                <Card
-                  size="small"
-                  title="DTR Generation Logs"
-                  loading={empRecordsLoading}
-                >
-                  <Table
-                    size="small"
-                    pagination={{ pageSize: 5 }}
-                    rowKey={(r) => r._id}
-                    dataSource={empRecords?.dtrGenerationLogs || []}
-                    columns={[
-                      { title: "Period", dataIndex: "period", key: "period" },
-                      {
-                        title: "Generated By",
-                        dataIndex: "generatedBy",
-                        key: "generatedBy",
-                      },
-                      {
-                        title: "Created",
-                        dataIndex: "createdAt",
-                        key: "createdAt",
-                        render: (v) => (v ? dayjs(v).format("MM/DD/YYYY") : ""),
-                      },
-                    ]}
-                  />
-                </Card>
-              </Col>
-              <Col xs={24} md={12}>
-                <Card
-                  size="small"
-                  title="Trainings"
-                  loading={empRecordsLoading}
-                >
-                  <Table
-                    size="small"
-                    pagination={{ pageSize: 5 }}
-                    rowKey={(r) => r._id}
-                    dataSource={empRecords?.trainings || []}
-                    columns={[
-                      { title: "Name", dataIndex: "name", key: "name" },
-                      { title: "Host", dataIndex: "host", key: "host" },
-                      { title: "Venue", dataIndex: "venue", key: "venue" },
-                      {
-                        title: "Date",
-                        dataIndex: "trainingDate",
-                        key: "trainingDate",
-                        render: (v) => (v ? dayjs(v).format("MM/DD/YYYY") : ""),
-                      },
-                    ]}
-                  />
-                </Card>
-              </Col>
-            </Row>
-            <Card size="small" title="Salary" loading={empRecordsLoading}>
-              {empRecords?.salary ? (
-                <Descriptions size="small" column={2}>
-                  <Descriptions.Item label="Type">
-                    {empRecords.salary.salaryType}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Payroll Type">
-                    {empRecords.salary.payrollType}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Basic Salary">
-                    {empRecords.salary.basicSalary}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Rate/Month">
-                    {empRecords.salary.ratePerMonth}
-                  </Descriptions.Item>
+        {resignedSelected && (
+          <div style={{ fontSize: 12, lineHeight: 1.4 }}>
+            <Space direction="vertical" style={{ width: '100%' }} size={8}>
+              <Card size="small" bodyStyle={{ padding: 8 }} title={<span style={{ fontSize: 13 }}>Basic Info</span>}>
+                <Descriptions size="small" column={3} bordered labelStyle={{ fontSize: 11 }} contentStyle={{ fontSize: 11 }}>
+                  <Descriptions.Item label="Emp ID">{resignedSelected.empId}</Descriptions.Item>
+                  <Descriptions.Item label="Emp No">{resignedSelected.empNo}</Descriptions.Item>
+                  <Descriptions.Item label="Type">{resignedSelected.empType}</Descriptions.Item>
+                  <Descriptions.Item label="Division">{resignedSelected.division}</Descriptions.Item>
+                  <Descriptions.Item label="Section/Unit">{resignedSelected.sectionOrUnit}</Descriptions.Item>
+                  <Descriptions.Item label="Resigned At">{resignedSelected.resignedAt ? dayjs(resignedSelected.resignedAt).format('YYYY-MM-DD') : ''}</Descriptions.Item>
                 </Descriptions>
-              ) : (
-                <Text type="secondary">No salary record</Text>
-              )}
-            </Card>
-          </Space>
+              </Card>
+              <Alert type="warning" style={{ fontSize: 11 }} showIcon message={<span style={{ fontSize: 12 }}>Deletion will remove employee, salary, payslip requests, generation logs, documents, and training participation.</span>} />
+              <Space style={{ justifyContent:'space-between', width:'100%' }}>
+                <Text type="secondary" style={{ fontSize: 11 }}>Employee Records (collapsible)</Text>
+                <Space>
+                  <Popconfirm title="Restore this employee?" okText="Restore" cancelText="Cancel" onConfirm={() => restoreResignedEmployee(resignedSelected)}>
+                    <Button size="small" type="primary">Restore</Button>
+                  </Popconfirm>
+                  <Popconfirm title="Delete this employee?" okText="Delete" okButtonProps={{ danger:true }} cancelText="Cancel" description="This action cannot be undone." onConfirm={() => deleteResignedEmployee(resignedSelected)}>
+                    <Button size="small" danger>Delete</Button>
+                  </Popconfirm>
+                </Space>
+              </Space>
+              <Card size="small" bodyStyle={{ padding: 8 }} title={<span style={{ fontSize: 13 }}>Summary</span>} loading={empRecordsLoading}>
+                {empRecords && (
+                  <Space size={16} wrap>
+                    <Tag color="blue" style={{ fontSize:11, padding:'2px 6px' }}>Docs: {(empRecords.docs||[]).length}</Tag>
+                    <Tag color="green" style={{ fontSize:11, padding:'2px 6px' }}>Payslip Requests: {(empRecords.payslipRequests||[]).length}</Tag>
+                    <Tag color="geekblue" style={{ fontSize:11, padding:'2px 6px' }}>DTR Logs: {(empRecords.dtrGenerationLogs||[]).length}</Tag>
+                    <Tag color="blue" style={{ fontSize:11, padding:'2px 6px' }}>Biometric Logs: {empRecords?.biometricMeta?.total ?? (empRecords.biometricLogs||[]).length}</Tag>
+                    <Tag color="purple" style={{ fontSize:11, padding:'2px 6px' }}>Trainings: {(empRecords.trainings||[]).length}</Tag>
+                    <Tag color={empRecords.salary? 'gold':'default'} style={{ fontSize:11, padding:'2px 6px' }}>Salary: {empRecords.salary? 'Yes':'No'}</Tag>
+                  </Space>
+                )}
+              </Card>
+              <Collapse size="small" accordion>
+                <Collapse.Panel header={<span style={{ fontSize:12 }}>Documents</span>} key="docs">
+                  <Table className="compact-table" size="small" scroll={{y:200}} pagination={false} rowKey={r=>r._id} dataSource={empRecords?.docs||[]} columns={[
+                    { title:'Type', dataIndex:'docType', key:'docType', width:120 },
+                    { title:'Reference', dataIndex:'reference', key:'reference' },
+                    { title:'Period', dataIndex:'period', key:'period', width:110 },
+                    { title:'Issued', dataIndex:'dateIssued', key:'dateIssued', width:110, render:v=>v?dayjs(v).format('YYYY-MM-DD'):'' },
+                  ]} />
+                </Collapse.Panel>
+                <Collapse.Panel header={<span style={{ fontSize:12 }}>Payslip Requests</span>} key="payslips">
+                  <Table className="compact-table" size="small" scroll={{y:200}} pagination={false} rowKey={r=>r._id} dataSource={empRecords?.payslipRequests||[]} columns={[
+                    { title:'Period', dataIndex:'period', key:'period', width:120 },
+                    { title:'Email', dataIndex:'email', key:'email' },
+                    { title:'Status', dataIndex:'status', key:'status', width:100 },
+                    { title:'Created', dataIndex:'createdAt', key:'createdAt', width:110, render:v=>v?dayjs(v).format('YYYY-MM-DD'):'' },
+                  ]} />
+                </Collapse.Panel>
+                <Collapse.Panel header={<span style={{ fontSize:12 }}>DTR Generation Logs</span>} key="dtr">
+                  <Table className="compact-table" size="small" scroll={{y:200}} pagination={false} rowKey={r=>r._id} dataSource={empRecords?.dtrGenerationLogs||[]} columns={[
+                    { title:'Period', dataIndex:'period', key:'period', width:120 },
+                    { title:'Generated By', dataIndex:'generatedBy', key:'generatedBy' },
+                    { title:'Created', dataIndex:'createdAt', key:'createdAt', width:110, render:v=>v?dayjs(v).format('YYYY-MM-DD'):'' },
+                  ]} />
+                </Collapse.Panel>
+                <Collapse.Panel header={<span style={{ fontSize:12 }}>Biometrics Logs</span>} key="biometrics">
+                  <div style={{ fontSize: 11, lineHeight: 1.3 }}>
+                    <Space size={6} style={{ marginBottom: 8, flexWrap:'wrap' }}>
+                      <DatePicker.RangePicker
+                        size="small"
+                        onChange={(v)=> setBioRange(v)}
+                        value={bioRange}
+                        style={{ width: 260 }}
+                        allowClear
+                      />
+                      <TimePicker
+                        size="small"
+                        format="HH:mm"
+                        value={bioTimeFrom}
+                        onChange={setBioTimeFrom}
+                        placeholder="Start time"
+                      />
+                      <TimePicker
+                        size="small"
+                        format="HH:mm"
+                        value={bioTimeTo}
+                        onChange={setBioTimeTo}
+                        placeholder="End time"
+                      />
+                      <Button size="small" onClick={refreshBiometricLogs} loading={bioLoading}>Apply</Button>
+                      <Button size="small" onClick={()=>{ setBioRange(null); setBioTimeFrom(null); setBioTimeTo(null); refreshBiometricLogs(); }}>Reset</Button>
+                      <Button size="small" onClick={exportBiometricsCSV} disabled={(bioLogs||[]).length===0}>Export CSV</Button>
+                      {bioMeta && (
+                        <Tag color="processing" style={{ marginLeft: 6 }}>Total: {bioMeta.total} • Showing {bioLogs.length}</Tag>
+                      )}
+                    </Space>
+                    <div className="bio-tight">
+                      <Table
+                        className="compact-table"
+                        size="small"
+                        scroll={{ y: 220 }}
+                        pagination={false}
+                        rowKey={r=>r._id}
+                        dataSource={(bioLogs||[]).filter(r=>{
+                          const t = r?.Time ? dayjs(r.Time) : null;
+                          if (!t) return false;
+                          // Date filter (client side safeguard)
+                          if (bioRange && bioRange[0] && bioRange[1]) {
+                            if (!t.isBetween(bioRange[0], bioRange[1], 'day', '[]')) return false;
+                          }
+                          // Time-of-day filter
+                          if (bioTimeFrom || bioTimeTo) {
+                            const minutes = t.hour()*60 + t.minute();
+                            const startM = bioTimeFrom ? (bioTimeFrom.hour()*60 + bioTimeFrom.minute()) : null;
+                            const endM = bioTimeTo ? (bioTimeTo.hour()*60 + bioTimeTo.minute()) : null;
+                            if (startM !== null && minutes < startM) return false;
+                            if (endM !== null && minutes > endM) return false;
+                          }
+                          return true;
+                        })}
+                        columns={[
+                          { title:<span style={{fontSize:11}}>AC-No</span>, dataIndex:'AC-No', key:'acno', width:110, render:v=> <span style={{fontSize:11}}>{v}</span> },
+                          { title:<span style={{fontSize:11}}>Name</span>, dataIndex:'Name', key:'name', render:v=> <span style={{fontSize:11}}>{v}</span> },
+                          { title:<span style={{fontSize:11}}>Time</span>, dataIndex:'Time', key:'time', width:150, render:v=> <span style={{fontSize:11}}>{v?dayjs(v).format('YYYY-MM-DD HH:mm'):''}</span> },
+                          { title:<span style={{fontSize:11}}>State</span>, dataIndex:'State', key:'state', width:90, render:v=> <span style={{fontSize:11}}>{v}</span> },
+                        ]}
+                      />
+                      <div style={{ marginTop: 8, display:'flex', gap:8, alignItems:'center' }}>
+                        <Button size="small" onClick={loadMoreBiometrics} disabled={!bioMeta?.hasMore} loading={bioLoading}>
+                          {bioMeta?.hasMore ? 'Load more' : 'No more'}
+                        </Button>
+                        {bioMeta && <Text type="secondary">Page {bioMeta.page} • Returned {bioMeta.returned}</Text>}
+                      </div>
+                    </div>
+                    <style>
+                      {`
+                        .bio-tight .ant-table-tbody > tr > td { padding: 4px 6px !important; }
+                        .bio-tight .ant-table-thead > tr > th { padding: 6px 6px !important; }
+                      `}
+                    </style>
+                  </div>
+                </Collapse.Panel>
+                <Collapse.Panel header={<span style={{ fontSize:12 }}>Trainings</span>} key="trainings">
+                  <Table className="compact-table" size="small" scroll={{y:200}} pagination={false} rowKey={r=>r._id} dataSource={empRecords?.trainings||[]} columns={[
+                    { title:'Name', dataIndex:'name', key:'name' },
+                    { title:'Host', dataIndex:'host', key:'host', width:120 },
+                    { title:'Venue', dataIndex:'venue', key:'venue', width:120 },
+                    { title:'Date', dataIndex:'trainingDate', key:'trainingDate', width:110, render:v=>v?dayjs(v).format('YYYY-MM-DD'):'' },
+                  ]} />
+                </Collapse.Panel>
+                <Collapse.Panel header={<span style={{ fontSize:12 }}>Salary</span>} key="salary">
+                  {empRecords?.salary ? (
+                    <Descriptions size="small" column={3} bordered labelStyle={{ fontSize:11 }} contentStyle={{ fontSize:11 }}>
+                      <Descriptions.Item label="Type">{empRecords.salary.salaryType}</Descriptions.Item>
+                      <Descriptions.Item label="Payroll Type">{empRecords.salary.payrollType}</Descriptions.Item>
+                      <Descriptions.Item label="Basic Salary">{empRecords.salary.basicSalary}</Descriptions.Item>
+                      <Descriptions.Item label="Rate/Month">{empRecords.salary.ratePerMonth}</Descriptions.Item>
+                    </Descriptions>
+                  ) : <Text type="secondary" style={{ fontSize:11 }}>No salary record</Text>}
+                </Collapse.Panel>
+              </Collapse>
+            </Space>
+          </div>
         )}
       </Modal>
     </Space>
@@ -1702,11 +1717,12 @@ const DevSettings = () => {
           </Row>
         </Space>
         <Table
+          className="compact-table"
           size="small"
           loading={employeesLoading}
           dataSource={filteredEmployees}
           rowKey={(r) => r._id}
-          pagination={{ pageSize: 10 }}
+          pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: [5,10,20,50] }}
           columns={[
             { title: "Emp ID", dataIndex: "empId", key: "empId" },
             { title: "Emp No", dataIndex: "empNo", key: "empNo" },
@@ -1928,7 +1944,7 @@ const DevSettings = () => {
 
   return (
     <Space direction="vertical" style={{ width: "100%" }}>
-      <Title level={3}>Developer Settings</Title>
+  <Title level={3}>Developer Settings {isDemoUser && <Tag color="blue">Demo User</Tag>}</Title>
       {!canSeeDev && (
         <Alert
           type="warning"
@@ -1980,17 +1996,38 @@ const DevSettings = () => {
             forceRender: true,
           },
           {
+            key: "demo-mode",
+            label: "Demo Mode",
+            children: (
+              <Section title="Demo Mode Configuration" extra={settings?.demo?.enabled ? <Tag color="blue">Active</Tag> : <Tag>Disabled</Tag>}>
+                <DemoModeSettings settings={settings} onUpdated={(next)=>{ setSettings(next); window.dispatchEvent(new Event('app-settings-updated')); }} />
+              </Section>
+            ),
+            forceRender: true,
+          },
+          {
+            key: "secure-storage",
+            label: "Secure Storage",
+            children: (
+              <Section title="Secure Storage Diagnostics">
+                <SecureStorageDiagnostics />
+              </Section>
+            ),
+            forceRender: true,
+          },
+          {
             key: "audit-logs",
             label: "Audit Logs",
             children: (
               <Section title="Audit Logs">
                 <Button onClick={fetchAuditLogs}>Refresh</Button>
                 <Table
+                  className="compact-table"
                   size="small"
                   dataSource={auditLogs}
                   loading={auditLoading}
                   rowKey={(r) => r._id}
-                  pagination={{ pageSize: 10 }}
+                  pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: [5,10,20,50] }}
                   columns={[
                     { title: "Action", dataIndex: "action", key: "action" },
                     { title: "By", dataIndex: "performedByName", key: "by" },
@@ -2022,11 +2059,12 @@ const DevSettings = () => {
                   <Button onClick={fetchNotifications}>Refresh</Button>
                 </Space>
                 <Table
+                  className="compact-table"
                   size="small"
                   dataSource={notifications}
                   loading={notifLoading}
                   rowKey={(r) => r._id}
-                  pagination={{ pageSize: 10 }}
+                  pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: [5,10,20,50] }}
                   columns={[
                     {
                       title: "Title",

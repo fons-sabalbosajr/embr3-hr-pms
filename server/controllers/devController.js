@@ -8,6 +8,7 @@ import BackupJob from '../models/BackupJob.js';
 import User from '../models/User.js';
 import fs from 'fs';
 import backupWorker from '../utils/backupWorker.js';
+import { storageGetStream } from '../utils/storageProvider.js';
 
 dotenv.config();
 
@@ -231,12 +232,21 @@ export const createBackupJob = async (req, res) => {
   try {
     const { collection, format = 'json' } = req.body;
     if (!collection) return res.status(400).json({ success: false, message: 'collection is required' });
+    // Enrich requestedByName using req.user (populated by auth middleware) or lookup fallback
+    let requestedByName = req.user?.name || req.user?.email || 'unknown';
+    if (requestedByName === 'unknown' && req.user?.id) {
+      try {
+        const u = await User.findById(req.user.id).select('name email').lean();
+        if (u) requestedByName = u.name || u.email || requestedByName;
+      } catch (e) { /* non-fatal */ }
+    }
     const job = await BackupJob.create({
       collection,
       format,
       requestedBy: req.user?._id,
-      requestedByName: req.user?.name || req.user?.email || 'unknown',
+      requestedByName,
       status: 'pending',
+      provider: (process.env.STORAGE_PROVIDER || 'local').toLowerCase(),
     });
 
     try {
@@ -255,7 +265,18 @@ export const createBackupJob = async (req, res) => {
 export const listBackupJobs = async (req, res) => {
   try {
     const jobs = await BackupJob.find().sort({ createdAt: -1 }).limit(100);
-    res.json({ success: true, data: jobs });
+    // Ensure requestedByName is filled if missing
+    const enriched = [];
+    for (const j of jobs) {
+      if (!j.requestedByName && j.requestedBy) {
+        try {
+          const u = await User.findById(j.requestedBy).select('name email').lean();
+          if (u) j.requestedByName = u.name || u.email || 'unknown';
+        } catch (e) { /* non-fatal */ }
+      }
+      enriched.push(j);
+    }
+    res.json({ success: true, data: enriched });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -267,6 +288,16 @@ export const downloadBackupJobResult = async (req, res) => {
     const job = await BackupJob.findById(id);
     if (!job) return res.status(404).json({ success: false, message: 'Job not found' });
     if (job.status !== 'completed' || !job.resultPath) return res.status(400).json({ success: false, message: 'Job is not ready' });
+    // Drive-backed job
+    if ((job.provider || (process.env.STORAGE_PROVIDER || 'local')).toLowerCase() === 'drive' || job.resultPath.startsWith('drive:')) {
+      const fileName = job.resultPath.replace(/^drive:/, '') || `backup-${id}.${job.format==='csv'?'csv':'json'}`;
+      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+      const stream = await storageGetStream(job.fileId || fileName);
+      stream.on('error', () => res.status(404).end());
+      stream.pipe(res);
+      return;
+    }
+    // Local fallback
     const full = path.join(process.cwd(), job.resultPath);
     if (!fs.existsSync(full)) return res.status(404).json({ success: false, message: 'Result not found' });
     res.download(full, path.basename(full));

@@ -3,7 +3,17 @@ import autoTable from "jspdf-autotable";
 import dayjs from "dayjs";
 import letterhead from "../src/assets/letterheademb.PNG"; // adjust path if needed
 
-const generatePdfDoc = (payslipData, payslipNumber, isFullMonthRange) => {
+// Load position acronym mapping from environment (expects JSON string in VITE_POSITION_ACRONYMS)
+let POSITION_MAP = {};
+try {
+  if (import.meta?.env?.VITE_POSITION_ACRONYMS) {
+    POSITION_MAP = JSON.parse(import.meta.env.VITE_POSITION_ACRONYMS);
+  }
+} catch (e) {
+  console.warn("Failed to parse VITE_POSITION_ACRONYMS", e);
+}
+
+const generatePdfDoc = (payslipData, payslipNumber, isFullMonthRange, maskAmounts = false) => {
   // Ensure payslipData and its nested properties are defined
   const safePayslipData = {
     ...payslipData,
@@ -97,7 +107,31 @@ const generatePdfDoc = (payslipData, payslipNumber, isFullMonthRange) => {
 
   // Position
   doc.text(labels[2], leftX, leftY);
-  const positionValue = safePayslipData.position || "";
+  // Shorten position if any mapped key appears inside (supports composite strings like
+  // "Project Evaluation Officer I/PEMU Staff Bulacan" -> "PEO I/PEMU Staff Bulacan")
+  let positionValue = safePayslipData.position || "";
+  if (positionValue) {
+    const raw = positionValue;
+    // First attempt full / direct match
+    const direct = POSITION_MAP[raw] || POSITION_MAP[raw.toUpperCase()];
+    if (direct) {
+      positionValue = direct;
+    } else {
+      // Build list of candidate keys sorted by length (desc) to favor longer, specific titles
+      const keys = Object.keys(POSITION_MAP).sort((a,b) => b.length - a.length);
+      const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      for (const key of keys) {
+        // Case-insensitive whole-word match (word boundaries) to avoid matching Engineer I inside Engineer II
+        // If key contains slashes or punctuation, fallback to simple case-insensitive index search
+        const boundarySafe = /[A-Za-z0-9]$/.test(key) ? `\\b${escapeRegex(key)}\\b` : escapeRegex(key);
+        const reg = new RegExp(boundarySafe, 'i');
+        if (reg.test(raw)) {
+          positionValue = raw.replace(reg, POSITION_MAP[key]);
+          break;
+        }
+      }
+    }
+  }
   doc.text(positionValue, valueStartX, leftY);
   if (positionValue) {
     doc.line(
@@ -181,6 +215,7 @@ const generatePdfDoc = (payslipData, payslipNumber, isFullMonthRange) => {
   };
 
   const formatCurrency = (value) => {
+    if (maskAmounts) return "*****";
     const n = Number(value);
     if (!Number.isFinite(n)) {
       return "0.00";
@@ -498,9 +533,10 @@ const generatePdfDoc = (payslipData, payslipNumber, isFullMonthRange) => {
 export const generatePaySlipPreview = (
   payslipData,
   payslipNumber,
-  isFullMonthRange
+  isFullMonthRange,
+  maskAmounts = false
 ) => {
-  const doc = generatePdfDoc(payslipData, payslipNumber, isFullMonthRange);
+  const doc = generatePdfDoc(payslipData, payslipNumber, isFullMonthRange, maskAmounts);
   const uri = doc.output("datauristring");
   return uri + "#toolbar=0&view=Fit";
 };
@@ -508,9 +544,10 @@ export const generatePaySlipPreview = (
 export const generatePaySlipPdf = (
   payslipData,
   payslipNumber,
-  isFullMonthRange
+  isFullMonthRange,
+  maskAmounts = false
 ) => {
-  const doc = generatePdfDoc(payslipData, payslipNumber, isFullMonthRange);
+  const doc = generatePdfDoc(payslipData, payslipNumber, isFullMonthRange, maskAmounts);
   doc.save("payslip.pdf");
 };
 
@@ -529,9 +566,10 @@ const dataURItoBlob = (dataURI) => {
 export const openPayslipInNewTab = (
   payslipData,
   payslipNumber,
-  isFullMonthRange
+  isFullMonthRange,
+  maskAmounts = false
 ) => {
-  const doc = generatePdfDoc(payslipData, payslipNumber, isFullMonthRange);
+  const doc = generatePdfDoc(payslipData, payslipNumber, isFullMonthRange, maskAmounts);
   const uri = doc.output("datauristring");
 
   const pdfBlob = dataURItoBlob(uri);

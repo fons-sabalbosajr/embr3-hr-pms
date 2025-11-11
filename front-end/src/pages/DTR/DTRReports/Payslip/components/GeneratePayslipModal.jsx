@@ -16,6 +16,7 @@ import {
   Menu,
   notification,
   Switch,
+  Alert,
   Tag,
 } from "antd";
 import {
@@ -26,6 +27,7 @@ import {
 import dayjs from "dayjs";
 import { generatePaySlipPreview } from "../../../../../../utils/generatePaySlipContract.js";
 import { generatePaySlipPreviewRegular } from "../../../../../../utils/generatePaySlipRegular.js";
+import useDemoMode from "../../../../../hooks/useDemoMode.js";
 import axiosInstance from "../../../../../api/axiosInstance.js";
 
 const DeductionRow = ({
@@ -179,7 +181,15 @@ const GeneratePayslipModal = ({
   const [currentPayslipData, setCurrentPayslipData] = useState(null);
   const [payslipNumber, setPayslipNumber] = useState(null);
   const [deductionTypes, setDeductionTypes] = useState([]);
+  const { isDemoActive, isDemoUser } = useDemoMode();
   const [filteredDeductionTypes, setFilteredDeductionTypes] = useState([]);
+  // --- New state for Send Payslip workflow ---
+  const [isSendModalOpen, setIsSendModalOpen] = useState(false);
+  const [sendEmail, setSendEmail] = useState("");
+  const [customBody, setCustomBody] = useState("");
+  const [includeWetSignatureInstruction, setIncludeWetSignatureInstruction] = useState(true);
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
+  const [createdRequestId, setCreatedRequestId] = useState(null);
   // Track auto-update vs manual edit for COS cutOffPay
   const autoUpdatingCutOffPayRef = useRef(false);
   const cutOffPayManuallyEditedRef = useRef(false);
@@ -434,7 +444,8 @@ const GeneratePayslipModal = ({
         const previewUri = generatePaySlipPreviewRegular(
           payslipData,
           currentPayslipNo,
-          isFullMonthRange
+          isFullMonthRange,
+          isDemoActive && isDemoUser // mask amounts in demo
         );
         setPdfPreview(previewUri);
       } else {
@@ -502,7 +513,8 @@ const GeneratePayslipModal = ({
         const previewUri = generatePaySlipPreview(
           payslipData,
           currentPayslipNo,
-          isFullMonthRange
+          isFullMonthRange,
+          isDemoActive && isDemoUser // mask amounts in demo
         );
         setPdfPreview(previewUri);
       }
@@ -539,8 +551,104 @@ const GeneratePayslipModal = ({
   };
 
   const handleDownloadPayslip = () => {
+    if (isDemoActive && isDemoUser) {
+      notification.warning({
+        message: "Download Disabled in Demo",
+        description: "Payslip downloading is not available in demo mode.",
+      });
+      return;
+    }
     if (currentPayslipData) {
       handleGeneratePayslip(currentPayslipData, isFullMonthRange, "download");
+    }
+  };
+
+  // Compute default period display for email subject/body
+  const periodDisplay = currentPayslipData
+    ? `${currentPayslipData.cutOffStartDate} - ${currentPayslipData.cutOffEndDate}`
+    : "";
+
+  // Open Send Payslip modal (prefill email & body)
+  const handleOpenSendModal = () => {
+    if (!currentPayslipData) return;
+    // Prefer first employee email if available
+    const initialEmail = (selectedEmployee?.emails || [])[0] || selectedEmployee?.email || "";
+    setSendEmail(initialEmail);
+    const defaultBody = `Dear ${selectedEmployee?.name || "Employee"},\n\nAttached is your payslip for the period ${periodDisplay}.\n\n${includeWetSignatureInstruction ? "Instruction: This payslip is system-generated. A wet signature is NOT required for its validity." : ""}\n\nRegards,\nHR Personnel`;
+    setCustomBody(defaultBody);
+    setIsSendModalOpen(true);
+    // Fallback: find last payslip request email if employee email missing
+    if (!initialEmail && selectedEmployee?.empId) {
+      (async () => {
+        try {
+          const res = await axiosInstance.get('/payslip-requests');
+          const list = (res.data?.data || []).filter(r => r && r.employeeId === selectedEmployee.empId && !r.hidden);
+          if (list.length > 0) {
+            list.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
+            const lastEmail = list[0]?.email;
+            if (lastEmail) setSendEmail(lastEmail);
+          }
+        } catch (_) { /* non-fatal */ }
+      })();
+    }
+  };
+
+  const buildHtmlBody = () => {
+    // Convert newlines to <br/>
+    const escaped = customBody
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;")
+      .replace(/\n/g, "<br/>");
+    return `<!DOCTYPE html><html><body style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;">${escaped}</body></html>`;
+  };
+
+  const handleSendPayslip = async () => {
+    if (!currentPayslipData || !pdfPreview) {
+      notification.error({ message: "Preview not ready", description: "Generate the payslip first." });
+      return;
+    }
+    if (!sendEmail) {
+      notification.error({ message: "Email required", description: "Please enter a recipient email." });
+      return;
+    }
+    setIsSendingEmail(true);
+    try {
+      // 1. Ensure a PayslipRequest exists (create if not yet)
+      let requestId = createdRequestId;
+      if (!requestId) {
+        const createRes = await axiosInstance.post("/payslip-requests", {
+          employeeId: selectedEmployee?.empId,
+          period: periodDisplay || dayjs().format("YYYY-MM"),
+          email: sendEmail,
+        });
+        if (!createRes.data?.data?._id) throw new Error("Failed to create payslip request record");
+        requestId = createRes.data.data._id;
+        setCreatedRequestId(requestId);
+      }
+
+      // 2. Send email with PDF base64 (use preview URI)
+      const subject = `Payslip ${periodDisplay}`;
+      const bodyHtml = buildHtmlBody();
+      const sendRes = await axiosInstance.post(`/payslip-requests/${requestId}/send-email`, {
+        pdfBase64: (pdfPreview || '').split('#')[0], // strip any #toolbar from data URI
+        filename: `payslip_${selectedEmployee?.empId || "employee"}.pdf`,
+        subject,
+        bodyHtml,
+      });
+
+      if (sendRes.data?.success) {
+        notification.success({ message: "Payslip email sent", description: `Email dispatched to ${sendEmail}` });
+        setIsSendModalOpen(false);
+      } else {
+        throw new Error(sendRes.data?.message || "Unknown send error");
+      }
+    } catch (e) {
+      notification.error({ message: "Failed to send", description: e.message });
+    } finally {
+      setIsSendingEmail(false);
     }
   };
 
@@ -548,7 +656,7 @@ const GeneratePayslipModal = ({
     <Menu
       onClick={({ key }) => {
         if (key === "view") {
-          handleGenerateAndOpen(); // This already opens in new tab
+          handleGenerateAndOpen();
         } else if (key === "download") {
           handleDownloadPayslip();
         }
@@ -559,20 +667,37 @@ const GeneratePayslipModal = ({
           key: "view",
         },
         {
-          label: "Download Payslip",
+          label: (
+            <span style={{ opacity: isDemoActive && isDemoUser ? 0.5 : 1 }}>
+              Download Payslip
+              {isDemoActive && isDemoUser && (
+                <Tag color="red" style={{ marginLeft: 6 }}>Demo</Tag>
+              )}
+            </span>
+          ),
           key: "download",
+          disabled: isDemoActive && isDemoUser,
         },
       ]}
     />
   );
 
   return (
+    <>
     <Modal
       open={isModalOpen}
       onCancel={handleCancel}
       footer={[
         <Button key="back" onClick={handleCancel}>
           Cancel
+        </Button>,
+        <Button
+          key="send"
+          type="default"
+          disabled={!currentPayslipData || isPreviewLoading}
+          onClick={handleOpenSendModal}
+        >
+          Send
         </Button>,
         <Dropdown overlay={menu} placement="topRight" arrow>
           <Button key="submit" type="primary">
@@ -801,15 +926,17 @@ const GeneratePayslipModal = ({
                         >
                           <InputNumber
                             min={0}
-                            formatter={(value) =>
-                              `₱${parseFloat(value || 0).toLocaleString(
-                                undefined,
-                                {
-                                  minimumFractionDigits: 2,
-                                  maximumFractionDigits: 2,
-                                }
-                              )}`
-                            }
+                              formatter={(value) =>
+                                isDemoActive && isDemoUser
+                                  ? "*****"
+                                  : `₱${parseFloat(value || 0).toLocaleString(
+                                      undefined,
+                                      {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2,
+                                      }
+                                    )}`
+                              }
                             parser={(value) => value.replace(/₱\s?|(,*)/g, "")}
                             style={{ width: "100%" }}
                             onChange={() => {
@@ -1353,7 +1480,93 @@ const GeneratePayslipModal = ({
           </div>
         </Col>
       </Row>
+  </Modal>
+
+    {/* Send Payslip Email Modal */}
+    <Modal
+      open={isSendModalOpen}
+      onCancel={() => setIsSendModalOpen(false)}
+      title="Send Payslip via Email"
+      width={900}
+      footer={[
+        <Button key="cancel" onClick={() => setIsSendModalOpen(false)} disabled={isSendingEmail}>Cancel</Button>,
+        <Button
+          key="send"
+            type="primary"
+            loading={isSendingEmail}
+            disabled={!pdfPreview || !sendEmail}
+            onClick={handleSendPayslip}
+        >
+          {isSendingEmail ? "Sending..." : "Send Payslip"}
+        </Button>,
+      ]}
+      centered
+    >
+      <Row gutter={16}>
+        <Col span={12}>
+          <div style={{ border: "1px solid #eee", height: 500, overflow: "hidden", borderRadius: 4 }}>
+            {pdfPreview ? (
+              <iframe
+                title="Payslip Preview"
+                src={pdfPreview}
+                style={{ width: "100%", height: "100%", border: "none" }}
+              />
+            ) : (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}>
+                <Spin />
+              </div>
+            )}
+          </div>
+          <p style={{ fontSize: 11, marginTop: 8, color: "#666" }}>
+            This preview reflects the current payslip data. Adjust values in the Generate modal then reopen Send if you need changes.
+          </p>
+        </Col>
+        <Col span={12}>
+          <Form layout="vertical" size="small">
+            <Form.Item label="Recipient Email" required>
+              <Input
+                value={sendEmail}
+                onChange={(e) => setSendEmail(e.target.value)}
+                placeholder="employee@example.com"
+              />
+            </Form.Item>
+            <Form.Item label="Custom Message (editable)">
+              <Input.TextArea
+                value={customBody}
+                onChange={(e) => setCustomBody(e.target.value)}
+                autoSize={{ minRows: 10, maxRows: 18 }}
+                placeholder="Enter custom email body"
+              />
+            </Form.Item>
+            <Form.Item label="Wet Signature Instruction" tooltip="Include instruction that wet signature not required for validity.">
+              <Space>
+                <Switch
+                  checked={includeWetSignatureInstruction}
+                  onChange={(checked) => {
+                    setIncludeWetSignatureInstruction(checked);
+                    // Regenerate body preserving other edits only if untouched beyond default
+                    if (!customBody || customBody.includes("Attached is your payslip") ) {
+                      const updated = `Dear ${selectedEmployee?.name || "Employee"},\n\nAttached is your payslip for the period ${periodDisplay}.\n\n${checked ? "Instruction: This payslip is system-generated. A wet signature is NOT required for its validity." : ""}\n\nRegards,\nHR Personnel`;
+                      setCustomBody(updated);
+                    }
+                  }}
+                  size="small"
+                />
+                <span style={{ fontSize: 12 }}>
+                  {includeWetSignatureInstruction ? "Included" : "Excluded"}
+                </span>
+              </Space>
+            </Form.Item>
+            <Alert
+              type="info"
+              message="The PDF attachment is system-generated. A wet signature instruction can be toggled above."
+              showIcon
+            />
+          </Form>
+        </Col>
+      </Row>
     </Modal>
+    </>
   );
 };
 

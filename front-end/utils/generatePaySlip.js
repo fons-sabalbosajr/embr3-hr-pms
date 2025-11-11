@@ -3,6 +3,37 @@ import autoTable from "jspdf-autotable";
 import dayjs from "dayjs";
 import letterhead from "../src/assets/letterheademb.PNG"; // adjust path if needed
 
+// Position acronym mapping (shared logic with regular & contract versions)
+let POSITION_MAP = {};
+try {
+  if (import.meta?.env?.VITE_POSITION_ACRONYMS) {
+    let raw = import.meta.env.VITE_POSITION_ACRONYMS.trim();
+    if ((raw.startsWith("'") && raw.endsWith("'")) || (raw.startsWith('"') && raw.endsWith('"'))) {
+      raw = raw.slice(1, -1);
+    }
+    POSITION_MAP = JSON.parse(raw);
+  }
+} catch (e) {
+  console.warn("Failed to parse VITE_POSITION_ACRONYMS", e);
+}
+
+const applyPositionAcronyms = (value) => {
+  if (!value || typeof value !== 'string') return value || '';
+  const direct = POSITION_MAP[value] || POSITION_MAP[value.toUpperCase()];
+  if (direct) return direct;
+  const keys = Object.keys(POSITION_MAP).sort((a,b) => b.length - a.length);
+  const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  let out = value;
+  for (const key of keys) {
+    const pattern = /[A-Za-z0-9]$/.test(key) ? `\\b${escapeRegex(key)}\\b` : escapeRegex(key);
+    const reg = new RegExp(pattern, 'i');
+    if (reg.test(out)) {
+      out = out.replace(reg, POSITION_MAP[key]);
+    }
+  }
+  return out;
+};
+
 const generatePdfDoc = (payslipData, payslipNumber, isFullMonthRange) => {
   // Ensure payslipData and its nested properties are defined
   const safePayslipData = {
@@ -95,9 +126,10 @@ const generatePdfDoc = (payslipData, payslipNumber, isFullMonthRange) => {
   );
   leftY += 0.18;
 
-  // Position
+  // Position (acronym mapping)
   doc.text(labels[2], leftX, leftY);
-  const positionValue = safePayslipData.position || "";
+  const positionValueRaw = safePayslipData.position || "";
+  const positionValue = applyPositionAcronyms(positionValueRaw);
   doc.text(positionValue, valueStartX, leftY);
   if (positionValue) {
     doc.line(
@@ -533,4 +565,12 @@ export const openPayslipInNewTab = (
     );
     URL.revokeObjectURL(url);
   }
+};
+
+// Produce a base64 data URI for emailing without forcing a download
+export const generatePayslipBase64 = (payslipData, payslipNumber, isFullMonthRange) => {
+  const doc = generatePdfDoc(payslipData, payslipNumber, isFullMonthRange);
+  // Use "datauristring" output then return as-is (already base64 embedded)
+  const uri = doc.output('datauristring');
+  return uri; // data:application/pdf;base64,<...>
 };

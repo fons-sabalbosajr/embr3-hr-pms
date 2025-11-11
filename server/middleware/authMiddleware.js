@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken';
 
-const verifyToken = (req, res, next) => {
+const verifyToken = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
 
@@ -10,7 +10,24 @@ const verifyToken = (req, res, next) => {
     const token = authHeader.split(' ')[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    req.user = decoded; // attach decoded token to request
+    // For richer context (name/email) look up user once and cache minimal fields
+    // Only if id exists; fallback to decoded for legacy tokens.
+    if (decoded?.id) {
+      try {
+        // Lazy load to avoid circular deps at import time
+        const { default: User } = await import('../models/User.js');
+        const u = await User.findById(decoded.id).select('name email').lean();
+        if (u) {
+          req.user = { ...decoded, name: u.name, email: u.email };
+        } else {
+          req.user = decoded;
+        }
+      } catch (e) {
+        req.user = decoded;
+      }
+    } else {
+      req.user = decoded; // attach decoded token to request
+    }
     next();
   } catch (err) {
     return res.status(401).json({ message: 'Invalid or expired token' });

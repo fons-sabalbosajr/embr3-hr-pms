@@ -148,3 +148,46 @@ export const sendNoTimeRecordBulkEmail = async ({ to, name, empId, dates = [], p
     text: `Good day ${safeName}${empId ? ` (ID: ${empId})` : ''},\n\nOur records show no time entries on the following dates${periodLabel ? ` for ${periodLabel}` : ''}:\n- ${(dates||[]).map(d => new Date(d).toLocaleDateString('en-PH')).join('\n- ')}\n\nIf you reported for duty on any of these dates, please coordinate with HR or your immediate supervisor to update your record.\n\n${remarks || ''}\n\nThank you,\nHR Unit, EMB Region III`,
   });
 };
+
+// Generic bug report email sender
+export const sendBugReportEmail = async ({ to, from, subject, message, meta = {}, screenshotBase64 }) => {
+  const lines = [];
+  if (message) lines.push(`<p style="white-space:pre-wrap">${(message || '').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`);
+  const metaList = Object.entries(meta)
+    .filter(([k,v]) => v != null && v !== "")
+    .map(([k, v]) => `<li><strong>${k}:</strong> ${(String(v)).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</li>`)
+    .join("");
+  const html = `
+    <div style="font-family:Arial,sans-serif;max-width:680px;margin:auto;border:1px solid #e6e6e6;border-radius:8px;overflow:hidden">
+      <div style="background:#f5222d;color:#fff;padding:14px 18px">
+        <h3 style="margin:0">Bug Report</h3>
+        <div style="opacity:0.9;font-size:12px">Submitted via HRPMS</div>
+      </div>
+      <div style="padding:18px">
+        <h4 style="margin:0 0 8px">${(subject || 'Bug Report')}</h4>
+        ${lines.join('')}
+        ${metaList ? `<ul style="margin-top:12px;padding-left:18px">${metaList}</ul>` : ''}
+      </div>
+      <div style="background:#fafafa;border-top:1px solid #eee;color:#888;padding:10px 16px;font-size:12px;text-align:center">
+        Automated email from EMBR3 HRPMS
+      </div>
+    </div>`;
+
+  const attachments = [];
+  if (screenshotBase64 && typeof screenshotBase64 === 'string' && screenshotBase64.includes(',')) {
+    try {
+      const [metaPrefix, dataPart] = screenshotBase64.split(',');
+      const mime = (metaPrefix.match(/data:(.*);base64/) || [])[1] || 'image/png';
+      attachments.push({ filename: `screenshot.${mime.split('/')[1] || 'png'}`, content: dataPart, encoding: 'base64', contentType: mime });
+    } catch (_) { /* ignore bad image */ }
+  }
+
+  return transporter.sendMail({
+    from: `EMBR3 HRPMS <${process.env.EMAIL_USER}>`,
+    to,
+    replyTo: from || undefined,
+    subject: subject || 'Bug Report',
+    html,
+    attachments,
+  });
+};
