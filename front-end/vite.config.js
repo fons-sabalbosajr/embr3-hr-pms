@@ -14,6 +14,19 @@ export default defineConfig(({ mode }) => {
   return {
     base: normalizedBase,
     plugins: [react()],
+    build: {
+      chunkSizeWarningLimit: 1500, // raise warning limit after intentional vendor splitting
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            react: ["react", "react-dom"],
+            antd: ["antd"],
+            pdf: ["jspdf", "html2canvas"],
+            socket: ["socket.io-client"],
+          },
+        },
+      },
+    },
     server: {
       host: env.VITE_HOST || "0.0.0.0", // bind to all for LAN access
       port: parseInt(env.VITE_PORT) || 5175,

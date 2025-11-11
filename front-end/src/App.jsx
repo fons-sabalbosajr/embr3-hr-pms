@@ -1,23 +1,24 @@
 // client/src/App.jsx
+import React, { Suspense, lazy } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import useAuth from "./hooks/useAuth";
 
-import AuthPage from "./pages/AuthPage/AuthPage";
-import ResetPassword from "./pages/ResetPassword/ResetPassword";
-import HomePage from "./pages/HomePage/HomePage";
-import EmailVerification from "./pages/EmailVerification";
-
-import PayslipRequest from "./pages/RequestPayslipClient/PayslipRequest";
-import RequestDTRClient from "./pages/RequestDTRClient/RequestDTRClient";
-import PublicRequests from "./pages/PublicRequests/PublicRequests";
-
-import Unauthorized from "./pages/Unauthorized/Unauthorized";
+// Route-level code splitting
+const AuthPage = lazy(() => import("./pages/AuthPage/AuthPage"));
+const ResetPassword = lazy(() => import("./pages/ResetPassword/ResetPassword"));
+const HomePage = lazy(() => import("./pages/HomePage/HomePage"));
+const EmailVerification = lazy(() => import("./pages/EmailVerification"));
+const PayslipRequest = lazy(() => import("./pages/RequestPayslipClient/PayslipRequest"));
+const RequestDTRClient = lazy(() => import("./pages/RequestDTRClient/RequestDTRClient"));
+const PublicRequests = lazy(() => import("./pages/PublicRequests/PublicRequests"));
+const Unauthorized = lazy(() => import("./pages/Unauthorized/Unauthorized"));
 
 const AppRoutes = () => {
   const { isAuthenticated } = useAuth();
 
   return (
-    <Routes>
+    <Suspense fallback={<div style={{ padding: 24 }}>Loading…</div>}>
+      <Routes>
       {/* 🔑 Auth routes */}
       <Route
         path="/auth"
@@ -41,7 +42,8 @@ const AppRoutes = () => {
           isAuthenticated ? <HomePage /> : <Navigate to="/auth" replace />
         }
       />
-    </Routes>
+      </Routes>
+    </Suspense>
   );
 };
 
