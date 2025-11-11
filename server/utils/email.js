@@ -3,26 +3,128 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
+// Build a robust transport with env-driven configuration
+const buildTransport = () => {
+  const {
+    SMTP_URL,
+    EMAIL_SERVICE,
+    EMAIL_HOST,
+    EMAIL_PORT,
+    EMAIL_SECURE,
+    EMAIL_USER,
+    EMAIL_PASS,
+    EMAIL_POOL,
+    EMAIL_POOL_MAX_CONNECTIONS,
+    EMAIL_POOL_MAX_MESSAGES,
+    EMAIL_CONNECTION_TIMEOUT_MS,
+    EMAIL_SOCKET_TIMEOUT_MS,
+    EMAIL_GREETING_TIMEOUT_MS,
+  } = process.env;
+
+  const pool = EMAIL_POOL ? EMAIL_POOL.toLowerCase() !== "false" : true;
+  const maxConnections = parseInt(EMAIL_POOL_MAX_CONNECTIONS || "3", 10);
+  const maxMessages = parseInt(EMAIL_POOL_MAX_MESSAGES || "100", 10);
+  const connectionTimeout = parseInt(EMAIL_CONNECTION_TIMEOUT_MS || "10000", 10);
+  const socketTimeout = parseInt(EMAIL_SOCKET_TIMEOUT_MS || "15000", 10);
+  const greetingTimeout = parseInt(EMAIL_GREETING_TIMEOUT_MS || "10000", 10);
+
+  // 1) If SMTP_URL is provided, prefer it
+  if (SMTP_URL) {
+    return nodemailer.createTransport(SMTP_URL, {
+      pool,
+      maxConnections,
+      maxMessages,
+      connectionTimeout,
+      socketTimeout,
+      greetingTimeout,
+    });
+  }
+
+  // 2) If host is provided, use host/port
+  if (EMAIL_HOST) {
+    return nodemailer.createTransport({
+      host: EMAIL_HOST,
+      port: EMAIL_PORT ? Number(EMAIL_PORT) : 587,
+      secure: EMAIL_SECURE ? EMAIL_SECURE.toLowerCase() === "true" : false,
+      pool,
+      maxConnections,
+      maxMessages,
+      connectionTimeout,
+      socketTimeout,
+      greetingTimeout,
+      auth: EMAIL_USER && EMAIL_PASS ? { user: EMAIL_USER, pass: EMAIL_PASS } : undefined,
+    });
+  }
+
+  // 3) Fallback: Gmail SMTP host config (works with App Password)
+  // Avoid Nodemailer service shortcuts for more control and fewer surprises
+  return nodemailer.createTransport({
+    host: "smtp.gmail.com",
+    port: 587,
+    secure: false,
+    pool,
+    maxConnections,
+    maxMessages,
+    connectionTimeout,
+    socketTimeout,
+    greetingTimeout,
+    auth: EMAIL_USER && EMAIL_PASS ? { user: EMAIL_USER, pass: EMAIL_PASS } : undefined,
+  });
+};
+
+const transporter = buildTransport();
 
 // Optional: verify transport at startup for clearer diagnostics
 export const verifyEmailTransport = async () => {
-  try {
-    await transporter.verify();
-    console.log("[Email] SMTP transport ready for", process.env.EMAIL_USER);
-  } catch (err) {
-    console.error("[Email] SMTP transport verification failed:", err?.message || err);
+  if ((process.env.DISABLE_EMAIL || "").toLowerCase() === "true") {
+    console.log("[Email] Email disabled via DISABLE_EMAIL env; skipping verify.");
+    return;
+  }
+  const maxAttempts = 3;
+  let attempt = 0;
+  let lastErr;
+  while (attempt < maxAttempts) {
+    try {
+      // verify() opens a connection and checks the server greeting
+      await transporter.verify();
+      console.log("[Email] SMTP transport ready for", process.env.EMAIL_USER || process.env.EMAIL_HOST || "configured host");
+      return;
+    } catch (err) {
+      lastErr = err;
+      attempt += 1;
+      const delay = Math.min(2000 * attempt, 8000);
+      console.error(`
+[Email] SMTP transport verification failed (attempt ${attempt}/${maxAttempts}): ${err?.message || err}
+Retrying in ${delay}ms...`);
+      await new Promise((res) => setTimeout(res, delay));
+    }
+  }
+  console.error("[Email] SMTP transport verification failed after retries:", lastErr?.message || lastErr);
+};
+
+// Generic send with retry, honoring DISABLE_EMAIL for demo/maintenance
+const sendWithRetry = async (mailOptions, label = "email") => {
+  if ((process.env.DISABLE_EMAIL || "").toLowerCase() === "true") {
+    console.log(`[Email] Email disabled; skipping send (${label}). To:`, mailOptions?.to);
+    return { skipped: true };
+  }
+  const maxAttempts = 3;
+  let attempt = 0;
+  while (attempt < maxAttempts) {
+    try {
+      return await transporter.sendMail(mailOptions);
+    } catch (err) {
+      attempt += 1;
+      const delay = Math.min(1000 * attempt, 5000);
+      console.error(`[Email] Failed to send ${label} (attempt ${attempt}/${maxAttempts}): ${err?.message || err}`);
+      if (attempt >= maxAttempts) throw err;
+      await new Promise((res) => setTimeout(res, delay));
+    }
   }
 };
 
 export const sendVerificationEmail = async (to, name, verificationLink) => {
-  return transporter.sendMail({
+  return sendWithRetry({
     from: `"EMB Region III Payroll Management System" <${process.env.EMAIL_USER}>`,
     to,
     subject: "Verify your Email Address",
@@ -48,11 +150,11 @@ export const sendVerificationEmail = async (to, name, verificationLink) => {
         <p style="font-size: 12px; color: #999; text-align: center;">© 2025 EMB Region III. All rights reserved.</p>
       </div>
     `,
-  });
+  }, "verification");
 };
 
 export const sendResetPasswordEmail = async (to, name, resetLink) => {
-  return transporter.sendMail({
+  return sendWithRetry({
     from: `"EMB Region III Payroll Management System" <${process.env.EMAIL_USER}>`,
     to,
     subject: "Password Reset Request",
@@ -79,7 +181,7 @@ export const sendResetPasswordEmail = async (to, name, resetLink) => {
       </div>
     `,
     text: `Hi ${name},\n\nUse the link below to reset your password:\n${resetLink}\n\nIf you didn’t request this, you can ignore this email.`,
-  });
+  }, "password-reset");
 };
 
 export const sendNoTimeRecordReminderEmail = async ({ to, name, empId, date, remarks }) => {
@@ -88,7 +190,7 @@ export const sendNoTimeRecordReminderEmail = async ({ to, name, empId, date, rem
   const subject = `Reminder: No Time Record on ${dateStr}`;
   const preheader = `Our records show no time entry for ${dateStr}.`;
   const bodyRemarks = remarks ? `<p style="margin-top:10px;white-space:pre-wrap">${remarks}</p>` : '';
-  return transporter.sendMail({
+  return sendWithRetry({
     from: `"EMB Region III - HRPMS" <${process.env.EMAIL_USER}>`,
     to,
     subject,
@@ -111,7 +213,7 @@ export const sendNoTimeRecordReminderEmail = async ({ to, name, empId, date, rem
       </div>
     `,
     text: `Good day ${safeName}${empId ? ` (ID: ${empId})` : ''},\n\nWe noticed that there is no recorded time entry for ${dateStr} in the DTR system. If you reported for duty on that date, please coordinate with HR or your immediate supervisor to update your record.\n\n${remarks || ''}\n\nThank you,\nHR Unit, EMB Region III`,
-  });
+  }, "no-time-record-single");
 };
 
 export const sendNoTimeRecordBulkEmail = async ({ to, name, empId, dates = [], periodLabel, remarks }) => {
@@ -122,7 +224,7 @@ export const sendNoTimeRecordBulkEmail = async ({ to, name, empId, dates = [], p
     return `<li>${ds}</li>`;
   }).join('');
   const bodyRemarks = remarks ? `<p style="margin-top:10px;white-space:pre-wrap">${remarks}</p>` : '';
-  return transporter.sendMail({
+  return sendWithRetry({
     from: `"EMB Region III - HRPMS" <${process.env.EMAIL_USER}>`,
     to,
     subject,
@@ -146,7 +248,7 @@ export const sendNoTimeRecordBulkEmail = async ({ to, name, empId, dates = [], p
       </div>
     `,
     text: `Good day ${safeName}${empId ? ` (ID: ${empId})` : ''},\n\nOur records show no time entries on the following dates${periodLabel ? ` for ${periodLabel}` : ''}:\n- ${(dates||[]).map(d => new Date(d).toLocaleDateString('en-PH')).join('\n- ')}\n\nIf you reported for duty on any of these dates, please coordinate with HR or your immediate supervisor to update your record.\n\n${remarks || ''}\n\nThank you,\nHR Unit, EMB Region III`,
-  });
+  }, "no-time-record-bulk");
 };
 
 // Generic bug report email sender
@@ -182,12 +284,12 @@ export const sendBugReportEmail = async ({ to, from, subject, message, meta = {}
     } catch (_) { /* ignore bad image */ }
   }
 
-  return transporter.sendMail({
+  return sendWithRetry({
     from: `EMBR3 HRPMS <${process.env.EMAIL_USER}>`,
     to,
     replyTo: from || undefined,
     subject: subject || 'Bug Report',
     html,
     attachments,
-  });
+  }, "bug-report");
 };

@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from "react-router-dom";
 import { Card, Form, Input, Button, Typography } from "antd";
 import Swal from "sweetalert2";
 import axios from "../../api/axiosInstance";
-import "./ResetPassword.css"; // For fade animation
+import "./resetpassword.css"; // For fade animation
 
 const { Title, Text } = Typography;
 

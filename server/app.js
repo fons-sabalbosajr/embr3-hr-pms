@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import maintenanceMiddleware from "./middleware/maintenanceMiddleware.js";
 import compression from "compression";
 import helmet from "helmet";
+import mongoose from "mongoose";
 
 // Import your routes
 import authRoutes from "./routes/authRoutes.js";
@@ -82,5 +83,18 @@ app.use("/api/local-holidays", localHolidayRoutes);
 app.use("/api/suspensions", suspensionRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/uploads", uploadRoutes);
+
+// Basic health endpoint for platform probes
+app.get("/healthz", (req, res) => {
+  const dbState = mongoose.connection.readyState;
+  const dbStatus = dbState === 1 ? "connected" : dbState === 2 ? "connecting" : dbState === 3 ? "disconnecting" : "disconnected";
+  res.json({
+    status: "ok",
+    uptime: process.uptime(),
+    pid: process.pid,
+    db: dbStatus,
+    timestamp: new Date().toISOString(),
+  });
+});
 
 export default app;

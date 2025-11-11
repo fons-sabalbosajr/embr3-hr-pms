@@ -17,13 +17,16 @@ initSocket(server);
 // --- Start Server ---
 connectDB().then(async () => {
   await ensureUserTypes(); // Run bootstrap logic after DB connection
-  // Verify email transport once at startup for diagnostics
-  if ((process.env.NODE_ENV || 'development').toLowerCase() !== 'test') {
-    try { await verifyEmailTransport(); } catch (_) {}
-  }
+
+  // Start listening ASAP so Render can detect the open port even if email verification is slow
   server.listen(PORT, HOST, () => {
-    console.log(`Server running at http://${HOST}:${PORT}`);
+    console.log(`Server running at http://${HOST}:${PORT} (env.PORT=${process.env.PORT || 'unset'})`);
   });
+
+  // Verify email transport in the background (non-blocking)
+  if ((process.env.NODE_ENV || 'development').toLowerCase() !== 'test') {
+    verifyEmailTransport().catch(() => {});
+  }
 });
 
 export { app, server };
