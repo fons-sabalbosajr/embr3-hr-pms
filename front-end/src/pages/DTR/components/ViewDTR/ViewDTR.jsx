@@ -1,4 +1,5 @@
 import React from "react";
+import useDemoMode from "../../../../hooks/useDemoMode";
 import { Modal, Table, Typography, Divider, Button, message, Spin, Tooltip } from "antd";
 import dayjs from "dayjs";
 import "./viewdtr.css";
@@ -50,6 +51,7 @@ const ViewDTR = ({
   onPreviewForm48,
   onSaveToTray,
 }) => {
+  const { readOnly, isDemoActive, isDemoUser } = useDemoMode();
   if (!employee || !selectedRecord) return null;
 
   const startDate = dayjs(selectedRecord.DTR_Cut_Off.start);
@@ -436,7 +438,7 @@ const ViewDTR = ({
           <Button
             size="small"
             type="default"
-            disabled={disabled}
+            disabled={disabled || (readOnly && isDemoActive && isDemoUser)}
             onClick={() => handleSendReminder(record)}
           >
             Send Reminder
@@ -622,7 +624,7 @@ const ViewDTR = ({
         <div>
           {Array.isArray(employee.emails) && employee.emails.length > 0 ? (
             <Tooltip title="Send one email listing all days in this cut-off with no time records">
-              <Button onClick={handleSendAllMissing}>
+              <Button onClick={handleSendAllMissing} disabled={readOnly && isDemoActive && isDemoUser}>
                 Send All Missing
               </Button>
             </Tooltip>
@@ -635,7 +637,7 @@ const ViewDTR = ({
           )}
         </div>
         <div>
-          <Button type="primary" onClick={handlePreviewForm48}>
+          <Button type="primary" onClick={handlePreviewForm48} disabled={readOnly && isDemoActive && isDemoUser}>
             Preview DTR Form 48
           </Button>
         </div>
@@ -670,7 +672,7 @@ const ViewDTR = ({
       </Spin>
 
       <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
-        <Button type="default" onClick={handleSaveToTray}>
+        <Button type="default" onClick={handleSaveToTray} disabled={readOnly && isDemoActive && isDemoUser}>
           Save to Print Tray
         </Button>
       </div>

@@ -187,8 +187,8 @@ const SystemReport = () => {
   ];
 
   return (
-    <div style={{ padding: "10px" }}>
-      <h2>System Generated Reports</h2>
+    <div style={{ padding: "10px" }} className="compact-table">
+      <h2 style={{ marginTop: 0, fontSize: 18 }}>System Generated Reports</h2>
       <Space style={{ marginBottom: 16, flexWrap: "wrap" }}>
         <Input
           placeholder="Search Employee ID"
@@ -231,15 +231,16 @@ const SystemReport = () => {
         </Button>
       </Space>
       <Table
+        className="compact-table"
         columns={columns}
         dataSource={reports}
         loading={loading}
         rowKey="_id"
         pagination={{
-          showTotal: (total, range) =>
-            `${range[0]}-${range[1]} of ${total} reports`,
+          showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} reports`,
           showSizeChanger: true,
-          pageSizeOptions: ["10", "20", "50", "100"],
+          pageSizeOptions: [5, 10, 20, 50, 100],
+          defaultPageSize: 10,
         }}
         scroll={{ x: "max-content" }}
         size="small"

@@ -13,6 +13,7 @@ import {
   FaCoffee,
 } from "react-icons/fa";
 import axiosInstance from "../../../../../api/axiosInstance";
+import useDemoMode from "../../../../../hooks/useDemoMode";
 import DailyLogsTable from "./DailyLogsTable";
 import "./WorkCalendar.css";
 
@@ -26,6 +27,8 @@ const WorkCalendar = ({ employee }) => {
   const [error, setError] = useState(null);
   const [selectedLog, setSelectedLog] = useState(null);
   const [selectedTraining, setSelectedTraining] = useState(null);
+  const { isDemoActive } = useDemoMode();
+  const demoDisabled = isDemoActive; // disable interactive actions in demo
 
   // Fetch logs
   useEffect(() => {
@@ -255,8 +258,10 @@ const WorkCalendar = ({ employee }) => {
           <DailyLogsTable
             dailySummary={selectedLog}
             onRequestJustification={(record) => {
+              if (demoDisabled) {
+                return; // suppress in demo
+              }
               console.log("Request justification for:", record);
-              // You can open another modal here or call your API
             }}
           />
         )}

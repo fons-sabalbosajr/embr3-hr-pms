@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import useDemoMode from "../../../hooks/useDemoMode";
 import {
   Table,
   Button,
@@ -40,6 +41,42 @@ const Trainings = () => {
   const [useDateRange, setUseDateRange] = useState(false);
 
   const [form] = Form.useForm();
+  const { readOnly, isDemoActive, isDemoUser } = useDemoMode();
+  // Track IDs or signatures of trainings created in this session to allow deletion in demo
+  const DEMO_SESSION_KEY = "__demo_new_training__";
+  const [demoNewSet, setDemoNewSet] = useState(() => {
+    try {
+      const raw = sessionStorage.getItem(DEMO_SESSION_KEY);
+      const arr = raw ? JSON.parse(raw) : [];
+      return new Set(Array.isArray(arr) ? arr : []);
+    } catch (_) {
+      return new Set();
+    }
+  });
+  const persistDemoNew = (nextSet) => {
+    try { sessionStorage.setItem(DEMO_SESSION_KEY, JSON.stringify(Array.from(nextSet))); } catch (_) {}
+  };
+  const markSessionNew = (idOrSig) => {
+    if (!idOrSig) return;
+    setDemoNewSet((prev) => {
+      const next = new Set(prev);
+      next.add(String(idOrSig));
+      persistDemoNew(next);
+      return next;
+    });
+  };
+  const makeSignature = (payloadOrRecord) => {
+    if (!payloadOrRecord) return "";
+    const t = payloadOrRecord;
+    const dates = Array.isArray(t.trainingDate) ? t.trainingDate.join("|") : String(t.trainingDate || "");
+    return [t.name || "", t.host || "", t.venue || "", dates, t.iisTransaction || ""].join("::");
+  };
+  const isRecordSessionNew = (record) => {
+    if (!isDemoActive || !record) return false;
+    if (record._id && demoNewSet.has(String(record._id))) return true;
+    const sig = makeSignature(record);
+    return sig && demoNewSet.has(sig);
+  };
 
   useEffect(() => {
     fetchEmployees();
@@ -150,7 +187,14 @@ const Trainings = () => {
         await axiosInstance.put(`/trainings/${editingTraining._id}`, payload);
         message.success("Training updated successfully ✅");
       } else {
-        await axiosInstance.post("/trainings", payload);
+        const res = await axiosInstance.post("/trainings", payload);
+        const createdId = res?.data?.data?._id || res?.data?._id || res?.data?.id;
+        if (createdId) {
+          markSessionNew(createdId);
+        } else {
+          // Fallback: mark via signature if id is not returned
+          markSessionNew(makeSignature(payload));
+        }
         message.success("Training added successfully ✅");
       }
 
@@ -163,7 +207,12 @@ const Trainings = () => {
     }
   };
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (id, record) => {
+    // In demo mode, only allow delete for session-new items
+    if (isDemoActive && !isRecordSessionNew(record)) {
+      message.warning("Delete disabled in demo for existing records");
+      return;
+    }
     try {
       await axiosInstance.delete(`/trainings/${id}`);
       setTrainings((prev) => prev.filter((t) => t._id !== id));
@@ -320,7 +369,9 @@ const Trainings = () => {
       title: () => <span style={{ fontSize: "12px" }}>Actions</span>,
       key: "actions",
       align: "center",
-      render: (_, record) => (
+      render: (_, record) => {
+        const demoDeleteDisabled = isDemoActive && !isRecordSessionNew(record);
+        return (
         <div style={{ textAlign: "left" }}>
           <Space>
             <Button
@@ -328,24 +379,28 @@ const Trainings = () => {
               size="small"
               onClick={() => openModal(record)}
               type="primary"
+              disabled={readOnly && isDemoActive && isDemoUser}
             />
             <Popconfirm
               title="Delete this training?"
-              description="This action cannot be undone."
+              description={demoDeleteDisabled ? "Deletion is disabled in demo for existing records" : "This action cannot be undone."}
               okText="Delete"
-              okButtonProps={{ danger: true }}
-              onConfirm={() => handleDelete(record._id)}
+              okButtonProps={{ danger: true, disabled: demoDeleteDisabled }}
+              onConfirm={() => handleDelete(record._id, record)}
+              disabled={demoDeleteDisabled}
             >
               <Button
                 icon={<DeleteOutlined />}
                 size="small"
                 danger
                 type="primary"
+                disabled={demoDeleteDisabled}
               />
             </Popconfirm>
           </Space>
         </div>
-      ),
+        );
+      },
     },
   ];
 
@@ -414,9 +469,11 @@ const Trainings = () => {
           type="primary"
           icon={<PlusOutlined />}
           onClick={() => openModal()}
+          disabled={readOnly && isDemoActive && isDemoUser}
         >
           Add Training
         </Button>
+
       </div>
 
       <div className="trainings-table">
@@ -430,7 +487,6 @@ const Trainings = () => {
       {isModalOpen && (
         <Modal
           open={true}
-          title={editingTraining ? "Edit Training" : "Add Training"}
           onCancel={closeModal}
           footer={null}
           destroyOnHidden
@@ -445,7 +501,7 @@ const Trainings = () => {
                 { required: true, message: "Please enter training name" },
               ]}
             >
-              <Input.TextArea rows={2} />
+              <Input.TextArea rows={2} disabled={readOnly && isDemoActive && isDemoUser} />
             </Form.Item>
 
             <Space.Compact style={{ width: "100%" }}>
@@ -455,7 +511,7 @@ const Trainings = () => {
                 rules={[{ required: true, message: "Please enter host" }]}
                 style={{ flex: 1 }}
               >
-                <Input />
+                <Input disabled={readOnly && isDemoActive && isDemoUser} />
               </Form.Item>
 
               <Form.Item
@@ -464,7 +520,7 @@ const Trainings = () => {
                 rules={[{ required: true, message: "Please enter venue" }]}
                 style={{ flex: 1, marginLeft: 8 }}
               >
-                <Input />
+                <Input disabled={readOnly && isDemoActive && isDemoUser} />
               </Form.Item>
             </Space.Compact>
 
@@ -487,6 +543,7 @@ const Trainings = () => {
                     size="small"
                     format="MM/DD/YYYY"
                     allowClear
+                    disabled={readOnly && isDemoActive && isDemoUser}
                   />
                 ) : (
                   <DatePicker
@@ -501,6 +558,7 @@ const Trainings = () => {
                     size="small"
                     format="MM/DD/YYYY"
                     allowClear
+                    disabled={readOnly && isDemoActive && isDemoUser}
                   />
                 )}
 
@@ -513,6 +571,7 @@ const Trainings = () => {
                     // Clear picker value when switching to avoid invalid dates
                     form.setFieldsValue({ trainingDate: undefined });
                   }}
+                  disabled={readOnly && isDemoActive && isDemoUser}
                 >
                   Use Date Range
                 </Checkbox>
@@ -575,6 +634,7 @@ const Trainings = () => {
                     nameMatch || divisionMatch || sectionMatch || shortcutMatch
                   );
                 }}
+                disabled={readOnly && isDemoActive && isDemoUser}
                 renderList={(listProps) => {
                   const { direction, filteredItems, onItemSelect } = listProps;
 
@@ -692,13 +752,13 @@ const Trainings = () => {
                 },
               ]}
             >
-              <Input placeholder="Enter Special Order No. or IIS Transaction No." />
+              <Input placeholder="Enter Special Order No. or IIS Transaction No." disabled={readOnly && isDemoActive && isDemoUser} />
             </Form.Item>
 
             <Form.Item>
               <Space style={{ display: "flex", justifyContent: "end" }}>
                 <Button onClick={closeModal}>Cancel</Button>
-                <Button type="primary" htmlType="submit">
+                <Button type="primary" htmlType="submit" disabled={readOnly && isDemoActive && isDemoUser}>
                   {editingTraining ? "Update" : "Add"}
                 </Button>
               </Space>

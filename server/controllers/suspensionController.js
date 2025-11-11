@@ -2,13 +2,17 @@ import Suspension from "../models/Suspension.js";
 
 export const list = async (req, res) => {
   try {
-    const { start, end } = req.query;
+    const { start, end, includeInactive } = req.query;
     const query = {};
     if (start && end) {
       query.$or = [
         { date: { $gte: new Date(start), $lte: new Date(end) } },
         { endDate: { $exists: true, $ne: null, $gte: new Date(start) } },
       ];
+    }
+    // By default exclude inactive unless explicitly requested
+    if (!includeInactive || includeInactive === 'false') {
+      query.active = { $ne: false };
     }
     const docs = await Suspension.find(query).sort({ date: 1 });
     res.json({ success: true, data: docs });
@@ -29,7 +33,10 @@ export const create = async (req, res) => {
 export const update = async (req, res) => {
   try {
     const { id } = req.params;
-    const doc = await Suspension.findByIdAndUpdate(id, req.body, { new: true });
+    const allowed = ["title","date","endDate","scope","location","referenceType","referenceNo","attachmentUrl","notes","active"];
+    const payload = {};
+    Object.entries(req.body || {}).forEach(([k,v])=>{ if (allowed.includes(k)) payload[k]=v; });
+    const doc = await Suspension.findByIdAndUpdate(id, payload, { new: true });
     res.json({ success: true, data: doc });
   } catch (e) {
     res.status(400).json({ success: false, message: e.message });

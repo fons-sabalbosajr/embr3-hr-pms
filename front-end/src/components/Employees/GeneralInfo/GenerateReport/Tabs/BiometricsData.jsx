@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import useDemoMode from "../../../../../hooks/useDemoMode";
 import { Table, Button, Modal, Form, Input, DatePicker, Select, message } from "antd";
 import axiosInstance from "../../../../../api/axiosInstance";
 import dayjs from "dayjs";
@@ -11,6 +12,12 @@ const BiometricsData = ({ employee }) => {
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [editingLog, setEditingLog] = useState(null);
   const [form] = Form.useForm();
+  const { readOnly, isDemoActive, isDemoUser, allowSubmissions } = useDemoMode();
+  // In demo mode with submissions disabled, hide all action UI regardless of user type
+  const demoReadOnly = isDemoActive && !allowSubmissions;
+  const hideActions = demoReadOnly;
+  // Regardless of allowSubmissions, disable actions while in demo mode per request
+  const demoDisabled = isDemoActive;
 
   const fetchDtrLogs = async () => {
     setLoading(true);
@@ -59,30 +66,38 @@ const BiometricsData = ({ employee }) => {
       dataIndex: "newState",
       key: "newState",
     },
-    {
+    !hideActions && {
       title: "Action",
       key: "action",
       render: (_, record) => (
         <>
-          {/* Edit and Delete are disabled because the /merged endpoint does not provide the _id */}
-          <Button type="link" onClick={() => handleEdit(record)}>
+          <Button type="primary" size="small" disabled={demoDisabled} onClick={() => handleEdit(record)}>
             Edit
           </Button>
-          <Button type="link" danger onClick={() => handleDelete(record._id)}>
+          <Button type="primary" size="small" style={{marginLeft: "5px"}} danger disabled={demoDisabled} onClick={() => handleDelete(record._id)}>
             Delete
           </Button>
         </>
       ),
     },
   ];
+  const filteredColumns = columns.filter(Boolean);
 
   const handleAdd = () => {
+    if (demoDisabled) {
+      message.warning("Action disabled in demo mode");
+      return;
+    }
     setEditingLog(null);
     form.resetFields();
     setIsModalVisible(true);
   };
 
   const handleEdit = (record) => {
+    if (demoDisabled) {
+      message.warning("Action disabled in demo mode");
+      return;
+    }
     setEditingLog(record);
     form.setFieldsValue({
       ...record,
@@ -92,6 +107,10 @@ const BiometricsData = ({ employee }) => {
   };
 
   const handleDelete = async (id) => {
+    if (demoDisabled) {
+      message.warning("Action disabled in demo mode");
+      return;
+    }
     try {
       await axiosInstance.delete(`/dtrlogs/${id}`);
       message.success("DTR Log deleted successfully.");
@@ -103,6 +122,10 @@ const BiometricsData = ({ employee }) => {
   };
 
   const handleModalOk = async () => {
+    if (demoDisabled) {
+      message.warning("Action disabled in demo mode");
+      return;
+    }
     try {
       const values = await form.validateFields();
       const payload = {
@@ -135,11 +158,13 @@ const BiometricsData = ({ employee }) => {
 
   return (
     <div>
-      <Button type="primary" onClick={handleAdd} style={{ marginBottom: 16 }}>
-        Add Biometrics Record
-      </Button>
+      {!hideActions && (
+        <Button type="primary" onClick={handleAdd} style={{ marginBottom: 16 }} disabled={demoDisabled}>
+          Add Biometrics Record
+        </Button>
+      )}
       <Table
-        columns={columns}
+        columns={filteredColumns}
         dataSource={dtrLogs}
         loading={loading}
         rowKey={(record) => `${record.acNo}-${record.time}`}
@@ -151,6 +176,7 @@ const BiometricsData = ({ employee }) => {
         open={isModalVisible}
         onOk={handleModalOk}
         onCancel={handleModalCancel}
+        okButtonProps={{ disabled: demoDisabled }}
       >
         <Form form={form} layout="vertical">
           <Form.Item
@@ -158,14 +184,14 @@ const BiometricsData = ({ employee }) => {
             label="Time"
             rules={[{ required: true, message: "Please select time!" }]}
           >
-            <DatePicker showTime format="YYYY-MM-DD HH:mm:ss" style={{ width: "100%" }} />
+            <DatePicker showTime format="YYYY-MM-DD HH:mm:ss" style={{ width: "100%" }} disabled={demoDisabled} />
           </Form.Item>
           <Form.Item
             name="State"
             label="State"
             rules={[{ required: true, message: "Please select state!" }]}
           >
-            <Select placeholder="Select a state">
+            <Select placeholder="Select a state" disabled={demoDisabled}>
               <Option value="C/In">Time In</Option>
               <Option value="C/Out">Time Out</Option>
               <Option value="Out">Break Out</Option>
@@ -178,7 +204,7 @@ const BiometricsData = ({ employee }) => {
             name="New State"
             label="New State"
           >
-            <Input />
+            <Input disabled={demoDisabled} />
           </Form.Item>
         </Form>
       </Modal>

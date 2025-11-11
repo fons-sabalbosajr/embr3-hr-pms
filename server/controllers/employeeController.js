@@ -2,7 +2,8 @@ import Employee from "../models/Employee.js";
 import User from "../models/User.js";
 import AuditLog from "../models/AuditLog.js";
 import UploadLog from "../models/UploadLog.js";
-import DTRLog from "../models/DTRLog.js"; // Import DTRLog model
+import DTRLog from "../models/DTRLog.js"; // detailed biometric logs
+import DTRRequest from "../models/DTRRequest.js"; // employee DTR requests
 import Settings from "../models/Settings.js";
 import { getSocketInstance } from "../socket.js";
 import dayjs from "dayjs";
@@ -614,6 +615,7 @@ export const undoResignEmployee = async (req, res) => {
 export const getEmployeeRecords = async (req, res) => {
   try {
     const { id } = req.params; // Employee _id
+    const { page = 1, pageSize = 500, dateFrom, dateTo } = req.query;
     // Permission check
     const callerId = req.user?.id || req.user?._id;
     const caller = callerId ? await User.findById(callerId).lean() : null;
@@ -629,23 +631,99 @@ export const getEmployeeRecords = async (req, res) => {
     const empId = employee.empId;
     const employeeObjectId = employee._id;
 
-    const [docs, payslipRequests, genLogs, salary, trainings] = await Promise.all([
+    // --- Biometric matching strategy ---
+    // 1) Try exact AC-No match using Emp ID digits-only, with and without leading zeros.
+    // 2) If no AC-No results, fallback to strict first+last name token match on normalizedName.
+    const normalizedFullName = employee.name ? String(employee.name)
+      .toLowerCase()
+      .replace(/\b(jr|sr|ii|iii|iv|jr\.|sr\.)\b/g,' ')
+      .replace(/[^a-z0-9\s]/g,' ')
+      .replace(/\s+/g,' ').trim() : null;
+    const rawEmpDigits = employee.empId ? String(employee.empId).replace(/\D/g,'') : null;
+    const strippedEmpDigits = rawEmpDigits ? rawEmpDigits.replace(/^0+/,'') : null;
+    const acCandidates = [];
+    if (rawEmpDigits) acCandidates.push(rawEmpDigits);
+    if (strippedEmpDigits && strippedEmpDigits !== rawEmpDigits) acCandidates.push(strippedEmpDigits);
+
+    const tokens = normalizedFullName ? normalizedFullName.split(' ') : [];
+    const firstToken = tokens[0];
+    const lastToken = tokens.length > 1 ? tokens[tokens.length - 1] : null;
+
+    // Build base biometric query (two phase)
+    let baseQuery = null;
+    if (acCandidates.length) {
+      baseQuery = { normalizedAcNo: { $in: acCandidates } };
+    } else if (firstToken && lastToken) {
+      baseQuery = { $and: [
+        { normalizedName: new RegExp(`(^| )${firstToken}( |$)`, 'i') },
+        { normalizedName: new RegExp(`(^| )${lastToken}( |$)`, 'i') },
+      ]};
+    }
+
+    const numericPage = Math.max(1, parseInt(page, 10) || 1);
+    const numericPageSize = Math.min(2000, Math.max(1, parseInt(pageSize, 10) || 500)); // safety cap
+
+    let dateRangeFilter = {};
+    const dateFromValid = dateFrom ? new Date(dateFrom) : null;
+    const dateToValid = dateTo ? new Date(dateTo) : null;
+    if (dateFromValid && !isNaN(dateFromValid.getTime()) && dateToValid && !isNaN(dateToValid.getTime())) {
+      dateRangeFilter = { Time: { $gte: dateFromValid, $lte: dateToValid } };
+    } else if (dateFromValid && !isNaN(dateFromValid.getTime())) {
+      dateRangeFilter = { Time: { $gte: dateFromValid } };
+    } else if (dateToValid && !isNaN(dateToValid.getTime())) {
+      dateRangeFilter = { Time: { $lte: dateToValid } };
+    }
+
+    let biometricLogs = [];
+    let biometricTotal = 0;
+    if (baseQuery) {
+      const fullQuery = { ...baseQuery, ...dateRangeFilter };
+      biometricTotal = await DTRLog.countDocuments(fullQuery);
+      biometricLogs = await DTRLog.find(fullQuery)
+        .sort({ Time: -1 })
+        .skip((numericPage - 1) * numericPageSize)
+        .limit(numericPageSize)
+        .lean();
+    }
+
+    const [docs, payslipRequests, genLogs, dtrRequests, salary, trainings, emailLogs] = await Promise.all([
       empId ? EmployeeDoc.find({ empId }).sort({ createdAt: -1 }).lean() : [],
       empId ? PayslipRequest.find({ employeeId: empId }).sort({ createdAt: -1 }).lean() : [],
       empId ? DTRGenerationLog.find({ employeeId: empId }).sort({ createdAt: -1 }).lean() : [],
+      empId ? DTRRequest.find({ employeeId: empId }).sort({ createdAt: -1 }).lean() : [],
       EmployeeSalary.findOne({ employeeId: employeeObjectId }).lean(),
       empId ? Training.find({ 'participants.empId': empId }).sort({ trainingDate: -1 }).lean() : [],
+      empId ? AuditLog.find({ action: 'payslip:email-sent', 'details.empId': empId }).sort({ createdAt: -1 }).lean() : [],
     ]);
+
+    // Enrich docs with a derived download URL for convenience
+    const enrichedDocs = (docs || []).map(d => ({
+      ...d,
+      downloadUrl: d.storageProvider === 'drive' && d.fileId
+        ? `/api/uploads/${d.fileId}`
+        : (d.reference ? `/api/uploads/${d.reference}` : null)
+    }));
 
     res.json({
       success: true,
       data: {
         employee,
-        docs: docs || [],
+        docs: enrichedDocs,
         payslipRequests: payslipRequests || [],
         dtrGenerationLogs: genLogs || [],
+        biometricLogs: biometricLogs || [],
+        biometricMeta: {
+          total: biometricTotal,
+          page: numericPage,
+          pageSize: numericPageSize,
+          returned: biometricLogs.length,
+          hasMore: numericPage * numericPageSize < biometricTotal,
+          dateFiltered: !!(dateFromValid || dateToValid),
+        },
+        dtrRequests: dtrRequests || [],
         salary: salary || null,
         trainings: trainings || [],
+        emailLogs: emailLogs || [],
       }
     });
   } catch (err) {
@@ -676,9 +754,47 @@ export const deleteEmployeeCascade = async (req, res) => {
     // Perform deletions/removals
     const deletions = [];
     if (empId) {
+      // Best-effort delete of underlying stored files for EmployeeDocs
+      try {
+        const docs = await EmployeeDoc.find({ empId }).select('storageProvider fileId reference').lean();
+        if (docs && docs.length) {
+          const { storageDelete } = await import('../utils/storageProvider.js');
+          await Promise.allSettled(docs.map(d => {
+            if (d.storageProvider === 'drive' && d.fileId) return storageDelete(d.fileId);
+            if (d.reference) return storageDelete(d.reference);
+            return Promise.resolve();
+          }));
+        }
+      } catch (e) {
+        console.warn('EmployeeDoc file cleanup failed for empId', empId, e?.message || e);
+      }
       deletions.push(EmployeeDoc.deleteMany({ empId }));
       deletions.push(PayslipRequest.deleteMany({ employeeId: empId }));
       deletions.push(DTRGenerationLog.deleteMany({ employeeId: empId }));
+      deletions.push(DTRRequest.deleteMany({ employeeId: empId }));
+      // Biometric logs removal: replicate two-phase logic
+      const rawEmpDigits = String(empId).replace(/\D/g,'');
+      const strippedEmpDigits = rawEmpDigits.replace(/^0+/,'');
+      const acCandidates = [];
+      if (rawEmpDigits) acCandidates.push(rawEmpDigits);
+      if (strippedEmpDigits && strippedEmpDigits !== rawEmpDigits) acCandidates.push(strippedEmpDigits);
+      if (acCandidates.length) {
+        deletions.push(DTRLog.deleteMany({ normalizedAcNo: { $in: acCandidates } }));
+      } else if (employee.name) {
+        const normName = String(employee.name).toLowerCase()
+          .replace(/\b(jr|sr|ii|iii|iv|jr\.|sr\.)\b/g,' ')
+          .replace(/[^a-z0-9\s]/g,' ')
+          .replace(/\s+/g,' ').trim();
+        const parts = normName.split(' ');
+        const firstToken = parts[0];
+        const lastToken = parts.length > 1 ? parts[parts.length - 1] : null;
+        if (firstToken && lastToken) {
+          deletions.push(DTRLog.deleteMany({ $and: [
+            { normalizedName: new RegExp(`(^| )${firstToken}( |$)`, 'i') },
+            { normalizedName: new RegExp(`(^| )${lastToken}( |$)`, 'i') },
+          ] }));
+        }
+      }
       deletions.push(Training.updateMany(
         { 'participants.empId': empId },
         { $pull: { participants: { empId } } }
@@ -691,6 +807,16 @@ export const deleteEmployeeCascade = async (req, res) => {
     // Finally delete the employee
     await Employee.findByIdAndDelete(id);
 
+    // Resequence empNo to fill gaps (simple ascending reassignment)
+    try {
+      const remaining = await Employee.find({}).sort({ createdAt: 1 }).select('_id').lean();
+      let seq = 1;
+      const bulk = remaining.map(r => ({ updateOne: { filter: { _id: r._id }, update: { $set: { empNo: String(seq++) } } } }));
+      if (bulk.length) await Employee.bulkWrite(bulk);
+    } catch (reErr) {
+      console.error('EmpNo resequence error', reErr);
+    }
+
     try {
       await AuditLog.create({
         action: 'employee:delete',
@@ -700,7 +826,7 @@ export const deleteEmployeeCascade = async (req, res) => {
       });
     } catch (_) {}
 
-    res.json({ success: true, message: 'Employee and related records deleted' });
+  res.json({ success: true, message: 'Employee and related records deleted; Emp No reordered' });
   } catch (err) {
     console.error('deleteEmployeeCascade error', err);
     res.status(500).json({ success: false, message: 'Server error' });

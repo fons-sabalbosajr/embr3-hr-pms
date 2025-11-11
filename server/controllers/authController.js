@@ -96,6 +96,73 @@ export const login = async (req, res) => {
       return res.status(400).json({ message: "Username/email and password are required" });
     }
 
+    // Demo Mode short-circuit: allow demo credentials if enabled and within date
+    try {
+      const { default: Settings } = await import("../models/Settings.js");
+      const s = await Settings.getSingleton();
+      const demo = s?.demo || {};
+      const now = new Date();
+      const inRange = demo?.startDate && demo?.endDate
+        ? now >= new Date(demo.startDate) && now <= new Date(demo.endDate)
+        : true;
+      if (demo?.enabled && inRange) {
+        const userMatch = String(identifier).toLowerCase() === String(demo?.credentials?.username || 'demo_user').toLowerCase();
+        let passOk = false;
+        if (demo?.credentials?.passwordHash) {
+          try { passOk = await bcrypt.compare(String(password), String(demo.credentials.passwordHash)); } catch (_) { passOk = false; }
+        } else {
+          // Fallback default password if none set explicitly
+          passOk = String(password) === 'Demo1234';
+        }
+        if (userMatch && passOk) {
+          // Build a minimal demo user
+          const baseFlags = {
+            // deny everything by default
+            isAdmin: false,
+            canManageUsers: false,
+            canViewDashboard: true, // allow dashboard view by default
+            canViewEmployees: false,
+            canEditEmployees: false,
+            canViewDTR: false,
+            canProcessDTR: false,
+            canViewPayroll: false,
+            canProcessPayroll: false,
+            canViewTrainings: false,
+            canEditTrainings: false,
+            canAccessSettings: false,
+            canChangeDeductions: false,
+            canPerformBackup: false,
+            canAccessNotifications: false,
+            canManageNotifications: false,
+            canViewNotifications: true,
+            canViewMessages: true,
+            canManageMessages: false,
+            canAccessConfigSettings: false,
+            canAccessDeveloper: false,
+            canSeeDev: false,
+            canManipulateBiometrics: false,
+            showSalaryAmounts: demo?.maskSensitiveData ? false : true,
+          };
+          const perms = Array.isArray(demo?.allowedPermissions) ? demo.allowedPermissions : [];
+          perms.forEach((k) => { baseFlags[k] = true; });
+          const demoUser = {
+            _id: 'demo',
+            id: 'demo',
+            username: demo?.credentials?.username || 'demo_user',
+            name: 'Demo User',
+            email: 'demo@example.com',
+            userType: 'demo',
+            isDemo: true,
+            ...baseFlags,
+          };
+          const token = jwt.sign({ id: 'demo', isDemo: true }, process.env.JWT_SECRET, { expiresIn: '1d' });
+          return res.json({ token, user: demoUser });
+        }
+      }
+    } catch (e) {
+      // Ignore demo check errors and continue normal flow
+    }
+
     // Case-insensitive match for username/email to reduce 'User not found' errors on casing
   const escapeRegExp = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const rx = new RegExp(`^${escapeRegExp(identifier)}$`, 'i');
@@ -610,16 +677,22 @@ export const updateUserAccess = async (req, res) => {
 
 export const logout = async (req, res) => {
   try {
-    const { userId } = req.body;
-    if (userId) {
+    const { userId } = req.body || {};
+    const isDemo = req.user?.isDemo || String(userId) === 'demo';
+    const isValidObjectId = /^[a-fA-F0-9]{24}$/.test(String(userId || ''));
+
+    if (userId && isValidObjectId) {
       const lastSeenAt = new Date();
       await User.findByIdAndUpdate(userId, { isOnline: false, lastSeenAt });
 
-      // ✅ Tell all clients exactly who logged out
+      // Notify clients
       const io = getSocketInstance();
       if (io) {
         io.emit("user-status-changed", { userId, status: "offline", lastSeenAt });
       }
+    } else if (isDemo) {
+      // For demo users, skip DB update altogether to avoid ObjectId casts
+      // Optionally we could emit a status event, but since no real user exists, skip to reduce noise.
     }
     res.status(200).json({ message: "Logout successful." });
   } catch (error) {

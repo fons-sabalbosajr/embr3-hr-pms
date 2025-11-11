@@ -723,9 +723,15 @@ const Payslip = () => {
                 dataSource={getFilteredData(combinedData, "Regular")}
                 rowKey="_id"
                 scroll={{ x: "max-content" }}
-                pagination={{ pageSize: 10 }}
                 loading={!combinedData.length}
-                className="payslip-table"
+                className="payslip-table compact-table"
+                size="small"
+                pagination={{
+                  showSizeChanger: true,
+                  pageSizeOptions: [5, 10, 20, 50, 100],
+                  defaultPageSize: 10,
+                  showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} employees`,
+                }}
               />
             </TabPane>
             <TabPane tab="Contract of Service" key="Contract of Service">
@@ -737,9 +743,15 @@ const Payslip = () => {
                 )}
                 rowKey="_id"
                 scroll={{ x: "max-content" }}
-                pagination={{ pageSize: 10 }}
                 loading={!combinedData.length}
-                className="payslip-table"
+                className="payslip-table compact-table"
+                size="small"
+                pagination={{
+                  showSizeChanger: true,
+                  pageSizeOptions: [5, 10, 20, 50, 100],
+                  defaultPageSize: 10,
+                  showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} employees`,
+                }}
               />
             </TabPane>
           </Tabs>

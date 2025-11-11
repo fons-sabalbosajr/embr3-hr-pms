@@ -424,7 +424,7 @@ const RequestDTRClient = () => {
 
   return (
     <div
-      className="auth-container"
+      className="request-dtr-container"
       style={{
         backgroundImage: `linear-gradient(
           135deg,
@@ -434,16 +434,14 @@ const RequestDTRClient = () => {
         ), url(${bgImage})`,
       }}
     >
-      <Card className="auth-card">
+      <Card className="auth-card request-dtr-card">
         {/* Encoded Biometrics Announcement */}
         <div className="cutoff-banner">
           <div className="cutoff-banner__icon">
             <FieldTimeOutlined />
           </div>
           <div className="cutoff-banner__content">
-            <div className="cutoff-banner__title">
-              Encoded biometrics cut-offs
-            </div>
+            <div className="cutoff-banner__title">Encoded biometrics cut-offs</div>
             <div className="cutoff-banner__desc">
               {cutoffsLoading ? (
                 <span>Loading latest coverage…</span>
@@ -453,11 +451,10 @@ const RequestDTRClient = () => {
                   const s = r?.DTR_Cut_Off?.start ? dayjs(r.DTR_Cut_Off.start) : null;
                   const e = r?.DTR_Cut_Off?.end ? dayjs(r.DTR_Cut_Off.end) : null;
                   const label = s && e
-                    ? (s.isSame(e,'month')
+                    ? (s.isSame(e, 'month')
                       ? `${s.format('MMM D')}–${e.format('D, YYYY')}`
                       : `${s.format('MMM D, YYYY')} – ${e.format('MMM D, YYYY')}`)
                     : (r?.DTR_Record_Name || 'Cut-off');
-                  const recName = r?.DTR_Record_Name;
                   return (
                     <span className="cutoff-recent">
                       <CalendarOutlined />
@@ -498,8 +495,14 @@ const RequestDTRClient = () => {
             label="Date Range"
             name="dateRange"
             rules={[{ required: true, message: "Please select a date range" }]}
+            className="responsive-range-picker-item"
           >
-            <DatePicker.RangePicker style={{ width: "100%" }} />
+            <DatePicker.RangePicker
+              style={{ width: "100%" }}
+              getPopupContainer={(trigger) => trigger.parentNode}
+              popupClassName="mobile-friendly-range-picker"
+              placement="bottomLeft"
+            />
           </Form.Item>
 
           <Form.Item

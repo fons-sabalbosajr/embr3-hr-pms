@@ -27,11 +27,14 @@ import {
   BulbOutlined,
   EyeOutlined,
   FieldTimeOutlined,
+  BugOutlined,
 } from "@ant-design/icons";
 
 import { useNavigate, Routes, Route } from "react-router-dom";
 import { useEffect, useState, useRef, useCallback, useContext } from "react";
+import useDemoMode from "../../hooks/useDemoMode";
 import useAuth from "../../hooks/useAuth";
+import { secureStore, secureGet } from "../../../utils/secureStorage";
 import emblogo from "../../assets/emblogo.svg";
 import axiosInstance from "../../api/axiosInstance";
 
@@ -58,6 +61,7 @@ import socket from "../../../utils/socket";
 import dayjs from "dayjs";
 
 import "./hompage.css";
+import { FloatButton, Form, Input, Upload } from "antd";
 
 const { Text } = Typography;
 const { Header, Content, Sider, Footer } = Layout;
@@ -86,86 +90,130 @@ const HomePage = () => {
   const [dtrPreviewLoading, setDtrPreviewLoading] = useState(false);
   const [dtrPreviewRows, setDtrPreviewRows] = useState([]);
   const [dtrPreviewError, setDtrPreviewError] = useState(null);
+  // Demo mode state
+  const { isDemoActive, isDemoUser, demoSettings } = useDemoMode();
+
+  // Bug report state
+  const [isBugOpen, setIsBugOpen] = useState(false);
+  const [bugSubmitting, setBugSubmitting] = useState(false);
+  const [bugScreenshot, setBugScreenshot] = useState(null); // data URI
+  const [bugForm] = Form.useForm();
+
+  const beforeUploadScreenshot = async (file) => {
+    const isImg = file.type.startsWith("image/");
+    const isLt2M = file.size / 1024 / 1024 < 2;
+    if (!isImg) {
+      message.error("Only image files are allowed.");
+      return Upload.LIST_IGNORE;
+    }
+    if (!isLt2M) {
+      message.error("Image must be smaller than 2MB.");
+      return Upload.LIST_IGNORE;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setBugScreenshot(reader.result);
+    reader.readAsDataURL(file);
+    return false; // prevent auto upload
+  };
+
+  const submitBugReport = async () => {
+    try {
+      const values = await bugForm.validateFields();
+      setBugSubmitting(true);
+      const payload = {
+        title: values.title,
+        description: values.description,
+        pageUrl: window.location.href,
+        userAgent: navigator.userAgent,
+        email: user?.email,
+        name: user?.name,
+        employeeId: user?.empId || user?.employeeId,
+        screenshotBase64: bugScreenshot,
+      };
+      await axiosInstance.post("/public/bug-report", payload);
+      message.success("Bug report sent. Thank you!");
+      setIsBugOpen(false);
+      bugForm.resetFields();
+      setBugScreenshot(null);
+    } catch (err) {
+      if (err?.errorFields) return; // validation error
+      const msg = err?.response?.data?.message || err?.message || "Failed to send bug report";
+      message.error(msg);
+    } finally {
+      setBugSubmitting(false);
+    }
+  };
 
   useEffect(() => {
-    localStorage.setItem("notifications", JSON.stringify(notifications));
+    // Persist notifications securely (auto-migrates previous plain value)
+    try {
+      secureStore("notifications", notifications);
+    } catch (_) {
+      // non-fatal
+    }
   }, [notifications]);
 
   useEffect(() => {
     // messages are reserved for future chat feature and intentionally not persisted
   }, [messages]);
 
-   useEffect(() => {
-    // 👇 2. The socket is already connected by AuthContext, so just listen for events
-      const handler = (payload) => {
-        // Normalize different server payload shapes
+  // Socket.io: listen for new notifications and normalize payloads
+  useEffect(() => {
+    const handler = (payload) => {
+      try {
+        if (!payload) return;
+        const d = payload.data || payload;
+        const type = payload.type || d.type;
         let normalized = null;
-        try {
-          if (!payload) return;
-          if (payload.type === 'PayslipRequest') {
-            const d = payload.data || payload;
-            if (!d) return;
-            normalized = {
-              type: 'PayslipRequest',
-              id: d._id || d.id || Date.now(),
-              _id: d._id,
-              employeeId: d.employeeId,
-              createdAt: d.createdAt,
-              read: !!d.read,
-              hidden: !!d.hidden,
-              period: d.period,
-              title: `Payslip Request - ${d.employeeId}`,
-            };
-          } else if (payload.type === 'DTRRequest') {
-            const d = payload.data || payload;
-            normalized = {
-              type: 'DTRRequest',
-              id: d.id || d._id || Date.now(),
-              _id: d._id || d.id,
-              employeeId: d.employeeId,
-              createdAt: d.createdAt,
-              read: !!d.read,
-              hidden: !!d.hidden,
-              startDate: d.startDate,
-              endDate: d.endDate,
-              title: d.title || `DTR Request - ${d.employeeId}`,
-              body: d.body,
-            };
-          } else if (payload._id && payload.period) {
-            // Fallback: direct payslip document
-            normalized = {
-              type: 'PayslipRequest',
-              id: payload._id,
-              _id: payload._id,
-              employeeId: payload.employeeId,
-              createdAt: payload.createdAt,
-              read: !!payload.read,
-              hidden: !!payload.hidden,
-              period: payload.period,
-              title: `Payslip Request - ${payload.employeeId}`,
-            };
-          }
-        } catch (e) {
-          // ignore
+        if (type === 'PayslipRequest' || d.period) {
+          normalized = {
+            type: 'PayslipRequest',
+            id: d._id || d.id || Date.now(),
+            _id: d._id || d.id,
+            employeeId: d.employeeId,
+            createdAt: d.createdAt || new Date().toISOString(),
+            read: !!d.read,
+            hidden: !!d.hidden,
+            period: d.period,
+            title: `Payslip Request - ${d.employeeId}`,
+          };
+        } else if (type === 'DTRRequest' || (d.startDate && d.endDate)) {
+          normalized = {
+            type: 'DTRRequest',
+            id: d._id || d.id || Date.now(),
+            _id: d._id || d.id,
+            employeeId: d.employeeId,
+            createdAt: d.createdAt || new Date().toISOString(),
+            read: !!d.read,
+            hidden: !!d.hidden,
+            startDate: d.startDate,
+            endDate: d.endDate,
+            title: d.title || `DTR Request - ${d.employeeId}`,
+            body: d.body,
+          };
         }
-
         if (normalized) {
           setNotifications((prev) => [normalized, ...prev]);
         }
-      };
-
-      socket.on("newNotification", handler);
-
-      return () => {
-        socket.off("newNotification", handler);
-      };
-  }, []);
+      } catch (_) {
+        // ignore malformed payload
+      }
+    };
+    socket.on('newNotification', handler);
+    return () => {
+      socket.off('newNotification', handler);
+    };
+  }, [setNotifications]);
 
   // Load developer notifications if user is developer/admin and listen for DevSettings updates
   useEffect(() => {
     let mounted = true;
     const fetchDev = async () => {
-    if (!(hasPermission(["canAccessDeveloper"]) || (user && user.userType === 'developer'))) return;
+    if (!(hasPermission(["canAccessDeveloper"]) || (user && user.userType === 'developer'))) {
+      // Not permitted: ensure loading is not stuck
+      setDevNotificationsLoading(false);
+      return;
+    }
       try {
         setDevNotificationsLoading(true);
         const { data } = await axiosInstance.get('/dev/notifications');
@@ -196,71 +244,94 @@ const HomePage = () => {
     };
   }, [hasPermission]);
 
-  // Load initial data from backend
+  // Load initial notifications quickly (cached) then refresh from backend
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        // Try relative endpoints first (dependent on axiosInstance.baseURL). If that fails,
-        // fall back to absolute URL using VITE_API_URL to handle different dev setups.
-          let payslipRes;
-          let dtrReqRes;
-        try {
-            [payslipRes, dtrReqRes] = await Promise.all([
-              axiosInstance.get("/payslip-requests"),
-              axiosInstance.get("/dtr-requests"),
-            ]);
-        } catch (firstErr) {
-          console.debug('Initial relative fetch failed, trying absolute VITE_API_URL fallback', firstErr);
-          const base = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
-          // If VITE_API_URL isn't configured, rethrow original error
-          if (!base) throw firstErr;
-            [payslipRes, dtrReqRes] = await Promise.all([
-              axiosInstance.get(`${base}/payslip-requests`),
-              axiosInstance.get(`${base}/dtr-requests`),
-            ]);
-        }
-
-          console.debug('Fetched payslip notifications:', payslipRes && payslipRes.data);
-          console.debug('Fetched DTR requests:', dtrReqRes && dtrReqRes.data);
-
-        setNotificationsLoading(true);
-          const payslip = (payslipRes.data?.data || payslipRes.data || []).map((d) => ({
-            type: 'PayslipRequest',
-            id: d._id || d.id || Date.now(),
-            _id: d._id,
-            employeeId: d.employeeId,
-            createdAt: d.createdAt,
-            read: !!d.read,
-            hidden: !!d.hidden,
-            period: d.period,
-            title: `Payslip Request - ${d.employeeId}`,
-          }));
-          const dtr = (dtrReqRes.data?.data || dtrReqRes.data || []).map((d) => ({
-            type: 'DTRRequest',
-            id: d._id || d.id || Date.now(),
-            _id: d._id || d.id,
-            employeeId: d.employeeId,
-            createdAt: d.createdAt,
-            read: !!d.read,
-            hidden: !!d.hidden,
-            startDate: d.startDate,
-            endDate: d.endDate,
-            title: `DTR Request - ${d.employeeId}`,
-            body: `${d.startDate ? new Date(d.startDate).toLocaleDateString() : ''} - ${d.endDate ? new Date(d.endDate).toLocaleDateString() : ''}`
-          }));
-          setNotifications([...payslip, ...dtr]);
-
-        // messages are reserved for future chat; do not populate messages yet
-      } catch (err) {
-        // Initial load failures are non-fatal; UI can still function with empty lists
-        console.error("Failed to load initial data:", err);
+    // 1. Instant preload from secure storage (if any)
+    try {
+      const cached = secureGet("notifications");
+      if (Array.isArray(cached) && cached.length && notifications.length === 0) {
+        // Show cached immediately (optimistic). We'll merge fresh data below.
+        setNotifications(cached.map(n => ({ ...n, cached: true })));
       }
-      finally {
+    } catch (_) { /* ignore */ }
+
+    let aborted = false;
+    const controller = new AbortController();
+    const signal = controller.signal;
+
+    const fetchData = async () => {
+      // In demo mode, avoid slow/blocked network calls: show cached immediately and skip fetch
+      if (isDemoActive && isDemoUser) {
         setNotificationsLoading(false);
+        return;
+      }
+      setNotificationsLoading(true); // Set loading BEFORE network requests
+      // Use Promise.allSettled so one slow endpoint doesn't block the other
+      const base = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+      const relPayslip = axiosInstance.get("/payslip-requests", { signal }).catch(e => ({ error: e }));
+      const relDtr = axiosInstance.get("/dtr-requests", { signal }).catch(e => ({ error: e }));
+      const results = await Promise.allSettled([relPayslip, relDtr]);
+      let payslipRes = results[0].status === 'fulfilled' ? results[0].value : null;
+      let dtrReqRes = results[1].status === 'fulfilled' ? results[1].value : null;
+
+      // Fallback if both failed and VITE_API_URL exists
+      if (!payslipRes && !dtrReqRes && base) {
+        const absPayslip = axiosInstance.get(`${base}/payslip-requests`, { signal }).catch(e => ({ error: e }));
+        const absDtr = axiosInstance.get(`${base}/dtr-requests`, { signal }).catch(e => ({ error: e }));
+        const absResults = await Promise.allSettled([absPayslip, absDtr]);
+        payslipRes = absResults[0].status === 'fulfilled' ? absResults[0].value : null;
+        dtrReqRes = absResults[1].status === 'fulfilled' ? absResults[1].value : null;
+      }
+
+      if (aborted) return;
+      try {
+        const payslipRaw = payslipRes?.data?.data || payslipRes?.data || [];
+        const dtrRaw = dtrReqRes?.data?.data || dtrReqRes?.data || [];
+        const payslip = payslipRaw.map((d) => ({
+          type: 'PayslipRequest',
+          id: d._id || d.id || `${Date.now()}_${Math.random()}`,
+          _id: d._id,
+          employeeId: d.employeeId,
+          createdAt: d.createdAt,
+          read: !!d.read,
+          hidden: !!d.hidden,
+          period: d.period,
+          title: `Payslip Request - ${d.employeeId}`,
+        }));
+        const dtr = dtrRaw.map((d) => ({
+          type: 'DTRRequest',
+            id: d._id || d.id || `${Date.now()}_${Math.random()}`,
+          _id: d._id || d.id,
+          employeeId: d.employeeId,
+          createdAt: d.createdAt,
+          read: !!d.read,
+          hidden: !!d.hidden,
+          startDate: d.startDate,
+          endDate: d.endDate,
+          title: `DTR Request - ${d.employeeId}`,
+          body: `${d.startDate ? new Date(d.startDate).toLocaleDateString() : ''} - ${d.endDate ? new Date(d.endDate).toLocaleDateString() : ''}`
+        }));
+
+        // Merge with any cached notifications avoiding duplicates by _id
+        setNotifications(prev => {
+          const seen = new Set();
+          const combined = [...payslip, ...dtr, ...prev];
+          const deduped = [];
+          for (const n of combined) {
+            const key = n._id || n.id;
+            if (!seen.has(key)) { seen.add(key); deduped.push({ ...n, cached: false }); }
+          }
+          return deduped;
+        });
+      } catch (e) {
+        console.error('Failed to process notifications', e);
+      } finally {
+        if (!aborted) setNotificationsLoading(false);
       }
     };
     fetchData();
-  }, []);
+    return () => { aborted = true; controller.abort(); };
+  }, [user?.id, isDemoActive, isDemoUser]);
 
   // Socket.io connection is managed by AuthContext; listeners are attached above.
 
@@ -292,6 +363,8 @@ const HomePage = () => {
   const handleSuggestFeature = () => setIsFeatureModalOpen(true);
 
   const getMenuItems = () => {
+    const { isDemoActive, isDemoUser, demoSettings } = useDemoMode();
+    const demoAllowed = (demoSettings && Array.isArray(demoSettings.allowedPermissions)) ? demoSettings.allowedPermissions : null;
     const allItems = [
       {
         key: "/",
@@ -387,22 +460,25 @@ const HomePage = () => {
       },
     ];
 
-    const filterItems = (items) => {
-      return items.reduce((acc, item) => {
-        if (hasPermission(item.permissions)) {
-          if (item.children) {
-            const filteredChildren = filterItems(item.children);
-            if (filteredChildren.length > 0) {
-              acc.push({ ...item, children: filteredChildren });
-            }
-          } else {
-            acc.push(item);
-          }
+    const filterItems = (items) => items.reduce((acc, item) => {
+      const permitted = hasPermission(item.permissions);
+      // In demo mode for the demo user, restrict to allowedPermissions when configured; otherwise don't hide menus.
+      const demoFilterActive = isDemoActive && isDemoUser;
+      const demoPermitted = !demoFilterActive || (
+        Array.isArray(demoAllowed) && demoAllowed.length > 0
+          ? (item.permissions || []).some((p) => demoAllowed.includes(p))
+          : true
+      );
+      if (permitted && demoPermitted) {
+        if (item.children) {
+          const filteredChildren = filterItems(item.children);
+          if (filteredChildren.length) acc.push({ ...item, children: filteredChildren });
+        } else {
+          acc.push(item);
         }
-        return acc;
-      }, []);
-    };
-
+      }
+      return acc;
+    }, []);
     return filterItems(allItems);
   };
 
@@ -685,16 +761,18 @@ const HomePage = () => {
                 {n.createdAt ? new Date(n.createdAt).toLocaleString() : ''}
               </Text>
             </div>
-            <Button
-              size="small"
-              type="link"
-              onClick={(e) => {
-                e.stopPropagation();
-                openNotificationModal(n);
-              }}
-            >
-              View
-            </Button>
+            {!(isDemoActive && isDemoUser) && (
+              <Button
+                size="small"
+                type="link"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openNotificationModal(n);
+                }}
+              >
+                View
+              </Button>
+            )}
           </div>
         ));
       })()}
@@ -715,6 +793,45 @@ const HomePage = () => {
         <Button key="close" onClick={() => setIsNotificationModalOpen(false)}>
           Close
         </Button>,
+        // If this is a payslip request, provide a quick "Send Payslip" action when HR already has a generated PDF
+        selectedNotification && (selectedNotification.type === 'PayslipRequest' || selectedNotification.period) && (
+          <Button
+            key="sendPayout"
+            onClick={async () => {
+              try {
+                // Ask for a pre-generated base64 PDF data URI
+                const pdfBase64 = window.__LAST_GENERATED_PAYSLIP_BASE64__;
+                if (!pdfBase64) {
+                  Modal.info({
+                    title: 'Attach Payslip PDF',
+                    content: 'Please generate or open the payslip first so it can be attached. After generating, click "Send Payslip" again.'
+                  });
+                  return;
+                }
+                const n = selectedNotification;
+                const confirm = await new Promise((resolve) => {
+                  Modal.confirm({
+                    title: 'Send payslip to employee? ',
+                    content: `Employee ${n.employeeId} • Period ${n.period || ''}`,
+                    onOk: () => resolve(true),
+                    onCancel: () => resolve(false),
+                  });
+                });
+                if (!confirm) return;
+                // Call backend to send email
+                await axiosInstance.post(`/payslip-requests/${encodeURIComponent(n._id || n.id)}/send-email`, {
+                  pdfBase64,
+                  filename: `payslip_${n.employeeId}_${(n.period || '').replace(/\//g,'-')}.pdf`,
+                });
+                message.success('Payslip emailed successfully');
+              } catch (err) {
+                message.error(err?.response?.data?.message || 'Failed to send payslip email');
+              }
+            }}
+          >
+            Send Payslip
+          </Button>
+        ),
         selectedNotification && (
           <Button
             key="process"
@@ -851,7 +968,7 @@ const HomePage = () => {
           {!dtrPreviewLoading && !dtrPreviewError && dtrPreviewRows.length > 0 && (
             <Table
               size="small"
-              className="dtr-table-compact"
+              className="dtr-table-compact compact-table"
               dataSource={dtrPreviewRows}
               pagination={false}
               rowKey={(r) => r.key}
@@ -1098,7 +1215,11 @@ const HomePage = () => {
             <span className="logo-text">EMBR3 DTR Management System</span>
           )}
         </div>
+        {/* Import Biometrics button visibility now also considers demo exposed menus when in demo */}
         {hasPermission(["canManipulateBiometrics"]) && (
+          !isDemoActive || !isDemoUser ||
+          (demoSettings?.allowedPermissions || []).includes("canManipulateBiometrics")
+        ) && (
           <div style={{ padding: "12px", textAlign: "center" }}>
             {collapsed ? (
               <Tooltip title="Import Biometrics" placement="right">
@@ -1135,6 +1256,7 @@ const HomePage = () => {
           open={isImportModalOpen}
           onClose={() => setIsImportModalOpen(false)}
           currentUser={user}
+          isDemo={isDemoActive && isDemoUser}
         />
       )}
 
@@ -1152,6 +1274,70 @@ const HomePage = () => {
               content={notificationContent}
               trigger="click"
               placement="bottomRight"
+              onOpenChange={(visible) => {
+                // Lazy refresh when popover is opened and data is stale (>60s old)
+                if (visible) {
+                  if (isDemoActive && isDemoUser) return; // skip refresh in demo for fast open
+                  const newest = notifications.reduce((a,b)=>{
+                    const ta = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
+                    const tb = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
+                    return tb > ta ? b : a;
+                  }, null);
+                  const ageMs = newest ? Date.now() - new Date(newest.createdAt).getTime() : Infinity;
+                  if (ageMs > 60_000 && !notificationsLoading) {
+                    // trigger lightweight refresh without cached preload logic
+                    (async () => {
+                      try {
+                        setNotificationsLoading(true);
+                        const [payslipRes, dtrReqRes] = await Promise.all([
+                          axiosInstance.get('/payslip-requests'),
+                          axiosInstance.get('/dtr-requests'),
+                        ]);
+                        const payslipRaw = payslipRes.data?.data || payslipRes.data || [];
+                        const dtrRaw = dtrReqRes.data?.data || dtrReqRes.data || [];
+                        const payslip = payslipRaw.map((d) => ({
+                          type: 'PayslipRequest',
+                          id: d._id || d.id || `${Date.now()}_${Math.random()}`,
+                          _id: d._id,
+                          employeeId: d.employeeId,
+                          createdAt: d.createdAt,
+                          read: !!d.read,
+                          hidden: !!d.hidden,
+                          period: d.period,
+                          title: `Payslip Request - ${d.employeeId}`,
+                        }));
+                        const dtr = dtrRaw.map((d) => ({
+                          type: 'DTRRequest',
+                          id: d._id || d.id || `${Date.now()}_${Math.random()}`,
+                          _id: d._id || d.id,
+                          employeeId: d.employeeId,
+                          createdAt: d.createdAt,
+                          read: !!d.read,
+                          hidden: !!d.hidden,
+                          startDate: d.startDate,
+                          endDate: d.endDate,
+                          title: `DTR Request - ${d.employeeId}`,
+                          body: `${d.startDate ? new Date(d.startDate).toLocaleDateString() : ''} - ${d.endDate ? new Date(d.endDate).toLocaleDateString() : ''}`
+                        }));
+                        setNotifications(prev => {
+                          const seen = new Set();
+                          const combined = [...payslip, ...dtr, ...prev];
+                          const deduped = [];
+                          for (const n of combined) {
+                            const key = n._id || n.id;
+                            if (!seen.has(key)) { seen.add(key); deduped.push(n); }
+                          }
+                          return deduped;
+                        });
+                      } catch (e) {
+                        console.debug('Lazy refresh failed', e);
+                      } finally {
+                        setNotificationsLoading(false);
+                      }
+                    })();
+                  }
+                }
+              }}
             >
               <Badge
                 count={(() => {
@@ -1315,6 +1501,45 @@ const HomePage = () => {
           © {new Date().getFullYear()} EMBR3 Daily Time Record Management System
         </Footer>
       </Layout>
+
+      {/* Report a bug floating button */}
+      <FloatButton
+        icon={<BugOutlined />}
+        tooltip="Report a bug"
+        type="primary"
+        style={{ right: 24, bottom: 96 }}
+        onClick={() => setIsBugOpen(true)}
+      />
+
+      <Modal
+        title="Report a bug"
+        open={isBugOpen}
+        onCancel={() => { if (!bugSubmitting) { setIsBugOpen(false); } }}
+        okText={bugSubmitting ? "Sending..." : "Send"}
+        onOk={submitBugReport}
+        confirmLoading={bugSubmitting}
+        destroyOnClose
+      >
+        <Form form={bugForm} layout="vertical" preserve={false}>
+          <Form.Item name="title" label="Title" rules={[{ required: true, message: "Please add a short title" }]}>
+            <Input maxLength={180} placeholder="Short summary"/>
+          </Form.Item>
+          <Form.Item name="description" label="Description" rules={[{ required: true, message: "Please describe the issue" }]}>
+            <Input.TextArea rows={6} placeholder="What happened? Steps to reproduce, expected vs actual, etc."/>
+          </Form.Item>
+          <Form.Item label="Screenshot (optional)">
+            <Upload beforeUpload={beforeUploadScreenshot} maxCount={1} accept="image/*" listType="picture-card" showUploadList={{ showPreviewIcon: false }}>
+              Upload
+            </Upload>
+            {bugScreenshot && (
+              <div style={{ marginTop: 8 }}>
+                <img src={bugScreenshot} alt="screenshot" style={{ maxWidth: "100%", border: "1px solid #eee", borderRadius: 4 }} />
+              </div>
+            )}
+          </Form.Item>
+          <Alert type="info" showIcon message="Your report will be sent to embrhrpms@gmail.com. We include page URL and browser info for faster fixes."/>
+        </Form>
+      </Modal>
 
       <ProfileModal
         open={isProfileModalOpen}

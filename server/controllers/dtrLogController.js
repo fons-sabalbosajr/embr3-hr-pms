@@ -273,7 +273,7 @@ export const deleteDTRLog = async (req, res) => {
   try {
     const callerId = req.user?.id || req.user?._id;
     const caller = callerId ? await User.findById(callerId) : null;
-    if (!caller || !(caller.isAdmin || caller.canManageNotifications || caller.canAccessNotifications || caller.canSeeDev)) {
+    if (!caller || !(caller.isAdmin || caller.canManageNotifications || caller.canAccessNotifications || caller.canSeeDev || caller.canManipulateBiometrics || caller.userType === 'developer')) {
       return res.status(403).json({ success: false, message: 'Forbidden: insufficient permissions to delete dtr log' });
     }
 
@@ -299,7 +299,7 @@ export const updateDTRLog = async (req, res) => {
       return res.status(401).json({ success: false, message: 'Unauthorized' });
     }
 
-    const allowedToManage = !!(caller.isAdmin || caller.canManageNotifications || caller.canAccessNotifications || caller.canSeeDev || caller.userType === 'developer');
+  const allowedToManage = !!(caller.isAdmin || caller.canManageNotifications || caller.canAccessNotifications || caller.canSeeDev || caller.canManipulateBiometrics || caller.userType === 'developer');
     if (!allowedToManage) {
       console.warn('updateDTRLog: permission denied', { callerId, caller: { id: caller._id || caller.id, isAdmin: caller.isAdmin, canManageNotifications: caller.canManageNotifications, canAccessNotifications: caller.canAccessNotifications, canSeeDev: caller.canSeeDev, userType: caller.userType } });
       return res.status(403).json({ success: false, message: 'Forbidden: insufficient permissions' });

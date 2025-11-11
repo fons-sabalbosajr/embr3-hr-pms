@@ -24,6 +24,8 @@ import devRoutes from "./routes/devRoutes.js";
 import localHolidayRoutes from "./routes/localHolidayRoutes.js";
 import suspensionRoutes from "./routes/suspensionRoutes.js";
 import notificationRoutes from "./routes/notificationRoutes.js";
+import uploadRoutes from "./routes/uploadRoutes.js";
+import publicRoutes from "./routes/publicRoutes.js";
 
 dotenv.config();
 const app = express();
@@ -60,6 +62,7 @@ app.use((req, res, next) => {
 
 // --- API Routes ---
 app.use("/api/users", authRoutes);
+app.use("/api/public", publicRoutes);
 app.use("/api/protected", protectedRoutes);
 app.use("/api/employees", employeeRoutes);
 app.use("/api/dtr", dtrRoutes);
@@ -78,5 +81,6 @@ app.use("/api/dev", devRoutes);
 app.use("/api/local-holidays", localHolidayRoutes);
 app.use("/api/suspensions", suspensionRoutes);
 app.use("/api/notifications", notificationRoutes);
+app.use("/api/uploads", uploadRoutes);
 
 export default app;

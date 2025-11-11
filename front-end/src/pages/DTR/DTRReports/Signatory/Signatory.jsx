@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
+import useDemoMode from "../../../../hooks/useDemoMode";
+import { buildColorMapFromList, pickTagColor, TAG_COLOR_PALETTE } from "../../../../utils/tagColors";
 import {
   Table,
   Card,
@@ -53,6 +55,7 @@ const chiefs = {
   EMED: "03-673",
 };
 
+// Legacy explicit colors for role designations
 const designationColors = {
   "Division Chief": "blue",
   "Section Chief": "green",
@@ -60,7 +63,36 @@ const designationColors = {
   OIC: "orange",
 };
 
+// Deterministic color assignment for divisions / sections / units so tags visually align app-wide.
+
 const Signatory = () => {
+  const { readOnly, isDemoActive, isDemoUser } = useDemoMode();
+  const DEMO_SESSION_KEY = "__demo_new_signatory__";
+  const [demoNewSet, setDemoNewSet] = useState(() => {
+    try {
+      const raw = sessionStorage.getItem(DEMO_SESSION_KEY);
+      const arr = raw ? JSON.parse(raw) : [];
+      return new Set(Array.isArray(arr) ? arr : []);
+    } catch (_) {
+      return new Set();
+    }
+  });
+  const persistDemoNew = (next) => {
+    try { sessionStorage.setItem(DEMO_SESSION_KEY, JSON.stringify(Array.from(next))); } catch (_) {}
+  };
+  const markSessionNew = (id) => {
+    if (!id) return;
+    setDemoNewSet((prev) => {
+      const next = new Set(prev);
+      next.add(String(id));
+      persistDemoNew(next);
+      return next;
+    });
+  };
+  const isRecordSessionNew = (record) => {
+    if (!isDemoActive || !record) return false;
+    return record._id && demoNewSet.has(String(record._id));
+  };
   const [signatories, setSignatories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isModalVisible, setIsModalVisible] = useState(false);
@@ -243,6 +275,8 @@ const Signatory = () => {
             };
 
             await updateEmployeeSignatory(targetEmployee._id, updatePayload);
+            // Mark this signatory as session-new for demo delete allowance
+            markSessionNew(targetEmployee._id);
             message.success("Employee designated as signatory successfully!");
           } else {
             message.error("Employee not found with the provided Employee ID.");
@@ -258,7 +292,11 @@ const Signatory = () => {
     });
   };
 
-  const handleDelete = async (recordId) => {
+  const handleDelete = async (recordId, record) => {
+    if (isDemoActive && !isRecordSessionNew(record)) {
+      message.warning("Delete disabled in demo for existing signatories");
+      return;
+    }
     try {
       const payload = {
         isSignatory: true, // Keep them as a signatory
@@ -280,6 +318,12 @@ const Signatory = () => {
     }
   };
 
+  // Build deterministic color map for section/unit labels so colors are stable app-wide
+  const sectionOrUnitColorMap = useMemo(
+    () => buildColorMapFromList(sectionOrUnitOptions || []),
+    [sectionOrUnitOptions]
+  );
+
   const columns = [
     {
       title: "Employee ID",
@@ -298,26 +342,36 @@ const Signatory = () => {
             {getAcronymFromEnv(record.division, VITE_DIVISION_ACRONYMS)} |{" "}
             {getAcronymFromEnv(record.position, VITE_POSITION_ACRONYMS)}
           </Text>
-          {record.signatoryDesignation &&
-            record.signatoryDesignation.map((designation, index) => (
-              <Tag
-                key={index}
-                className="designation-tag"
-                color={designationColors[designation] || "default"}
-                style={{ marginTop: "5px" }}
-              >
-                {getAcronymFromEnv(designation, {
-                  ...VITE_DIVISION_ACRONYMS,
-                  ...VITE_SECTION_OR_UNIT_ACRONYMS,
-                  ...VITE_POSITION_ACRONYMS,
-                })}
-              </Tag>
-            ))}
+          {record.signatoryDesignation && record.signatoryDesignation.length > 0 && (
+            <div
+              className="designation-tags"
+              style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}
+            >
+              {record.signatoryDesignation.map((designation, index) => (
+                <Tag
+                  key={index}
+                  className="designation-tag"
+                  color={
+                    sectionOrUnitColorMap[designation] ||
+                    designationColors[designation] ||
+                    pickTagColor(designation)
+                  }
+                  style={{ margin: 0 }}
+                >
+                  {getAcronymFromEnv(designation, {
+                    ...VITE_DIVISION_ACRONYMS,
+                    ...VITE_SECTION_OR_UNIT_ACRONYMS,
+                    ...VITE_POSITION_ACRONYMS,
+                  })}
+                </Tag>
+              ))}
+            </div>
+          )}
           {record.isSignatory && (
             <Tag
               className="signatory-tag"
               color={record.isDefaultSignatory ? "green" : "volcano"}
-              style={{ marginTop: "5px" }}
+              style={{ marginTop: 5 }}
             >
               {record.isDefaultSignatory
                 ? "Default Signatory"
@@ -386,47 +440,61 @@ const Signatory = () => {
     {
       title: "Actions",
       key: "actions",
-      render: (text, record) => (
-        <span className="action-buttons">
-          <Button
-            type="primary"
-            size="small"
-            icon={<EditOutlined />}
-            onClick={() => showEditModal(record)}
-          />
-          <Popconfirm
-            title="Are you sure to remove this employee as signatory?"
-            onConfirm={() => handleDelete(record._id)}
-            okText="Yes"
-            cancelText="No"
-          >
+      render: (text, record) => {
+        const demoDeleteDisabled = isDemoActive && !isRecordSessionNew(record);
+        return (
+          <span className="action-buttons">
             <Button
               type="primary"
               size="small"
-              danger
-              icon={<DeleteOutlined />}
+              icon={<EditOutlined />}
+              onClick={() => showEditModal(record)}
+              disabled={readOnly && isDemoActive && isDemoUser}
             />
-          </Popconfirm>
-        </span>
-      ),
+            <Popconfirm
+              title={demoDeleteDisabled ? "Delete disabled in demo for existing entries" : "Are you sure to remove this employee as signatory?"}
+              onConfirm={() => handleDelete(record._id, record)}
+              okText="Yes"
+              cancelText="No"
+              disabled={demoDeleteDisabled}
+            >
+              <Button
+                type="primary"
+                size="small"
+                danger
+                icon={<DeleteOutlined />}
+                disabled={(readOnly && isDemoActive && isDemoUser) || demoDeleteDisabled}
+              />
+            </Popconfirm>
+          </span>
+        );
+      },
     },
   ];
 
   return (
-    <Card title="DTR Signatories" variant={false}>
+    <Card title="DTR Signatories" variant={false} className="compact-table">
       <Button
         type="primary"
         onClick={showAddModal}
         style={{ marginBottom: 16 }}
+        disabled={readOnly && isDemoActive && isDemoUser}
       >
         Add Signatory
       </Button>
       <Table
+        className="compact-table"
         columns={columns}
         dataSource={signatories}
         loading={loading}
         rowKey="_id"
-        pagination={false}
+        size="small"
+        pagination={{
+          showSizeChanger: true,
+          pageSizeOptions: [5, 10, 20, 50, 100],
+          defaultPageSize: 10,
+          showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} signatories`,
+        }}
       />
       <SignatoryModal
         visible={isModalVisible}
@@ -436,6 +504,7 @@ const Signatory = () => {
         form={form}
         sectionOrUnitOptions={sectionOrUnitOptions}
         allEmployees={allRegularEmployees} // Pass filtered employees to the modal
+        readOnly={readOnly && isDemoActive && isDemoUser}
       />
     </Card>
   );
