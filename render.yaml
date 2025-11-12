@@ -21,6 +21,40 @@ services:
       - key: CLIENT_ORIGIN
         # e.g. https://embr3-hr-pms-uat.onrender.com or static site's URL
         sync: false
+      # Optional: base path if the client is served under a subpath (e.g., /hrpms)
+      - key: CLIENT_BASE_PATH
+        sync: false
+      # Google Service Account credentials (pick ONE of the following two)
+      - key: GOOGLE_SERVICE_ACCOUNT_JSON_BASE64
+        sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT_JSON
+        sync: false
+      # Fallback: key file path (not recommended on Render)
+      - key: GOOGLE_SERVICE_ACCOUNT_KEY
+        sync: false
+      # Optional: domain-wide delegation (impersonate workspace admin)
+      - key: GOOGLE_IMPERSONATE_EMAIL
+        sync: false
+      - key: GOOGLE_DRIVE_FOLDER_ID
+        sync: false
+      # Storage provider: local or drive
+      - key: STORAGE_PROVIDER
+        value: local
+      # Email configuration (choose SMTP_URL or granular settings)
+      - key: SMTP_URL
+        sync: false
+      - key: EMAIL_HOST
+        sync: false
+      - key: EMAIL_PORT
+        sync: false
+      - key: EMAIL_SECURE
+        sync: false
+      - key: EMAIL_USER
+        sync: false
+      - key: EMAIL_PASS
+        sync: false
+      - key: DISABLE_EMAIL
+        value: "false"
 
   - type: static
     name: embr3-hr-pms-uat-web
@@ -38,3 +72,6 @@ services:
         # Set this to the API service public URL + /api when the API is live
         # Example after first deploy: https://embr3-hr-pms-uat-api.onrender.com/api
         sync: false
+      # For static site previews with client-side routing under a subpath
+      - key: BASE
+        value: /
