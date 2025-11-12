@@ -15,6 +15,7 @@ import {
 	downloadBackupJobResult,
 	deleteBackupJob,
 	clearBackupJobs,
+	driveSelfTest,
 } from "../controllers/devController.js";
 
 const router = express.Router();
@@ -47,5 +48,8 @@ router.get('/backup-jobs', listBackupJobs);
 router.get('/backup-jobs/:id/download', downloadBackupJobResult);
 router.delete('/backup-jobs/:id', deleteBackupJob);
 router.delete('/backup-jobs', clearBackupJobs);
+
+// Drive credential quick validation
+router.get('/drive/self-test', driveSelfTest);
 
 export default router;

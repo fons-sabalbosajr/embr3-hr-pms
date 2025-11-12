@@ -9,6 +9,7 @@ import User from '../models/User.js';
 import fs from 'fs';
 import backupWorker from '../utils/backupWorker.js';
 import { storageGetStream } from '../utils/storageProvider.js';
+import { buildDriveClient } from '../utils/googleAuth.js';
 
 dotenv.config();
 
@@ -40,11 +41,14 @@ export const getDevConfig = async (req, res) => {
     };
 
     const googleKeyPath = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
+    const googleJson = process.env.GOOGLE_SERVICE_ACCOUNT_JSON ? '[inline JSON]' : null;
+    const googleJsonB64 = process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 ? '[base64 JSON]' : null;
     const google = {
-      serviceAccountKey: googleKeyPath
-        ? path.basename(googleKeyPath)
-        : null,
-      configured: Boolean(googleKeyPath),
+      serviceAccountKey: googleKeyPath ? path.basename(googleKeyPath) : null,
+      json: googleJson,
+      jsonB64: googleJsonB64,
+      configured: Boolean(googleKeyPath || googleJson || googleJsonB64),
+      impersonate: process.env.GOOGLE_IMPERSONATE_EMAIL || null,
     };
 
     // Reflect socket config used in server/socket.js
@@ -58,6 +62,17 @@ export const getDevConfig = async (req, res) => {
     res.status(200).json({ app, db, email, google, socket });
   } catch (err) {
     res.status(500).json({ message: "Failed to load dev config", error: err.message });
+  }
+};
+
+// Simple Drive self-test: list one file to verify credentials and scope
+export const driveSelfTest = async (req, res) => {
+  try {
+    const drive = buildDriveClient(["https://www.googleapis.com/auth/drive.readonly"]);
+    const r = await drive.files.list({ q: "trashed = false", pageSize: 1, fields: "files(id,name)" });
+    res.json({ success: true, sample: r.data.files || [] });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
 };
 

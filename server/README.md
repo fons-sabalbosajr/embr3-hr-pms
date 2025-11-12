@@ -6,8 +6,12 @@ This server supports storing uploads and backups either on local disk or in Goog
 
 Required (Drive mode):
 - STORAGE_PROVIDER=drive
-- GOOGLE_DRIVE_FOLDER_ID=1BLOsfrkUBRR0ZxQgLgxmHHXgDkeO5Oy0
-- GOOGLE_SERVICE_ACCOUNT_KEY=absolute/path/to/service-account.json (optional; defaults to `server/config/service-account.json`)
+- One of the following for credentials (prefer the first):
+  - GOOGLE_SERVICE_ACCOUNT_JSON_BASE64=<base64 of your service-account JSON>
+  - GOOGLE_SERVICE_ACCOUNT_JSON=<raw JSON string of the service-account>
+  - GOOGLE_SERVICE_ACCOUNT_KEY=<absolute/path/to/service-account.json> (fallback; not recommended in cloud)
+- Optional: GOOGLE_DRIVE_FOLDER_ID=<Drive folder id for uploads>
+- Optional: GOOGLE_IMPERSONATE_EMAIL=<workspace admin email for domain-wide delegation>
 
 Optional:
 - CLIENT_ORIGIN, SERVER_HOST, SERVER_PORT, EMAIL_USER/PASS … (existing)
@@ -38,7 +42,7 @@ To use local storage instead, omit STORAGE_PROVIDER or set it to `local`.
 
 ## Sharing the Drive Folder
 
-Share the folder with your service account email (from `service-account.json`). Ensure Drive API is enabled on the project.
+Share the folder with your service account email (visible in the JSON). Ensure Drive API is enabled on the project.
 
 ## Notes
 
