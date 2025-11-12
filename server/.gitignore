@@ -14,3 +14,20 @@ yarn-debug.log*
 .DS_Store
 .vscode/
 .idea/
+
+# Google / OAuth credentials (ensure environment-based loading only)
+config/service-account.json
+config/*service-account*.json
+config/*oauth*client*.json
+config/oauth-client.json
+config/*.p12
+config/*.pem
+
+# Generic credential patterns (prevent accidental commit)
+*.p12
+*.pem
+*service-account*.json
+*oauth*client*.json
+
+# Prevent committing staged secrets via Husky (hook enforces)
+.husky/_/\n*** End Patch

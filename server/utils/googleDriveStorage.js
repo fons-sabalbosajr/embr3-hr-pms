@@ -1,16 +1,10 @@
-import { google } from 'googleapis';
-import path from 'path';
+import { buildDriveClient } from './googleAuth.js';
 
 let driveClient;
 
 function getDriveClient() {
   if (driveClient) return driveClient;
-  const keyPath = process.env.GOOGLE_SERVICE_ACCOUNT_KEY || path.join(process.cwd(), 'server', 'config', 'service-account.json');
-  const auth = new google.auth.GoogleAuth({
-    keyFile: keyPath,
-    scopes: ['https://www.googleapis.com/auth/drive']
-  });
-  driveClient = google.drive({ version: 'v3', auth });
+  driveClient = buildDriveClient(['https://www.googleapis.com/auth/drive']);
   return driveClient;
 }
 
