@@ -1,5 +1,6 @@
 // server/socket.js
 import { Server } from "socket.io";
+import mongoose from "mongoose";
 import User from "./models/User.js";
 
 let io;
@@ -39,6 +40,16 @@ export const initSocket = (server) => {
   });
 
   io.on("connection", (socket) => {
+    const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(String(id));
+    const safeUpdateUser = async (id, update) => {
+      try {
+        if (!id || !isValidObjectId(id)) return; // skip invalid ids (e.g., "demo" in Demo Mode)
+        await User.findByIdAndUpdate(id, update);
+      } catch (e) {
+        // Swallow errors to avoid crashing the process on socket events
+      }
+    };
+
     // Send current online users to the newly connected client
     try {
       const onlineUserIds = Array.from(userSockets.keys());
@@ -53,7 +64,7 @@ export const initSocket = (server) => {
       if (user && user._id) {
         if (!userSockets.has(user._id)) {
           userSockets.set(user._id, new Set());
-          await User.findByIdAndUpdate(user._id, { isOnline: true });
+          await safeUpdateUser(user._id, { isOnline: true });
           io.emit("user-status-changed", { userId: user._id, status: "online" });
         }
         userSockets.get(user._id).add(socket.id);
@@ -66,7 +77,7 @@ export const initSocket = (server) => {
       if (userSockets.has(userId)) {
         userSockets.delete(userId);
       }
-      await User.findByIdAndUpdate(userId, { isOnline: false });
+      await safeUpdateUser(userId, { isOnline: false });
       io.emit("user-status-changed", { userId, status: "offline" });
     });
 
@@ -86,7 +97,7 @@ export const initSocket = (server) => {
       if (userIdToDelete) {
         userSockets.delete(userIdToDelete);
         const lastSeenAt = new Date();
-        await User.findByIdAndUpdate(userIdToDelete, { isOnline: false, lastSeenAt });
+        await safeUpdateUser(userIdToDelete, { isOnline: false, lastSeenAt });
         io.emit("user-status-changed", { userId: userIdToDelete, status: "offline", lastSeenAt });
       }
     });
