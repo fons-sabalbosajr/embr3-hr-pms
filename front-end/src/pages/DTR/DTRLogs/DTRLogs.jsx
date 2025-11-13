@@ -98,50 +98,69 @@ const DTRLogs = () => {
   const [dateFilter, setDateFilter] = useState(null);
   const [recordNameFilter, setRecordNameFilter] = useState(null);
   const [recordNameOptions, setRecordNameOptions] = useState([]);
+  const [dtrRecords, setDtrRecords] = useState([]);
 
   const [acNoFilter, setAcNoFilter] = useState("");
 
   useEffect(() => {
-    const fetchDTRData = async () => {
+    const fetchRecords = async () => {
       try {
-        setLoading(true);
-
-        const [logsRes, recordsRes] = await Promise.all([
-          axiosInstance.get("/dtrlogs/merged", {
-            params: {
-              recordName: recordNameFilter || undefined,
-              acNo: acNoFilter || undefined,
-            },
-          }),
-          axiosInstance.get("/dtrdatas"),
-        ]);
-
-        if (logsRes.data.success) {
-          setDtrData(logsRes.data.data);
-        } else {
-          message.error("Failed to load DTR logs");
-        }
-
+        const recordsRes = await axiosInstance.get("/dtrdatas");
         if (recordsRes.data.success) {
+          const records = recordsRes.data.data || [];
+          setDtrRecords(records);
           setRecordNameOptions(
-            recordsRes.data.data.map((r) => ({
-              label: r.DTR_Record_Name,
-              value: r.DTR_Record_Name,
-            }))
+            records.map((r) => ({ label: r.DTR_Record_Name, value: r.DTR_Record_Name }))
           );
         } else {
           message.error("Failed to load DTR Record Names");
         }
       } catch (error) {
-        console.error("Failed to fetch DTR logs or record names:", error);
-        message.error("Error loading data");
+        console.error("Failed to load DTR Record Names:", error);
+        message.error("Error loading record names");
+      }
+    };
+    fetchRecords();
+  }, []);
+
+  // Fetch logs whenever a record is selected to avoid relying on a small default page
+  useEffect(() => {
+    const fetchLogs = async () => {
+      if (!recordNameFilter) {
+        setDtrData([]);
+        return;
+      }
+      try {
+        setLoading(true);
+        // Derive cutoff dates from the selected record (if present)
+        const rec = dtrRecords.find((r) => r.DTR_Record_Name === recordNameFilter);
+        const startDate = rec?.DTR_Cut_Off?.start ? dayjs(rec.DTR_Cut_Off.start).format("YYYY-MM-DD") : undefined;
+        const endDate = rec?.DTR_Cut_Off?.end ? dayjs(rec.DTR_Cut_Off.end).format("YYYY-MM-DD") : undefined;
+        const { data } = await axiosInstance.get("/dtrlogs/merged", {
+          params: {
+            recordName: recordNameFilter,
+            startDate,
+            endDate,
+            page: 1,
+            limit: 500,
+          },
+        });
+        if (data.success) {
+          setDtrData(data.data);
+        } else {
+          setDtrData([]);
+          message.error("Failed to load DTR logs");
+        }
+      } catch (error) {
+        console.error("Failed to fetch DTR logs:", error);
+        message.error("Error loading logs");
+        setDtrData([]);
       } finally {
         setLoading(false);
       }
     };
-
-    fetchDTRData();
-  }, []);
+    fetchLogs();
+  }, [recordNameFilter, dtrRecords]);
 
   const uniqueStates = useMemo(() => {
     const statesSet = new Set(dtrData.map((item) => item.state));
@@ -183,11 +202,18 @@ const DTRLogs = () => {
       });
     }
 
-    // New: Filter by DTR_Record_Name
+    // New: Filter by DTR_Record_Name (fallback to cutoff date range if missing linkage)
     if (recordNameFilter) {
-      filtered = filtered.filter(
-        (log) => log.DTR_Record_Name === recordNameFilter
-      );
+      const rec = dtrRecords.find((r) => r.DTR_Record_Name === recordNameFilter);
+      const recStart = rec?.DTR_Cut_Off?.start ? dayjs(rec.DTR_Cut_Off.start).startOf("day") : null;
+      const recEnd = rec?.DTR_Cut_Off?.end ? dayjs(rec.DTR_Cut_Off.end).endOf("day") : null;
+      filtered = filtered.filter((log) => {
+        if (log.DTR_Record_Name === recordNameFilter) return true;
+        if (!recStart || !recEnd || !log.time) return false;
+        const dt = dayjs(log.time).tz(userTimeZone);
+        if (!dt.isValid()) return false;
+        return dt.isBetween(recStart, recEnd, null, "[]");
+      });
     }
 
     // New: Filter by Biometrics Code

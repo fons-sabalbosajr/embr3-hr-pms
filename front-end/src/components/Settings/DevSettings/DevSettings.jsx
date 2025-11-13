@@ -33,7 +33,7 @@ import SecureStorageDiagnostics from "./SecureStorageDiagnostics";
 import axiosInstance from "../../../api/axiosInstance";
 import DemoModeSettings from "./DemoModeSettings";
 import { secureStore, secureSessionGet, secureRetrieve } from "../../../../utils/secureStorage";
-import socket from "../../../utils/socket";
+import socket from "../../../../utils/socket";
 
 const { Title, Text } = Typography;
 
