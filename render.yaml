@@ -20,6 +20,7 @@ services:
         sync: false
       - key: CLIENT_ORIGIN
         # e.g. https://embr3-hr-pms-uat.onrender.com or static site's URL
+        # Multiple origins supported (comma-separated)
         sync: false
       # Optional: base path if the client is served under a subpath (e.g., /hrpms)
       - key: CLIENT_BASE_PATH
@@ -71,6 +72,12 @@ services:
       - key: VITE_API_URL
         # Set this to the API service public URL + /api when the API is live
         # Example after first deploy: https://embr3-hr-pms-uat-api.onrender.com/api
+        sync: false
+      - key: VITE_ENCRYPT_SECRET
+        # Used by secureStorage; set to a random strong secret (do not commit)
+        sync: false
+      - key: VITE_KEY_SALT
+        # Optional: salt for obfuscating keys in secureStorage
         sync: false
       # For static site previews with client-side routing under a subpath
       - key: BASE
