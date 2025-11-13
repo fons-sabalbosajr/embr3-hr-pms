@@ -15,6 +15,7 @@ import {
   undoResignEmployee,
   getEmployeeRecords,
   deleteEmployeeCascade,
+  searchEmployeesByEmpId,
 } from "../controllers/employeeController.js";
 
 const router = express.Router();
@@ -28,6 +29,8 @@ router.put("/:id", updateEmployeeById);
 router.get("/latest-empno/:type", getLatestEmpNo);
 router.get("/employees/check-empId", checkEmpIdUnique);
 router.get("/by-emp-id/:empId", verifyToken, getEmployeeByEmpId);
+// Lightweight search (public) for auto-complete suggestions; does not expose resigned employees
+router.get("/search-emp-id", searchEmployeesByEmpId);
 // Developer-only actions
 router.put("/:id/resign", verifyToken, resignEmployee);
 router.put("/:id/undo-resign", verifyToken, undoResignEmployee);

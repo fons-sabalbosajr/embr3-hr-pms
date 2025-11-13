@@ -31,6 +31,31 @@
 .theme-preferences-card .preset-label {
 	font-size: 12px;
 }
+.account-settings-panel.corp-panel .ant-card-head-title,
+.theme-preferences-card.corp-panel .ant-card-head-title {
+	font-size: 14px;
+}
+.account-settings-panel.corp-panel .ant-form-item-label > label,
+.theme-preferences-card.corp-panel .ant-form-item-label > label {
+	font-size: 12px;
+}
+.account-settings-panel.corp-panel .ant-input,
+.account-settings-panel.corp-panel .ant-input-password,
+.account-settings-panel.corp-panel .ant-select-selector,
+.account-settings-panel.corp-panel .ant-radio-wrapper,
+.account-settings-panel.corp-panel .ant-segmented,
+.theme-preferences-card.corp-panel .ant-input,
+.theme-preferences-card.corp-panel .ant-radio-wrapper {
+	font-size: 12px;
+}
+.account-settings-panel.corp-panel .ant-btn,
+.theme-preferences-card.corp-panel .ant-btn {
+	font-size: 12px;
+}
+.account-settings-panel.corp-panel .ant-card-body,
+.theme-preferences-card.corp-panel .ant-card-body {
+	padding: 16px;
+}
 
 .theme-preview-card .ant-space {
 	width: 100%;

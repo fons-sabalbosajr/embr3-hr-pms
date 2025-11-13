@@ -88,7 +88,7 @@ const AuthPage = () => {
 
   return (
     <div
-      className="auth-container"
+      className="auth-container theme-exempt"
       style={{
         backgroundImage: `linear-gradient(
       135deg,
@@ -156,7 +156,7 @@ const AuthPage = () => {
                       htmlType="submit"
                       block
                       loading={loading}
-                      className="login-button"
+                      className="login-button fixed-primary-btn"
                     >
                       Log in
                     </Button>
@@ -301,7 +301,7 @@ const AuthPage = () => {
                       htmlType="submit"
                       block
                       loading={loading}
-                      className="signup-button"
+                      className="signup-button fixed-primary-btn"
                     >
                       Register
                     </Button>

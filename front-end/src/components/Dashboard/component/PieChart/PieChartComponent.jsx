@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import "./piechartcomponent.css";
 import {
   PieChart,
   Pie,
@@ -8,6 +9,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { Row, Col, Typography, Modal, Table, Tag } from "antd";
+import "./piechartcomponent.css";
 
 const { Title } = Typography;
 
@@ -121,6 +123,37 @@ const shortDivisionNames = {
 const PieChartComponent = ({ data, colors, employees = [] }) => {
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [selectedDivision, setSelectedDivision] = useState(null);
+  const [vw, setVw] = useState(
+    typeof window !== "undefined" ? window.innerWidth : 0
+  );
+
+  useEffect(() => {
+    const onResize = () => setVw(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  const isTablet = vw >= 768 && vw <= 1080;
+
+  const renderPieLabel = ({ name, percent, cx, cy, midAngle, outerRadius }) => {
+    const RAD = Math.PI / 180;
+    const r = outerRadius + 10;
+    const x = cx + r * Math.cos(-midAngle * RAD);
+    const y = cy + r * Math.sin(-midAngle * RAD);
+    const label = `${name}: ${(percent * 100).toFixed(0)}%`;
+    return (
+      <text
+        className="pie-label"
+        x={x}
+        y={y}
+        fill="#666"
+        textAnchor={x > cx ? "start" : "end"}
+        dominantBaseline="central"
+      >
+        {label}
+      </text>
+    );
+  };
 
   const handlePieClick = (entry) => {
     setSelectedDivision(entry.name);
@@ -183,7 +216,7 @@ const PieChartComponent = ({ data, colors, employees = [] }) => {
         const sectionB = b.sectionOrUnit || b.division;
         return sectionA.localeCompare(sectionB);
       },
-      defaultSortOrder: 'ascend',
+      defaultSortOrder: "ascend",
     },
   ];
 
@@ -191,7 +224,7 @@ const PieChartComponent = ({ data, colors, employees = [] }) => {
     <>
       <Row gutter={[16, 16]}>
         <Col xs={24} md={12}>
-          <Title level={5} style={{ textAlign: "center" }}>
+          <Title level={5} className="piechart-title">
             Employee Type Distribution
           </Title>
           <ResponsiveContainer width="100%" height={300}>
@@ -202,10 +235,8 @@ const PieChartComponent = ({ data, colors, employees = [] }) => {
                 nameKey="name"
                 cx="50%"
                 cy="50%"
-                outerRadius={100}
-                label={({ name, percent }) =>
-                  `${name}: ${(percent * 100).toFixed(0)}%`
-                }
+                outerRadius={isTablet ? 65 : 100}
+                label={renderPieLabel}
               >
                 {pieData.map((entry, index) => (
                   <Cell
@@ -214,13 +245,13 @@ const PieChartComponent = ({ data, colors, employees = [] }) => {
                   />
                 ))}
               </Pie>
-              <Tooltip />
-              <Legend />
+              <Tooltip className="pie-tooltip" />
+              <Legend className="pie-legend" iconSize={isTablet ? 8 : 10} />
             </PieChart>
           </ResponsiveContainer>
         </Col>
         <Col xs={24} md={12}>
-          <Title level={5} style={{ textAlign: "center" }}>
+          <Title level={5} className="piechart-title">
             Employees per Division
           </Title>
           <ResponsiveContainer width="100%" height={300}>
@@ -231,10 +262,8 @@ const PieChartComponent = ({ data, colors, employees = [] }) => {
                 nameKey="name"
                 cx="50%"
                 cy="50%"
-                outerRadius={100}
-                label={({ name, percent }) =>
-                  `${name}: ${(percent * 100).toFixed(0)}%`
-                }
+                outerRadius={isTablet ? 65 : 100}
+                label={renderPieLabel}
                 onClick={handlePieClick}
               >
                 {divisionData.map((entry, index) => (
@@ -245,8 +274,8 @@ const PieChartComponent = ({ data, colors, employees = [] }) => {
                   />
                 ))}
               </Pie>
-              <Tooltip />
-              <Legend />
+              <Tooltip className="pie-tooltip" />
+              <Legend className="pie-legend" iconSize={isTablet ? 8 : 10} />
             </PieChart>
           </ResponsiveContainer>
         </Col>
@@ -256,7 +285,8 @@ const PieChartComponent = ({ data, colors, employees = [] }) => {
         open={isModalVisible}
         onCancel={handleClose}
         footer={null}
-        width={1100}
+        className="pie-modal"
+        width={isTablet ? 900 : 1100}
       >
         <Table
           dataSource={filteredEmployees}

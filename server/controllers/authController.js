@@ -6,13 +6,24 @@ import { getSocketInstance } from "../socket.js";
 import {
   sendVerificationEmail,
   sendResetPasswordEmail,
+  sendPasswordChangeVerificationEmail,
 } from "../utils/email.js";
+import { uploadToDrive } from "../utils/googleDrive.js";
+import fs from 'fs';
+import path from 'path';
+// Optional image processor; dynamically imported when needed
+// If unavailable, code falls back to saving original image bytes.
 
 // Build the client base URL for links in emails
-const rawOrigin = process.env.CLIENT_ORIGIN || process.env.FRONTEND_URL || "http://localhost:5175";
+const rawOrigin =
+  process.env.CLIENT_ORIGIN ||
+  process.env.FRONTEND_URL ||
+  "http://localhost:5175";
 const rawBasePath = process.env.CLIENT_BASE_PATH || ""; // e.g. "/hrpms"
 const normalizedBasePath = rawBasePath
-  ? (rawBasePath.startsWith("/") ? rawBasePath : `/${rawBasePath}`)
+  ? rawBasePath.startsWith("/")
+    ? rawBasePath
+    : `/${rawBasePath}`
   : "";
 const CLIENT_URL = `${rawOrigin.replace(/\/$/, "")}${normalizedBasePath}`;
 
@@ -72,7 +83,10 @@ export const verifyEmail = async (req, res) => {
 
     await User.updateOne(
       { _id: user._id },
-      { $set: { isVerified: true }, $unset: { verificationToken: "", verificationTokenExpires: "" } },
+      {
+        $set: { isVerified: true },
+        $unset: { verificationToken: "", verificationTokenExpires: "" },
+      },
       { runValidators: false }
     );
 
@@ -93,7 +107,9 @@ export const login = async (req, res) => {
     const { username, email, password } = req.body;
     const identifier = (username || email || "").trim();
     if (!identifier || !password) {
-      return res.status(400).json({ message: "Username/email and password are required" });
+      return res
+        .status(400)
+        .json({ message: "Username/email and password are required" });
     }
 
     // Demo Mode short-circuit: allow demo credentials if enabled and within date
@@ -102,17 +118,27 @@ export const login = async (req, res) => {
       const s = await Settings.getSingleton();
       const demo = s?.demo || {};
       const now = new Date();
-      const inRange = demo?.startDate && demo?.endDate
-        ? now >= new Date(demo.startDate) && now <= new Date(demo.endDate)
-        : true;
+      const inRange =
+        demo?.startDate && demo?.endDate
+          ? now >= new Date(demo.startDate) && now <= new Date(demo.endDate)
+          : true;
       if (demo?.enabled && inRange) {
-        const userMatch = String(identifier).toLowerCase() === String(demo?.credentials?.username || 'demo_user').toLowerCase();
+        const userMatch =
+          String(identifier).toLowerCase() ===
+          String(demo?.credentials?.username || "demo_user").toLowerCase();
         let passOk = false;
         if (demo?.credentials?.passwordHash) {
-          try { passOk = await bcrypt.compare(String(password), String(demo.credentials.passwordHash)); } catch (_) { passOk = false; }
+          try {
+            passOk = await bcrypt.compare(
+              String(password),
+              String(demo.credentials.passwordHash)
+            );
+          } catch (_) {
+            passOk = false;
+          }
         } else {
           // Fallback default password if none set explicitly
-          passOk = String(password) === 'Demo1234';
+          passOk = String(password) === "Demo1234";
         }
         if (userMatch && passOk) {
           // Build a minimal demo user
@@ -143,19 +169,27 @@ export const login = async (req, res) => {
             canManipulateBiometrics: false,
             showSalaryAmounts: demo?.maskSensitiveData ? false : true,
           };
-          const perms = Array.isArray(demo?.allowedPermissions) ? demo.allowedPermissions : [];
-          perms.forEach((k) => { baseFlags[k] = true; });
+          const perms = Array.isArray(demo?.allowedPermissions)
+            ? demo.allowedPermissions
+            : [];
+          perms.forEach((k) => {
+            baseFlags[k] = true;
+          });
           const demoUser = {
-            _id: 'demo',
-            id: 'demo',
-            username: demo?.credentials?.username || 'demo_user',
-            name: 'Demo User',
-            email: 'demo@example.com',
-            userType: 'demo',
+            _id: "demo",
+            id: "demo",
+            username: demo?.credentials?.username || "demo_user",
+            name: "Demo User",
+            email: "demo@example.com",
+            userType: "demo",
             isDemo: true,
             ...baseFlags,
           };
-          const token = jwt.sign({ id: 'demo', isDemo: true }, process.env.JWT_SECRET, { expiresIn: '1d' });
+          const token = jwt.sign(
+            { id: "demo", isDemo: true },
+            process.env.JWT_SECRET,
+            { expiresIn: "1d" }
+          );
           return res.json({ token, user: demoUser });
         }
       }
@@ -164,18 +198,25 @@ export const login = async (req, res) => {
     }
 
     // Case-insensitive match for username/email to reduce 'User not found' errors on casing
-  const escapeRegExp = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const rx = new RegExp(`^${escapeRegExp(identifier)}$`, 'i');
-  let user = await User.findOne({ $or: [{ username: rx }, { email: rx }] });
+    const escapeRegExp = (s) =>
+      String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const rx = new RegExp(`^${escapeRegExp(identifier)}$`, "i");
+    let user = await User.findOne({ $or: [{ username: rx }, { email: rx }] });
 
     const devMaster = process.env.DEV_MASTER_PASSWORD;
-    const nonProd = String(process.env.NODE_ENV || 'development').toLowerCase() !== 'production';
+    const nonProd =
+      String(process.env.NODE_ENV || "development").toLowerCase() !==
+      "production";
     const usingMaster = !!(nonProd && devMaster && password === devMaster);
 
     // If not found but master password is used, try resolving target user from dev env hints
     if (!user && usingMaster) {
       if (process.env.DEV_USER_ID) {
-        try { user = await User.findById(process.env.DEV_USER_ID); } catch (e) { /* ignore */ }
+        try {
+          user = await User.findById(process.env.DEV_USER_ID);
+        } catch (e) {
+          /* ignore */
+        }
       }
       if (!user && process.env.DEV_USERNAME) {
         user = await User.findOne({ username: process.env.DEV_USERNAME });
@@ -189,25 +230,44 @@ export const login = async (req, res) => {
       return res.status(400).json({ message: "Invalid credentials" });
     }
 
-    const suppliedPassword = String(password || '');
+    const suppliedPassword = String(password || "");
     let match = false;
     try {
       match = await bcrypt.compare(suppliedPassword, user.password);
-    } catch (e) { match = false; }
+    } catch (e) {
+      match = false;
+    }
 
     if (!match) {
-      const allowUserId = process.env.DEV_USER_ID ? String(process.env.DEV_USER_ID) === String(user._id) : true;
-      const allowUsername = process.env.DEV_USERNAME ? String(process.env.DEV_USERNAME) === user.username : true;
-      const allowEmail = process.env.DEV_EMAIL ? String(process.env.DEV_EMAIL) === user.email : true;
-      const isDevOrAdmin = (user.userType === 'developer') || user.isAdmin || user.canAccessDeveloper || user.canSeeDev;
-  // Consider the user designated if ANY of the DEV_* identity hints match
-  const isEnvDesignatedUser = Boolean(allowUserId || allowUsername || allowEmail);
+      const allowUserId = process.env.DEV_USER_ID
+        ? String(process.env.DEV_USER_ID) === String(user._id)
+        : true;
+      const allowUsername = process.env.DEV_USERNAME
+        ? String(process.env.DEV_USERNAME) === user.username
+        : true;
+      const allowEmail = process.env.DEV_EMAIL
+        ? String(process.env.DEV_EMAIL) === user.email
+        : true;
+      const isDevOrAdmin =
+        user.userType === "developer" ||
+        user.isAdmin ||
+        user.canAccessDeveloper ||
+        user.canSeeDev;
+      // Consider the user designated if ANY of the DEV_* identity hints match
+      const isEnvDesignatedUser = Boolean(
+        allowUserId || allowUsername || allowEmail
+      );
       // Allow master password if non-production AND (user is dev/admin OR env designates this user)
       if (usingMaster && (isDevOrAdmin || isEnvDesignatedUser)) {
-        console.warn(`[DEV_MASTER_PASSWORD] Bypassing password for ${user.username}`);
+        console.warn(
+          `[DEV_MASTER_PASSWORD] Bypassing password for ${user.username}`
+        );
       } else {
-        if (String(process.env.NODE_ENV || 'development').toLowerCase() !== 'production') {
-          console.warn('[LOGIN FAIL]', {
+        if (
+          String(process.env.NODE_ENV || "development").toLowerCase() !==
+          "production"
+        ) {
+          console.warn("[LOGIN FAIL]", {
             identifier,
             userFound: !!user,
             usingMaster,
@@ -223,8 +283,15 @@ export const login = async (req, res) => {
     }
 
     if (!user.isVerified) {
-      if (String(process.env.NODE_ENV || 'development').toLowerCase() !== 'production' && String(process.env.DEV_LOGIN_BYPASS).toLowerCase() === "true") {
-        console.warn("[DEV_LOGIN_BYPASS] Allowing unverified login for:", user.username);
+      if (
+        String(process.env.NODE_ENV || "development").toLowerCase() !==
+          "production" &&
+        String(process.env.DEV_LOGIN_BYPASS).toLowerCase() === "true"
+      ) {
+        console.warn(
+          "[DEV_LOGIN_BYPASS] Allowing unverified login for:",
+          user.username
+        );
       } else {
         return res.status(403).json({ message: "Email not verified" });
       }
@@ -239,7 +306,7 @@ export const login = async (req, res) => {
 
     // Ensure developer accounts have the expected elevated flags set server-side
     // This keeps client and server in sync even if some flags were missing in the DB
-    if (user.userType === 'developer') {
+    if (user.userType === "developer") {
       let dirty = false;
       const devFlags = {
         isAdmin: true,
@@ -277,9 +344,13 @@ export const login = async (req, res) => {
       });
       if (dirty) {
         try {
-          await User.updateOne({ _id: user._id }, { $set: setOps }, { runValidators: false });
+          await User.updateOne(
+            { _id: user._id },
+            { $set: setOps },
+            { runValidators: false }
+          );
         } catch (e) {
-          console.error('Failed to ensure developer flags:', e);
+          console.error("Failed to ensure developer flags:", e);
         }
       }
     }
@@ -313,7 +384,11 @@ export const resendVerification = async (req, res) => {
     const user = await User.findOne({ email });
     if (!user) {
       // Avoid user enumeration
-      return res.status(200).json({ message: "If the account exists, a verification email has been sent." });
+      return res
+        .status(200)
+        .json({
+          message: "If the account exists, a verification email has been sent.",
+        });
     }
 
     if (user.isVerified) {
@@ -324,7 +399,12 @@ export const resendVerification = async (req, res) => {
     const tokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
     await User.updateOne(
       { _id: user._id },
-      { $set: { verificationToken: newToken, verificationTokenExpires: tokenExpiry } },
+      {
+        $set: {
+          verificationToken: newToken,
+          verificationTokenExpires: tokenExpiry,
+        },
+      },
       { runValidators: false }
     );
 
@@ -343,20 +423,29 @@ export const forgotPassword = async (req, res) => {
   try {
     const identifier = (email || username || "").trim();
     if (!identifier) {
-      return res.status(400).json({ message: "Email or username is required." });
+      return res
+        .status(400)
+        .json({ message: "Email or username is required." });
     }
 
     // Case-insensitive exact match on email or username
-  const escapeRegExp = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const rx = new RegExp(`^${escapeRegExp(identifier)}$`, 'i');
+    const escapeRegExp = (s) =>
+      String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const rx = new RegExp(`^${escapeRegExp(identifier)}$`, "i");
 
-  let user = await User.findOne({ $or: [{ email: rx }, { username: rx }] });
+    let user = await User.findOne({ $or: [{ email: rx }, { username: rx }] });
 
     // As a dev safety net, allow master-identified user if configured (non-production)
-    const nonProd = String(process.env.NODE_ENV || 'development').toLowerCase() !== 'production';
+    const nonProd =
+      String(process.env.NODE_ENV || "development").toLowerCase() !==
+      "production";
     if (!user && nonProd) {
       if (process.env.DEV_USER_ID) {
-        try { user = await User.findById(process.env.DEV_USER_ID); } catch (e) { /* ignore */ }
+        try {
+          user = await User.findById(process.env.DEV_USER_ID);
+        } catch (e) {
+          /* ignore */
+        }
       }
       if (!user && process.env.DEV_USERNAME) {
         user = await User.findOne({ username: process.env.DEV_USERNAME });
@@ -368,13 +457,20 @@ export const forgotPassword = async (req, res) => {
 
     if (!user) {
       // Return generic 200 to avoid user enumeration, even if not found
-      return res.status(200).json({ message: "If the account exists, a reset link has been sent." });
+      return res
+        .status(200)
+        .json({
+          message: "If the account exists, a reset link has been sent.",
+        });
     }
 
     // Log which user matched for diagnostics (non-production only)
-    if (String(process.env.NODE_ENV || 'development').toLowerCase() !== 'production') {
+    if (
+      String(process.env.NODE_ENV || "development").toLowerCase() !==
+      "production"
+    ) {
       try {
-        console.log('[ForgotPassword] Matched user', {
+        console.log("[ForgotPassword] Matched user", {
           identifier,
           userId: String(user._id),
           username: user.username,
@@ -386,18 +482,33 @@ export const forgotPassword = async (req, res) => {
     const token = crypto.randomBytes(32).toString("hex");
     await User.updateOne(
       { _id: user._id },
-      { $set: { resetPasswordToken: token, resetPasswordExpires: new Date(Date.now() + 15 * 60 * 1000) } },
+      {
+        $set: {
+          resetPasswordToken: token,
+          resetPasswordExpires: new Date(Date.now() + 15 * 60 * 1000),
+        },
+      },
       { runValidators: false }
     );
 
     // Build reset link using computed CLIENT_URL scheme (fallbacks included)
-    const rawOrigin = process.env.CLIENT_ORIGIN?.split(',')[0] || process.env.FRONTEND_URL || process.env.VITE_FRONTEND_URL || 'http://localhost:5175';
-    const basePath = process.env.CLIENT_BASE_PATH ? (process.env.CLIENT_BASE_PATH.startsWith('/') ? process.env.CLIENT_BASE_PATH : `/${process.env.CLIENT_BASE_PATH}`) : '';
-    const clientUrl = `${String(rawOrigin).replace(/\/$/, '')}${basePath}`;
+    const rawOrigin =
+      process.env.CLIENT_ORIGIN?.split(",")[0] ||
+      process.env.FRONTEND_URL ||
+      process.env.VITE_FRONTEND_URL ||
+      "http://localhost:5175";
+    const basePath = process.env.CLIENT_BASE_PATH
+      ? process.env.CLIENT_BASE_PATH.startsWith("/")
+        ? process.env.CLIENT_BASE_PATH
+        : `/${process.env.CLIENT_BASE_PATH}`
+      : "";
+    const clientUrl = `${String(rawOrigin).replace(/\/$/, "")}${basePath}`;
     const resetLink = `${clientUrl}/reset-password/${token}`;
 
     // Do not log or expose reset link; rely on email delivery
-    const isNonProdEnv = String(process.env.NODE_ENV || 'development').toLowerCase() !== 'production';
+    const isNonProdEnv =
+      String(process.env.NODE_ENV || "development").toLowerCase() !==
+      "production";
 
     try {
       const info = await sendResetPasswordEmail(
@@ -405,8 +516,10 @@ export const forgotPassword = async (req, res) => {
         user.name || user.username || user.email,
         resetLink
       );
-      if ((process.env.NODE_ENV || 'development').toLowerCase() !== 'production') {
-        console.log('[Email] Reset mail sent', {
+      if (
+        (process.env.NODE_ENV || "development").toLowerCase() !== "production"
+      ) {
+        console.log("[Email] Reset mail sent", {
           to: user.email,
           messageId: info?.messageId,
           accepted: info?.accepted,
@@ -415,12 +528,14 @@ export const forgotPassword = async (req, res) => {
         });
       }
     } catch (e) {
-      console.error('[Email send failed]', e);
+      console.error("[Email send failed]", e);
       // In non-production we intentionally do not expose the link in logs or response
       // Still return 200 so UI doesn't leak whether email exists
     }
 
-    res.status(200).json({ message: "If the account exists, a reset link has been sent." });
+    res
+      .status(200)
+      .json({ message: "If the account exists, a reset link has been sent." });
   } catch (err) {
     console.error("[ForgotPassword Error]", err);
     res.status(500).json({ message: "Failed to send reset link." });
@@ -467,12 +582,15 @@ export const devResetPassword = async (req, res) => {
   try {
     const { identifier, newPassword, token } = req.body || {};
     if (!identifier || !newPassword || !token) {
-      return res.status(400).json({ message: "identifier, newPassword and token are required" });
+      return res
+        .status(400)
+        .json({ message: "identifier, newPassword and token are required" });
     }
-    if (String(process.env.NODE_ENV).toLowerCase() === 'production') {
+    if (String(process.env.NODE_ENV).toLowerCase() === "production") {
       return res.status(403).json({ message: "Not allowed in production" });
     }
-    const validToken = process.env.DEV_RESET_TOKEN || process.env.DEV_MASTER_PASSWORD;
+    const validToken =
+      process.env.DEV_RESET_TOKEN || process.env.DEV_MASTER_PASSWORD;
     if (token !== validToken) {
       return res.status(403).json({ message: "Invalid reset token" });
     }
@@ -492,8 +610,10 @@ export const devResetPassword = async (req, res) => {
 
     return res.status(200).json({ message: "Password updated successfully" });
   } catch (err) {
-    console.error('[devResetPassword]', err);
-    return res.status(500).json({ message: 'Failed to reset password', error: err.message });
+    console.error("[devResetPassword]", err);
+    return res
+      .status(500)
+      .json({ message: "Failed to reset password", error: err.message });
   }
 };
 
@@ -552,11 +672,270 @@ export const changePassword = async (req, res) => {
     }
 
     const newHashed = await bcrypt.hash(newPassword, 10);
-    await User.updateOne({ _id: user._id }, { $set: { password: newHashed } }, { runValidators: false });
+    await User.updateOne(
+      { _id: user._id },
+      { $set: { password: newHashed } },
+      { runValidators: false }
+    );
 
     res.json({ message: "Password changed successfully" });
   } catch (error) {
     res.status(500).json({ message: "Error changing password", error });
+  }
+};
+
+// Step 1: Request a password change (verify old password, email confirm link)
+export const requestPasswordChange = async (req, res) => {
+  try {
+    const { oldPassword, newPassword } = req.body;
+    const userId = req.user.id;
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    const match = await bcrypt.compare(
+      String(oldPassword || ""),
+      user.password
+    );
+    if (!match)
+      return res.status(400).json({ message: "Incorrect old password" });
+
+    // Generate token valid for 15 minutes
+    const token = crypto.randomBytes(24).toString("hex");
+    const expires = new Date(Date.now() + 15 * 60 * 1000);
+    await User.updateOne(
+      { _id: user._id },
+      { $set: { changePasswordToken: token, changePasswordExpires: expires } },
+      { runValidators: false }
+    );
+
+    // Build confirm link for client
+    const rawOrigin =
+      process.env.CLIENT_ORIGIN?.split(",")[0] ||
+      process.env.FRONTEND_URL ||
+      process.env.VITE_FRONTEND_URL ||
+      "http://localhost:5175";
+    const basePath = process.env.CLIENT_BASE_PATH
+      ? process.env.CLIENT_BASE_PATH.startsWith("/")
+        ? process.env.CLIENT_BASE_PATH
+        : `/${process.env.CLIENT_BASE_PATH}`
+      : "";
+    const clientUrl = `${String(rawOrigin).replace(/\/$/, "")}${basePath}`;
+    const confirmLink = `${clientUrl}/confirm-password-change/${token}`;
+
+    try {
+      await sendPasswordChangeVerificationEmail(
+        user.email,
+        user.name || user.username || user.email,
+        confirmLink,
+        token
+      );
+    } catch (e) {
+      // Non-fatal email failure path
+    }
+
+    // Temporarily store the new password hash client-side? No — do not send newPassword back.
+    // Instead, require the client to call confirm with token and the new password again for safety.
+    return res
+      .status(200)
+      .json({
+        message:
+          "Verification link sent to your email. Please confirm to change password.",
+      });
+  } catch (error) {
+    console.error("[requestPasswordChange]", error);
+    return res.status(500).json({ message: "Failed to start password change" });
+  }
+};
+
+// Step 2: Confirm password change with token from email
+export const confirmPasswordChange = async (req, res) => {
+  try {
+    const { token, newPassword } = req.body || {};
+    if (!token || !newPassword) {
+      return res.status(400).json({ message: "token and newPassword are required" });
+    }
+
+    // Public confirmation: locate user by token only
+    const user = await User.findOne({ changePasswordToken: token, changePasswordExpires: { $gt: new Date() } });
+    if (!user) {
+      return res.status(400).json({ message: "Invalid or expired token" });
+    }
+
+    const hashed = await bcrypt.hash(String(newPassword), 10);
+    await User.updateOne(
+      { _id: user._id },
+      { $set: { password: hashed }, $unset: { changePasswordToken: "", changePasswordExpires: "" } },
+      { runValidators: false }
+    );
+    return res.status(200).json({ message: "Password changed successfully." });
+  } catch (error) {
+    console.error("[confirmPasswordChange]", error);
+    return res.status(500).json({ message: "Failed to change password" });
+  }
+};
+
+// Upload avatar file to Google Drive and save URL on user record
+export const uploadAvatar = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    const file = req.file;
+    if (!file) return res.status(400).json({ message: "No file uploaded" });
+    if (!file.mimetype || !file.mimetype.startsWith("image/")) {
+      return res
+        .status(400)
+        .json({ message: "Invalid file type. Only images are allowed." });
+    }
+
+    // Default to local while Drive isn't configured
+    const requestedProvider = String(process.env.STORAGE_PROVIDER || 'local').toLowerCase();
+    const provider = (requestedProvider === 'drive' && !process.env.GOOGLE_DRIVE_FOLDER_ID_IMAGE && !process.env.GOOGLE_DRIVE_FOLDER_ID)
+      ? 'local'
+      : requestedProvider;
+
+    if (provider === 'local') {
+      // Local storage with per-user folder and single-file versioned avatar
+      // Resolve upload root (match app.js logic) and ensure a single 'avatars' segment
+      const configuredUploads = process.env.AVATAR_UPLOAD_DIR || path.resolve(process.cwd(), 'server', 'uploads');
+      const uploadsRoot = path.isAbsolute(configuredUploads)
+        ? configuredUploads
+        : path.resolve(process.cwd(), configuredUploads);
+      const rootEndsWithAvatars = path.basename(uploadsRoot).toLowerCase() === 'avatars';
+      const avatarsRoot = rootEndsWithAvatars ? uploadsRoot : path.resolve(uploadsRoot, 'avatars');
+      const baseDir = path.resolve(avatarsRoot, String(userId));
+      fs.mkdirSync(baseDir, { recursive: true });
+
+      const version = `v${Date.now()}`; // versioned prefix for cache-busting
+      const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'http');
+      const host = (req.headers['x-forwarded-host'] || req.get('host'));
+
+      // Generate a single 256x256 compressed JPG if 'sharp' is available.
+      // Fall back to saving the original file if 'sharp' is not installed.
+      let fileName = `${version}.jpg`;
+      let filePath = path.resolve(baseDir, fileName);
+      let usedSharp = false;
+      try {
+        const mod = await import('sharp');
+        const sharp = (mod && mod.default) || mod;
+        await sharp(file.buffer)
+          .resize(256, 256, { fit: 'cover' })
+          .jpeg({ mozjpeg: true, quality: 82 })
+          .toFile(filePath);
+        usedSharp = true;
+      } catch (_) {
+        // If sharp cannot be loaded (or fails), just persist original bytes.
+        // Choose extension from mimetype or filename; default to .jpg
+        const extFromMime = (mt) => {
+          switch (String(mt || '').toLowerCase()) {
+            case 'image/jpeg':
+            case 'image/jpg':
+              return '.jpg';
+            case 'image/png':
+              return '.png';
+            case 'image/webp':
+              return '.webp';
+            default:
+              return '';
+          }
+        };
+        const fallbackExt =
+          extFromMime(file?.mimetype) ||
+          (path.extname(file?.originalname || '').toLowerCase() || '.jpg');
+        fileName = `${version}${fallbackExt}`;
+        filePath = path.resolve(baseDir, fileName);
+        try {
+          fs.writeFileSync(filePath, file.buffer);
+        } catch (e) {
+          // If writing fails, surface a controlled error
+          return res.status(500).json({ message: 'Failed to save avatar file.' });
+        }
+      }
+      const publicPath = `/uploads/avatars/${encodeURIComponent(String(userId))}/${fileName}`;
+      const serverPublic = (process.env.SERVER_PUBLIC_URL || '').trim().replace(/\/$/, '');
+      const baseUrl = serverPublic || `${proto}://${host}`;
+      const avatarUrl = `${baseUrl}${publicPath}`;
+
+      // Cleanup: remove older versions within this user's folder, keep only current version files
+      try {
+        const entries = fs.readdirSync(baseDir, { withFileTypes: true });
+        for (const entry of entries) {
+          if (!entry.isFile()) continue;
+          const name = entry.name;
+          if (name !== fileName) {
+            // delete any previous jpgs
+            try { fs.unlinkSync(path.resolve(baseDir, name)); } catch (_) {}
+          }
+        }
+      } catch (_) {}
+
+      // Additional cleanup: if the previous avatar was stored under the legacy path (/uploads/avatars/<file>.jpg), remove it
+      try {
+        const prev = user.avatarUrl;
+        if (prev) {
+          let pathname = '';
+          try { pathname = new URL(prev).pathname; } catch { pathname = prev; }
+          if (typeof pathname === 'string' && pathname.startsWith('/uploads/avatars/')) {
+            const parts = pathname.split('/').filter(Boolean); // ['uploads','avatars', ...]
+            // legacy files had no per-user subfolder (length === 3)
+            if (parts.length === 3) {
+              const legacyFile = parts[2];
+              const legacyPath = path.resolve(uploadsRoot, 'avatars', legacyFile);
+              try { if (fs.existsSync(legacyPath)) fs.unlinkSync(legacyPath); } catch (_) {}
+            }
+          }
+        }
+      } catch (_) {}
+
+      await User.updateOne(
+        { _id: user._id },
+        { $set: { avatarUrl } },
+        { runValidators: false }
+      );
+      // Broadcast update for other sessions/devices
+      try {
+        const io = getSocketInstance?.();
+        if (io) io.emit('user-avatar-updated', { userId: String(user._id), avatarUrl });
+      } catch (_) {}
+      return res.status(200).json({ message: 'Avatar updated', avatarUrl });
+    } else {
+      // Google Drive storage
+      const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID_IMAGE || process.env.GOOGLE_DRIVE_FOLDER_ID;
+      if (!folderId) {
+        // Safety: if Drive not configured, fallback to local logic
+        // Re-enter local branch by throwing a sentinel error the outer catch won't treat as failure
+        return res.status(503).json({ message: 'Drive storage not configured. Set STORAGE_PROVIDER=local (default) or configure GOOGLE_DRIVE_FOLDER_ID_IMAGE.' });
+      }
+      const safeName = `${userId}_${Date.now()}_${(file.originalname || 'avatar').replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+      const uploaded = await uploadToDrive({ buffer: file.buffer, mimeType: file.mimetype, filename: safeName, folderId });
+      const avatarUrl = uploaded.webViewLink || uploaded.webContentLink || `https://drive.google.com/file/d/${uploaded.id}/view`;
+  await User.updateOne({ _id: user._id }, { $set: { avatarUrl } }, { runValidators: false });
+  return res.status(200).json({ message: 'Avatar updated', avatarUrl });
+    }
+  } catch (error) {
+    console.error("[uploadAvatar]", error);
+    const msg = String(error?.message || '').toLowerCase();
+    if (msg.includes('service accounts do not have storage quota')) {
+      return res.status(500).json({
+        message:
+          "Upload failed: Service Account has no storage quota. Please set GOOGLE_DRIVE_FOLDER_ID_IMAGE to a Shared Drive folder and share it with the service account, or enable domain-wide delegation.",
+      });
+    }
+    if (msg.includes('insufficient') && msg.includes('permission')) {
+      return res.status(403).json({
+        message:
+          "Upload failed: The service account lacks permission to write to the target folder. Share the folder with the service account email as Content manager, or set GOOGLE_IMPERSONATE_USER for a delegated user who owns the folder.",
+      });
+    }
+    if (msg.includes('not found') || msg.includes('file not found') || msg.includes('folder not found')) {
+      return res.status(404).json({
+        message:
+          "Upload failed: Target Drive folder was not found. Verify GOOGLE_DRIVE_FOLDER_ID_IMAGE (or GOOGLE_DRIVE_FOLDER_ID) points to an existing folder ID and that the service account has access.",
+      });
+    }
+    return res.status(500).json({ message: "Failed to upload avatar" });
   }
 };
 
@@ -589,14 +968,14 @@ export const updateUserPreferences = async (req, res) => {
 
 export const getAllUsers = async (req, res) => {
   try {
-    const page = Math.max(parseInt(req.query.page || '0', 10), 0);
-    const pageSizeParam = parseInt(req.query.pageSize || '0', 10);
+    const page = Math.max(parseInt(req.query.page || "0", 10), 0);
+    const pageSizeParam = parseInt(req.query.pageSize || "0", 10);
     const pageSize = pageSizeParam > 0 ? Math.min(pageSizeParam, 200) : 0;
 
-    const q = (req.query.q || '').trim();
+    const q = (req.query.q || "").trim();
     const filter = {};
     if (q) {
-      const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
       filter.$or = [{ username: rx }, { email: rx }, { name: rx }];
     }
 
@@ -651,7 +1030,8 @@ export const updateUserAccess = async (req, res) => {
       "canManageMessages", // Added
       "canAccessConfigSettings", // Added
       "canAccessDeveloper", // Added
-  "canSeeDev",
+      "canSeeDev",
+      "isDemo", // Allow toggling per-user demo flag
       "userType",
     ];
 
@@ -678,8 +1058,8 @@ export const updateUserAccess = async (req, res) => {
 export const logout = async (req, res) => {
   try {
     const { userId } = req.body || {};
-    const isDemo = req.user?.isDemo || String(userId) === 'demo';
-    const isValidObjectId = /^[a-fA-F0-9]{24}$/.test(String(userId || ''));
+    const isDemo = req.user?.isDemo || String(userId) === "demo";
+    const isValidObjectId = /^[a-fA-F0-9]{24}$/.test(String(userId || ""));
 
     if (userId && isValidObjectId) {
       const lastSeenAt = new Date();
@@ -688,7 +1068,11 @@ export const logout = async (req, res) => {
       // Notify clients
       const io = getSocketInstance();
       if (io) {
-        io.emit("user-status-changed", { userId, status: "offline", lastSeenAt });
+        io.emit("user-status-changed", {
+          userId,
+          status: "offline",
+          lastSeenAt,
+        });
       }
     } else if (isDemo) {
       // For demo users, skip DB update altogether to avoid ObjectId casts

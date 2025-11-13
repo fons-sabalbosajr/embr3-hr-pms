@@ -12,6 +12,7 @@ import {
   Col,
   Modal,
   Form,
+  DatePicker,
 } from "antd";
 import {
   DownloadOutlined,
@@ -24,39 +25,44 @@ import dayjs from "dayjs";
 
 const DTRLogTab = () => {
   const [data, setData] = useState([]);
-  const [filtered, setFiltered] = useState([]); // filtered dataset
   const [loading, setLoading] = useState(false);
   const [searchText, setSearchText] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [total, setTotal] = useState(0);
+  const [dateRange, setDateRange] = useState(null); // [start, end]
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form] = Form.useForm();
 
   useEffect(() => {
-    fetchData();
+    fetchData(1, pageSize, searchText);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (p = page, limit = pageSize, q = searchText, dr = dateRange) => {
     setLoading(true);
     try {
-      const res = await axiosInstance.get("/dtrlogs/merged");
+      const res = await axiosInstance.get("/dtrlogs/merged", {
+        params: {
+          page: p,
+          limit,
+          q: q && q.trim() ? q.trim() : undefined,
+          startDate: Array.isArray(dr) && dr[0] ? dr[0].toISOString() : undefined,
+          endDate: Array.isArray(dr) && dr[1] ? dr[1].toISOString() : undefined,
+        },
+      });
       const rows = res.data?.data ?? res.data ?? [];
       setData(rows);
-      setFiltered(rows); // initialize with full dataset
+      setTotal(res.data?.total ?? rows.length ?? 0);
+      setPage(res.data?.page ?? p);
+      setPageSize(res.data?.limit ?? limit);
     } catch {
       message.error("Failed to load DTR logs");
     } finally {
       setLoading(false);
     }
   };
-
-  // handle search across all pages
-  useEffect(() => {
-    const lowered = searchText.toLowerCase();
-    const results = data.filter(
-      (d) => JSON.stringify(d).toLowerCase().includes(lowered) // search across all fields
-    );
-    setFiltered(results);
-  }, [searchText, data]);
 
   const openEdit = (record) => {
     setEditing(record);
@@ -113,7 +119,7 @@ const DTRLogTab = () => {
     a.click();
   };
 
-const columns = [
+  const columns = [
     { title: "AC No", dataIndex: "acNo", key: "acNo" },
     { title: "Name", dataIndex: "name", key: "name" },
     {
@@ -126,14 +132,14 @@ const columns = [
       title: "Actions",
       render: (_, record) => (
         <Space>
-          <Button icon={<EditOutlined />} onClick={() => openEdit(record)}>
+          <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(record)}>
             Edit
           </Button>
           <Popconfirm
             title="Delete this log?"
             onConfirm={() => handleDelete(record)}
           >
-            <Button danger icon={<DeleteOutlined />}>
+            <Button size="small" danger icon={<DeleteOutlined />}>
               Delete
             </Button>
           </Popconfirm>
@@ -143,30 +149,72 @@ const columns = [
   ];
 
   return (
-    <Card>
-      <Row justify="space-between" style={{ marginBottom: 12 }}>
-        <Col>
+    <Card className="compact-table">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+        <Space size={8} wrap align="center">
           <Input
+            size="small"
             placeholder="Search logs..."
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
+            onPressEnter={() => fetchData(1, pageSize, searchText, dateRange)}
+            onBlur={() => {/* no-op */}}
             prefix={<SearchOutlined />}
             allowClear
+            style={{ minWidth: 220 }}
           />
-        </Col>
-        <Col>
-          <Button icon={<DownloadOutlined />} onClick={exportCsv}>
+          <DatePicker.RangePicker
+            size="small"
+            value={dateRange}
+            onChange={(val) => {
+              setDateRange(val);
+              // refetch from page 1 when date range changes
+              fetchData(1, pageSize, searchText, val);
+            }}
+            allowEmpty={[true, true]}
+          />
+          <Button
+            size="small"
+            onClick={() => {
+              setSearchText("");
+              setDateRange(null);
+              fetchData(1, pageSize, "", null);
+            }}
+          >
+            Clear Filters
+          </Button>
+        </Space>
+        <Space size={8}>
+          <Button size="small" icon={<DownloadOutlined />} onClick={exportCsv}>
             Export CSV
           </Button>
-        </Col>
-      </Row>
+        </Space>
+      </div>
 
       <Table
+        className="compact-table"
         columns={columns}
-        dataSource={filtered}
+        dataSource={data}
         rowKey={(r) => r._id}
         loading={loading}
         size="small"
+        pagination={{
+          current: page,
+          pageSize,
+          total,
+          showSizeChanger: true,
+          pageSizeOptions: [5, 10, 20, 50, 100],
+          showTotal: (t, range) => `${range[0]}-${range[1]} of ${t}`,
+          onChange: (p, ps) => {
+            if (ps !== pageSize) {
+              setPageSize(ps);
+              fetchData(1, ps, searchText, dateRange);
+            } else {
+              setPage(p);
+              fetchData(p, ps, searchText, dateRange);
+            }
+          },
+        }}
       />
 
       <Modal

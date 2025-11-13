@@ -20,6 +20,61 @@ dayjs.extend(timezone);
 
 const LOCAL_TZ = "Asia/Manila";
 
+// Public: search employees by empId prefix with smart variants (hyphen/zero handling)
+export const searchEmployeesByEmpId = async (req, res) => {
+  try {
+    const q = (req.query.q || "").toString().trim();
+    if (!q) return res.status(400).json({ success: false, message: "Missing q" });
+
+    // Build candidate variants
+    const variants = new Set();
+    const raw = q;
+    variants.add(raw);
+    const digitsOnly = raw.replace(/\D/g, "");
+    if (digitsOnly) variants.add(digitsOnly);
+    if (raw.includes("-")) {
+      const [a, b = ""] = raw.split("-");
+      if (b && /^\d+$/.test(b) && b.length < 4) {
+        variants.add(`${a}-${b.padStart(4, "0")}`);
+      }
+      variants.add(raw.replace(/-/g, ""));
+    } else if (/^\d+$/.test(raw) && raw.length > 2) {
+      const a = raw.slice(0, 2);
+      const b = raw.slice(2);
+      variants.add(`${a}-${b.padStart(4, "0")}`);
+    }
+
+    // Create anchored regexes for prefix search (start-with behavior)
+    const regexes = Array.from(variants)
+      .filter(Boolean)
+      .map((v) => {
+        const esc = v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        return new RegExp(`^${esc}`, "i");
+      });
+
+    if (regexes.length === 0) {
+      return res.json({ success: true, data: [] });
+    }
+
+    // Exclude resigned employees for public search
+    const results = await Employee.find({
+      isResigned: { $ne: true },
+      $or: [
+        { empId: { $in: regexes } },
+        { alternateEmpIds: { $in: regexes } },
+      ],
+    })
+      .select("empId name position sectionOrUnit")
+      .limit(10)
+      .lean();
+
+    res.json({ success: true, data: results || [] });
+  } catch (err) {
+    console.error("Error in searchEmployeesByEmpId:", err);
+    res.status(500).json({ success: false, message: "Server Error" });
+  }
+};
+
 export const uploadEmployees = async (req, res) => {
   try {
     const { employees } = req.body;

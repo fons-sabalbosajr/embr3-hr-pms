@@ -38,6 +38,7 @@ const PieChartComponent = lazy(() =>
 
 import EmployeeStatsCards from "./component/EmployeeStatsCards";
 import RecentAttendanceTable from "./component/RecentAttendanceTable";
+import { getRecentAttendance } from "../../api/dtrAPI";
 import EmployeesPerSectionTable from "./component/EmployeesPerSectionTable";
 
 const Dashboard = () => {
@@ -50,6 +51,12 @@ const Dashboard = () => {
   const [employeeTypeCounts, setEmployeeTypeCounts] = useState({});
   const [presentCount, setPresentCount] = useState(0);
   const [lastAttendanceDate, setLastAttendanceDate] = useState(null);
+  const [recentAttendance, setRecentAttendance] = useState([]); // raw merged logs latest day
+  const [attendanceRows, setAttendanceRows] = useState([]); // multi-day normalized rows for table
+  const [lastTwoAttendanceDates, setLastTwoAttendanceDates] = useState(null);
+  // Latest biometrics (DTR data) cut-off end date (anchor for attendance)
+  const [latestCutoffEndDate, setLatestCutoffEndDate] = useState(null);
+  const [latestCutoffRecordName, setLatestCutoffRecordName] = useState(null);
   const [employeesPerSection, setEmployeesPerSection] = useState([]);
   const [loadingEmployees, setLoadingEmployees] = useState(true);
   const [error, setError] = useState(null);
@@ -159,6 +166,105 @@ const Dashboard = () => {
     };
     fetchEmployees();
   }, []);
+
+  // Fetch all DTR data once to determine latest encoded biometrics cut-off end date
+  useEffect(() => {
+    const fetchLatestCutoff = async () => {
+      try {
+        const res = await axiosInstance.get("/dtrdatas");
+        const records = res.data?.data || [];
+        if (records.length) {
+          // Sort by cut-off end descending; pick newest
+          const latest = [...records].sort(
+            (a, b) => new Date(b?.DTR_Cut_Off?.end) - new Date(a?.DTR_Cut_Off?.end)
+          )[0];
+          if (latest?.DTR_Cut_Off?.end) {
+            setLatestCutoffEndDate(latest.DTR_Cut_Off.end);
+            setLatestCutoffRecordName(latest.DTR_Record_Name);
+          }
+        }
+      } catch (e) {
+        console.error("Failed to fetch DTR records for latest cutoff", e);
+      }
+    };
+    fetchLatestCutoff();
+  }, []);
+
+  // Fetch and aggregate logs for two days (cutoff end date and previous day) building per-employee rows
+  useEffect(() => {
+    const fetchTwoDayAttendance = async () => {
+      if (!latestCutoffEndDate || !employees.length) return;
+      try {
+        const endDateObj = new Date(latestCutoffEndDate);
+        const day2 = endDateObj.toISOString().slice(0,10); // cutoff end
+        const prevObj = new Date(endDateObj);
+        prevObj.setDate(prevObj.getDate() - 1);
+        const day1 = prevObj.toISOString().slice(0,10); // previous day
+  const days = [day1, day2];
+  setLastTwoAttendanceDates(days);
+
+        const allRows = [];
+        const toTimeStr = (t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const normalizeState = (raw) => {
+          switch(raw){
+            case 'C/In': case 'Time In': case 'OverTime In': case 'Overtime In': return 'IN';
+            case 'Out': case 'Break Out': return 'BO';
+            case 'Out Back': case 'Break In': return 'BI';
+            case 'C/Out': case 'Time Out': case 'OverTime Out': case 'Overtime Out': return 'OUT';
+            default: return raw;
+          }
+        };
+
+        for (const d of days) {
+          const params = { startDate: d, endDate: d };
+            if (latestCutoffRecordName) params.recordName = latestCutoffRecordName;
+          const res = await axiosInstance.get('/dtrlogs/merged', { params });
+          const logs = res.data?.data || [];
+          if (d === day2) setRecentAttendance(logs); // keep latest day raw logs for any other cards
+          // Group per employee key
+          const perEmp = {};
+          logs.forEach(log => {
+            const empKey = log.empId || (log.acNo ? String(log.acNo).replace(/\D/g,'') : null) || null;
+            if (!empKey) return;
+            if (!perEmp[empKey]) perEmp[empKey] = { date: d, timeIn: null, breakOut: null, breakIn: null, timeOut: null };
+            const tag = normalizeState(log.state);
+            const timeStr = toTimeStr(log.time);
+            if (tag === 'IN') { if (!perEmp[empKey].timeIn) perEmp[empKey].timeIn = timeStr; }
+            else if (tag === 'BO') { if (!perEmp[empKey].breakOut) perEmp[empKey].breakOut = timeStr; }
+            else if (tag === 'BI') { if (!perEmp[empKey].breakIn) perEmp[empKey].breakIn = timeStr; }
+            else if (tag === 'OUT') { perEmp[empKey].timeOut = timeStr; }
+          });
+
+          // Create a row for each employee in master list (blank if none)
+          employees.forEach(emp => {
+            const rawId = emp.empId || emp.empNo || '';
+            const digitsId = rawId.replace(/\D/g,'');
+            const att = perEmp[rawId] || perEmp[digitsId] || { date: d, timeIn: null, breakOut: null, breakIn: null, timeOut: null };
+            allRows.push({
+              _id: `${emp._id || rawId}-${d}`,
+              empId: emp.empId,
+              empNo: emp.empNo,
+              name: emp.name,
+              empType: emp.empType,
+              attendance: att,
+            });
+          });
+        }
+
+        // Sort rows by date then name
+        allRows.sort((a,b) => a.attendance.date === b.attendance.date ? (a.name||'').localeCompare(b.name||'') : (a.attendance.date < b.attendance.date ? -1 : 1));
+        setAttendanceRows(allRows);
+
+        // Also update employees' single attendance to latest day for tiles that rely on it
+        const latestDayRows = allRows.filter(r => r.attendance.date === day2);
+        const perEmpLatest = latestDayRows.reduce((acc,r)=>{acc[r.empId||r.empNo]=r.attendance; return acc;},{});
+  setEmployees(prev => prev.map(emp => ({...emp, attendance: perEmpLatest[emp.empId] || emp.attendance})));
+      } catch (err) {
+        console.error('Failed two-day attendance aggregation', err);
+      }
+    };
+    fetchTwoDayAttendance();
+  }, [employees.length, latestCutoffEndDate, latestCutoffRecordName]);
 
   const handleViewProfile = (emp) => {
     setEmployeeModalVisible(false);
@@ -384,6 +490,7 @@ const Dashboard = () => {
           employeeTypeCounts={employeeTypeCounts}
           lastAttendanceDate={lastAttendanceDate}
           presentCount={presentCount}
+          lastTwoAttendanceDates={lastTwoAttendanceDates}
         />
 
         <Row gutter={[16, 16]} style={{ marginTop: 20 }}>
@@ -423,6 +530,7 @@ const Dashboard = () => {
               error={error}
               setPresentCount={setPresentCount}
               setLastAttendanceDate={setLastAttendanceDate}
+              attendanceRows={attendanceRows}
             />
           </Col>
         </Row>

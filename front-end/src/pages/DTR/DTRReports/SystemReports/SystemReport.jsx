@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Table, Input, Select, DatePicker, Space, Button, Tag } from "antd";
+import useDemoMode from "../../../../hooks/useDemoMode";
 import dayjs from "dayjs";
 import { getEmployeeDocs } from "../../../../api/employeeAPI"; // Adjust path as needed
 import { getAllUsers } from "../../../../api/authAPI"; // Import getAllUsers
@@ -11,6 +12,7 @@ const SystemReport = () => {
   const [reports, setReports] = useState([]);
   const [users, setUsers] = useState([]); // State to store users
   const [loading, setLoading] = useState(false);
+  const { shouldHideInDemo } = useDemoMode();
   const [filters, setFilters] = useState({
     docType: "",
     createdBy: "",
@@ -188,7 +190,9 @@ const SystemReport = () => {
 
   return (
     <div style={{ padding: "10px" }} className="compact-table">
-      <h2 style={{ marginTop: 0, fontSize: 18 }}>System Generated Reports</h2>
+      {!shouldHideInDemo('ui.dtr.reports.generate') && (
+        <h2 style={{ marginTop: 0, fontSize: 18 }}>System Generated Reports</h2>
+      )}
       <Space style={{ marginBottom: 16, flexWrap: "wrap" }}>
         <Input
           placeholder="Search Employee ID"

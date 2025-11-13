@@ -5,6 +5,7 @@ import maintenanceMiddleware from "./middleware/maintenanceMiddleware.js";
 import compression from "compression";
 import helmet from "helmet";
 import mongoose from "mongoose";
+import path from "path";
 
 // Import your routes
 import authRoutes from "./routes/authRoutes.js";
@@ -27,6 +28,8 @@ import suspensionRoutes from "./routes/suspensionRoutes.js";
 import notificationRoutes from "./routes/notificationRoutes.js";
 import uploadRoutes from "./routes/uploadRoutes.js";
 import publicRoutes from "./routes/publicRoutes.js";
+import featureRoutes from "./routes/features.js";
+import demoEnforcement from "./middleware/demoEnforcement.js";
 
 dotenv.config();
 const app = express();
@@ -47,11 +50,29 @@ app.use(
 app.use(
   helmet({
     contentSecurityPolicy: false, // keep simple unless you define CSP for your app
+    // Allow images and other static assets to be requested cross-origin (e.g., front-end dev server at :5175)
+    crossOriginResourcePolicy: { policy: "cross-origin" },
   })
 );
 app.use(compression());
 app.use(express.json({ limit: "20mb" }));
 app.use(express.urlencoded({ extended: true, limit: "20mb" }));
+
+// Serve user-uploaded assets (e.g., avatars) directly
+// Place BEFORE maintenance middleware so avatars are always retrievable
+const configuredUploads = process.env.AVATAR_UPLOAD_DIR;
+let resolvedUploads = configuredUploads
+  ? (path.isAbsolute(configuredUploads)
+      ? configuredUploads
+      : path.resolve(process.cwd(), configuredUploads))
+  : path.resolve(process.cwd(), "server", "uploads");
+// Normalize potential trailing slashes
+resolvedUploads = resolvedUploads.replace(/[/\\]+$/, "");
+app.use("/uploads", express.static(resolvedUploads));
+
+// Server-side demo enforcement middleware (deny-list + optional global read-only).
+// Placed before route mounting so it can intercept write requests early.
+app.use(demoEnforcement);
 
 // Apply maintenance middleware for most routes, but allow auth routes to pass so
 // users can still login and verify during maintenance. Dev routes are not bypassed here.
@@ -83,6 +104,7 @@ app.use("/api/local-holidays", localHolidayRoutes);
 app.use("/api/suspensions", suspensionRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/uploads", uploadRoutes);
+app.use("/api/features", featureRoutes);
 
 // Basic health endpoint for platform probes
 app.get("/healthz", (req, res) => {

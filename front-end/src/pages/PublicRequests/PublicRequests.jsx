@@ -2,8 +2,7 @@ import React from "react";
 import { Card, Typography, Row, Col } from "antd";
 import { Link } from "react-router-dom";
 import { FileTextOutlined, ClockCircleOutlined } from "@ant-design/icons";
-// Switch background to SVG logo watermark
-import embLogo from "../../assets/emblogo.svg";
+import bgImage from "../../assets/bgemb.webp";
 import "./publicrequests.css";
 
 const { Title } = Typography;
@@ -11,21 +10,20 @@ const { Title } = Typography;
 const PublicRequests = () => {
   return (
     <div
-      className="public-container"
+      className="public-container theme-exempt"
       style={{
-        // Use the emblogo.svg as underlying watermark image layered under gradient
         backgroundImage: `linear-gradient(
           135deg,
           rgba(0, 75, 128, 0.88),
           rgba(154, 205, 50, 0.85),
           rgba(245, 216, 163, 0.85)
-        ), url(${embLogo})`,
-        backgroundSize: "cover, contain",
-        backgroundRepeat: "no-repeat, no-repeat",
-        backgroundPosition: "center, center",
+        ), url(${bgImage})`,
+        backgroundSize: "cover",
+        backgroundRepeat: "no-repeat",
+        backgroundPosition: "center",
       }}
     >
-      <Card className="public-card">
+      <Card className="public-card theme-exempt">
         <Title level={3} className="public-title" style={{ textAlign: "center" }}>
           Employee Request Portal
         </Title>

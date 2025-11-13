@@ -59,10 +59,26 @@ const settingsSchema = new mongoose.Schema({
     },
     // Restrict visibility for demo users; store permission keys to enable for demo
     allowedPermissions: { type: [String], default: [] },
+    // Fine-grained action exceptions: allow specific write actions in demo
+    allowedActions: { type: [String], default: [] },
+    // New: action keys whose UI buttons should be hidden entirely in demo for demo users
+    hiddenActions: { type: [String], default: [] },
     // Defaults for safety
     maskSensitiveData: { type: Boolean, default: true },
     allowSubmissions: { type: Boolean, default: false },
     showActiveBanner: { type: Boolean, default: true },
+  },
+
+  // SMTP / Email transport settings (runtime configurable)
+  smtp: {
+    host: { type: String },
+    port: { type: Number },
+    secure: { type: Boolean }, // true for 465, false for other ports
+    user: { type: String }, // auth user (do NOT expose password back to client)
+    fromEmail: { type: String }, // default From email
+    fromName: { type: String }, // default From display name
+    // We intentionally do not store password here for now; prefer env EMAIL_PASS
+    updatedAt: { type: Date },
   },
 });
 

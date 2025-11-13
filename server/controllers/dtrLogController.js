@@ -7,7 +7,9 @@ import User from "../models/User.js";
 
 export const getMergedDTRLogs = async (req, res) => {
   try {
-    const { recordName, acNo, startDate, endDate, names, empIds } = req.query;
+    const { recordName, acNo, startDate, endDate, names, empIds, q } = req.query;
+    const page = Math.max(parseInt(req.query.page || '1', 10), 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit || '20', 10), 1), 500);
 
     // Helper normalizers
     const normalizeDigits = (v) => (v ? String(v).replace(/\D/g, "").replace(/^0+/, "") : "");
@@ -25,7 +27,7 @@ export const getMergedDTRLogs = async (req, res) => {
       return t.replace(/\s+/g, " ").trim();
     };
 
-    const filter = {};
+  const filter = {};
 
     // Restrict by DTR Data record if provided
     if (recordName) {
@@ -46,12 +48,29 @@ export const getMergedDTRLogs = async (req, res) => {
 
     // Build robust target sets from query
     const employees = await Employee.find().lean();
-  const nameList = (names ? String(names).split(",") : []).map((n) => n && n.trim()).filter(Boolean);
-  const empIdList = (empIds ? String(empIds).split(",") : []).map((e) => e && e.trim()).filter(Boolean);
-  const acNoList = (acNo ? String(acNo).split(",") : []).map((a) => a && a.trim()).filter(Boolean);
+    const nameList = (names ? String(names).split(",") : [])
+      .map((n) => n && n.trim())
+      .filter(Boolean);
+    const empIdList = (empIds ? String(empIds).split(",") : [])
+      .map((e) => e && e.trim())
+      .filter(Boolean);
+    const acNoList = (acNo ? String(acNo).split(",") : [])
+      .map((a) => a && a.trim())
+      .filter(Boolean);
 
-  const allowedDigits = new Set();
-  const rawAcNoCandidates = new Set();
+    // Quick query 'q' support: if provided, push into name list and digits candidates
+    if (q && String(q).trim().length > 0) {
+      const qStr = String(q).trim();
+      nameList.push(qStr);
+      const qDigits = normalizeDigits(qStr);
+      if (qDigits) {
+        // include digits into acNo candidates
+        acNoList.push(qDigits);
+      }
+    }
+
+    const allowedDigits = new Set();
+    const rawAcNoCandidates = new Set();
     // From acNo query
     acNoList.forEach((a) => {
       const d = normalizeDigits(a);
@@ -110,10 +129,15 @@ export const getMergedDTRLogs = async (req, res) => {
       filter["AC-No"] = { $in: acNoList };
     }
 
-    // Query DTRLogs, sort ascending by time
+    // Count total BEFORE pagination
+    const total = await DTRLog.countDocuments(filter);
+
+    // Query DTRLogs, sort ascending by time with pagination
     const logs = await DTRLog.find(filter)
       .populate("DTR_ID", "DTR_Record_Name")
       .sort({ Time: 1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
       .lean();
 
     // Map logs → include matched employee via robust rules
@@ -155,7 +179,7 @@ export const getMergedDTRLogs = async (req, res) => {
       };
     });
 
-    res.json({ success: true, data: mergedData });
+    res.json({ success: true, data: mergedData, page, limit, total });
   } catch (error) {
     console.error("Error merging DTR logs:", error);
     res.status(500).json({ success: false, message: "Server Error" });

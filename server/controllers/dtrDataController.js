@@ -5,13 +5,31 @@ import dayjs from "dayjs";
 
 export const getDTRDataList = async (req, res) => {
   try {
-    const records = await DTRData.find({}, "DTR_Record_Name DTR_Cut_Off")
-      .sort({ createdAt: -1 })
-      .lean();
+    const { startDate, endDate } = req.query;
+    const filter = {};
+    let haveRange = false;
+    if (startDate && endDate) {
+      const start = dayjs(startDate).startOf("day");
+      const end = dayjs(endDate).endOf("day");
+      if (start.isValid() && end.isValid()) {
+        // Overlap logic: record.start <= end AND record.end >= start
+        filter["DTR_Cut_Off.start"] = { $lte: end.toDate() };
+        filter["DTR_Cut_Off.end"] = { $gte: start.toDate() };
+        haveRange = true;
+      }
+    }
+
+    const query = DTRData.find(filter, "DTR_Record_Name DTR_Cut_Off Uploaded_By Uploaded_Date")
+      .sort({ "DTR_Cut_Off.start": -1, createdAt: -1 });
+    const records = await query.lean();
 
     res.json({
       success: true,
       data: records,
+      filtered: haveRange,
+      startDate: haveRange ? startDate : undefined,
+      endDate: haveRange ? endDate : undefined,
+      count: records.length,
     });
   } catch (error) {
     console.error("Error fetching DTRData list:", error);

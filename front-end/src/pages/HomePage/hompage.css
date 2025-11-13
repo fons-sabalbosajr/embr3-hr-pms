@@ -17,14 +17,23 @@
 
 /* Sidebar (Sider) */
 .sider {
-  position: fixed;
+  /* Freeze the sider while content scrolls */
+  position: sticky;
   top: 0;
-  left: 0;
   height: 100vh;
-  overflow-y: auto;
-  z-index: 1000;
   background: var(--app-sider-bg, #001529);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; /* internal menu will scroll */
 }
+
+/* Ensure sider internal wrapper is flex as well */
+.ant-layout-sider-children { display: flex; flex-direction: column; min-height: 0; }
+.ant-layout-sider-children > .ant-menu { flex: 1 1 auto; overflow-y: auto; min-height: 0; }
+/* Reserve space for bottom trigger to avoid being overlapped/cut */
+.ant-layout-sider-children > .ant-menu { padding-bottom: 48px; }
+.ant-layout-sider-trigger { margin-top: auto; position: sticky; bottom: 0; }
 
 /* Sider collapse/expand trigger at the bottom */
 .ant-layout-sider-trigger {
@@ -303,3 +312,73 @@
 .dtr-admin-modal .dtr-table-compact .ant-table-tbody > tr > td {
   padding: 4px 6px;
 }
+
+/* -------------------------------------------------- */
+/* Responsive Breakpoints                            */
+/* -------------------------------------------------- */
+/* Mobile First baseline (<= 480px) adjustments */
+@media (max-width: 480px) {
+  .header { padding: 0 12px; height: 56px; }
+  .logo-text { display: none; }
+  .content-wrapper { box-shadow: none; border-radius: 0; padding: 8px; }
+  .ant-layout-footer { font-size: 11px; }
+  .icon-trigger { font-size: 16px; }
+}
+
+/* Small Mobile to Tablet (481px - 767px) */
+@media (min-width: 481px) and (max-width: 767px) {
+  .header { padding: 0 16px; }
+  .content-wrapper { padding: 12px; }
+  .logo-text { font-size: 12px; }
+}
+
+/* Tablet (768px - 1080px) */
+@media (min-width: 768px) and (max-width: 1080px) {
+  .header { padding: 0 20px; }
+  .content-wrapper { padding: 16px; }
+  .logo-text { font-size: 11px; }
+  /* Tablet: reduce menu item font sizes for denser nav */
+  .ant-layout-sider .ant-menu-item,
+  .ant-layout-sider .ant-menu-submenu-title {
+    font-size: 12px;
+    line-height: 36px; /* keep vertical rhythm */
+  }
+  .ant-layout-sider .ant-menu-title-content { font-size: 12px; }
+  .ant-layout-sider .ant-menu-item .anticon,
+  .ant-layout-sider .ant-menu-submenu-title .anticon { font-size: 16px; }
+  /* Tablet: narrow the expanded sider width and its internal paddings */
+  .ant-layout-sider { width: 150px !important; max-width: 150px !important; flex: 0 0 150px !important; display:flex; flex-direction:column; }
+  .ant-layout-sider-collapsed { width: 80px !important; max-width: 80px !important; flex: 0 0 80px !important; }
+  .logo-container { padding: 12px; }
+  /* Tablet: smaller Import Biometrics button */
+  .animated-gradient-button { font-size: 12px; padding: 6px 12px; border-radius: 16px; }
+}
+/* Laptop / Desktop (> 1080px) */
+@media (min-width: 1081px) {
+  .header { padding: 0 24px; }
+  .content-wrapper { padding: 20px; }
+}
+
+/* Ensure menu takes remaining vertical space and trigger sits at bottom */
+.ant-layout-sider .ant-menu { flex: 1 1 auto; overflow-y: auto; }
+.ant-layout-sider-trigger { margin-top: auto; }
+
+/* Improve popover layout on very small screens */
+@media (max-width: 600px) {
+  .user-popover .ant-popover-inner { width: 180px; }
+  .popover-item { font-size: 12px; }
+}
+
+/* Optional: hide text in menu items on very narrow screens to save space */
+@media (max-width: 480px) {
+  .ant-layout-sider .ant-menu-item .ant-menu-title-content,
+  .ant-layout-sider .ant-menu-submenu-title .ant-menu-title-content { font-size: 0; }
+  .ant-layout-sider .ant-menu-item .anticon, .ant-layout-sider .ant-menu-submenu-title .anticon { font-size: 18px; }
+}
+
+/* Normalize fixes can go here if normalize.css not added yet */
+/* Example minimal reset to complement Ant Design */
+html { -webkit-text-size-adjust: 100%; }
+img { display: block; max-width: 100%; }
+button { cursor: pointer; }
+

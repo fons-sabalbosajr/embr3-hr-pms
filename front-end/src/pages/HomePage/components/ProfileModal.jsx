@@ -19,9 +19,14 @@ const ProfileModal = ({ open, onClose, user }) => {
       <div style={{ textAlign: "center", padding: "20px" }}>
         <Avatar
           size={100}
+          src={user?.avatarUrl || undefined}
           style={{ backgroundColor: "#1677ff", marginBottom: 15 }}
+          onError={(e) => {
+            try { e.currentTarget.src = ''; } catch(_) {}
+            return false;
+          }}
         >
-          {user?.name?.charAt(0).toUpperCase() || <UserOutlined />}
+          {!user?.avatarUrl && (user?.name?.charAt(0).toUpperCase() || <UserOutlined />)}
         </Avatar>
         <Typography.Title level={4} style={{ marginBottom: 0 }}>
           {user?.name || "Unknown User"}

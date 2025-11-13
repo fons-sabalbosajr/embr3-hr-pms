@@ -1,10 +1,17 @@
 // server/config/auth.js
+import { google } from "googleapis";
+import path from "path";
 import dotenv from "dotenv";
-import { buildDriveClient } from "../utils/googleAuth.js";
 
 dotenv.config();
 
+const keyFile = path.resolve(process.env.GOOGLE_SERVICE_ACCOUNT_KEY);
+
 export function getDriveClient() {
-  // Use more restrictive scope by default for uploads via this config
-  return buildDriveClient(["https://www.googleapis.com/auth/drive.file"]);
+  const auth = new google.auth.GoogleAuth({
+    keyFile,
+    scopes: ["https://www.googleapis.com/auth/drive.file"],
+  });
+
+  return google.drive({ version: "v3", auth });
 }

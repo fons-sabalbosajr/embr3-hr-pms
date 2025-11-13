@@ -128,7 +128,12 @@ const EmployeesPerSectionTable = ({
 
   const columns = [
     { title: "ID", dataIndex: "empId", key: "empId" },
-    { title: "Name", dataIndex: "name", key: "name" },
+    {
+      title: "Name",
+      dataIndex: "name",
+      key: "name",
+      render: (text) => text,
+    },
     { title: "Type", dataIndex: "empType", key: "empType" },
     { title: "Division", dataIndex: "division", key: "division" },
   ];
@@ -250,6 +255,7 @@ const EmployeesPerSectionTable = ({
           columns={columns}
           rowKey="empId"
           size="small"
+          className="section-employees-table"
           pagination={{ pageSize: 10 }}
         />
       </Modal>

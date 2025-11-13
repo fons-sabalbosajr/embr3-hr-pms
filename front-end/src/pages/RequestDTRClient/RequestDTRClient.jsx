@@ -1,5 +1,20 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Card, Typography, Button, Form, Input, DatePicker, message, Modal, Table, Space, Skeleton } from "antd";
+import {
+  Card,
+  Typography,
+  Button,
+  Form,
+  Input,
+  DatePicker,
+  message,
+  Modal,
+  Table,
+  Space,
+  Skeleton,
+  AutoComplete,
+  ConfigProvider,
+  theme,
+} from "antd";
 import { Link } from "react-router-dom";
 import { CalendarOutlined, FieldTimeOutlined } from "@ant-design/icons";
 import bgImage from "../../assets/bgemb.webp";
@@ -29,6 +44,62 @@ const RequestDTRClient = () => {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [cutoffs, setCutoffs] = useState([]);
   const [cutoffsLoading, setCutoffsLoading] = useState(true);
+  const [empOptions, setEmpOptions] = useState([]);
+  const [empSearching, setEmpSearching] = useState(false);
+  const empSearchRef = React.useRef();
+
+  const buildEmpIdVariants = (q) => {
+    const suggestions = new Set();
+    const raw = (q || "").trim();
+    if (!raw) return [];
+    if (raw.includes("-")) {
+      const [a, b = ""] = raw.split("-");
+      if (b && /^\d+$/.test(b) && b.length < 4) {
+        suggestions.add(`${a}-${b.padStart(4, "0")}`);
+      }
+      suggestions.add(raw.replace(/-/g, ""));
+    } else if (/^\d+$/.test(raw) && raw.length > 2) {
+      const a = raw.slice(0, 2);
+      const b = raw.slice(2);
+      suggestions.add(`${a}-${b.padStart(4, "0")}`);
+    }
+    return Array.from(suggestions).slice(0, 3);
+  };
+
+  const handleEmpSearch = (value) => {
+    if (empSearchRef.current) clearTimeout(empSearchRef.current);
+    if (!value || value.length < 2) {
+      setEmpOptions([]);
+      return;
+    }
+    empSearchRef.current = setTimeout(async () => {
+      try {
+        setEmpSearching(true);
+        const { data } = await axiosInstance.get(`/employees/search-emp-id`, {
+          params: { q: value },
+        });
+        const rows = data?.data || [];
+        if (rows.length > 0) {
+          setEmpOptions(
+            rows.map((r) => ({
+              value: r.empId,
+              label: `${r.empId} — ${r.name}`,
+            }))
+          );
+        } else {
+          const variants = buildEmpIdVariants(value);
+          setEmpOptions(
+            variants.map((v) => ({ value: v, label: `Try: ${v}` }))
+          );
+        }
+      } catch (_) {
+        const variants = buildEmpIdVariants(value);
+        setEmpOptions(variants.map((v) => ({ value: v, label: `Try: ${v}` })));
+      } finally {
+        setEmpSearching(false);
+      }
+    }, 250);
+  };
 
   // Load published DTR cut-offs (biometrics encoded coverage)
   useEffect(() => {
@@ -36,11 +107,11 @@ const RequestDTRClient = () => {
     const load = async () => {
       try {
         setCutoffsLoading(true);
-        const { data } = await axiosInstance.get('/dtrdatas');
+        const { data } = await axiosInstance.get("/dtrdatas");
         const list = data?.data || [];
         if (!mounted) return;
         // Sort by start descending for display
-        const sorted = [...list].sort((a,b) => {
+        const sorted = [...list].sort((a, b) => {
           const as = dayjs(a?.DTR_Cut_Off?.start);
           const bs = dayjs(b?.DTR_Cut_Off?.start);
           return bs.valueOf() - as.valueOf();
@@ -53,7 +124,9 @@ const RequestDTRClient = () => {
       }
     };
     load();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   const columns = useMemo(
@@ -409,201 +482,243 @@ const RequestDTRClient = () => {
     }
   };
 
-  
-
   return (
-    <div
-      className="request-dtr-container"
-      style={{
-        minHeight: "100vh",
-        backgroundImage: `linear-gradient(
-          135deg,
-          rgba(0, 75, 128, 0.85),
-          rgba(154, 205, 50, 0.85),
-          rgba(245, 216, 163, 0.85)
-        ), url(${bgImage})`,
-        backgroundSize: "cover",
-        backgroundPosition: "center",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: "2rem",
-      }}
+    <ConfigProvider
+      theme={{ inherit: false, algorithm: theme.defaultAlgorithm }}
     >
-      <Card className="auth-card request-dtr-card">
-        {/* Encoded Biometrics Announcement */}
-        <div className="cutoff-banner">
-          <div className="cutoff-banner__icon">
-            <FieldTimeOutlined />
-          </div>
-          <div className="cutoff-banner__content">
-            <div className="cutoff-banner__title">Encoded biometrics cut-offs</div>
-            <div className="cutoff-banner__desc">
-              {cutoffsLoading ? (
-                <span>Loading latest coverage…</span>
-              ) : cutoffs.length > 0 ? (
-                (() => {
-                  const r = cutoffs[0];
-                  const s = r?.DTR_Cut_Off?.start ? dayjs(r.DTR_Cut_Off.start) : null;
-                  const e = r?.DTR_Cut_Off?.end ? dayjs(r.DTR_Cut_Off.end) : null;
-                  const label = s && e
-                    ? (s.isSame(e, 'month')
-                      ? `${s.format('MMM D')}–${e.format('D, YYYY')}`
-                      : `${s.format('MMM D, YYYY')} – ${e.format('MMM D, YYYY')}`)
-                    : (r?.DTR_Record_Name || 'Cut-off');
-                  return (
-                    <span className="cutoff-recent">
-                      <CalendarOutlined />
-                      <span className="cutoff-recent__label">Recent Biometrics:</span>
-                      <strong>{label}</strong>
-                    </span>
-                  );
-                })()
-              ) : (
-                <span>No DTR cut-offs published yet. Your request will be queued once available.</span>
-              )}
+      <div
+        className="request-dtr-container theme-exempt"
+        style={{
+          minHeight: "100vh",
+          backgroundImage: `linear-gradient(
+            135deg,
+            rgba(0, 75, 128, 0.85),
+            rgba(154, 205, 50, 0.85),
+            rgba(245, 216, 163, 0.85)
+          ), url(${bgImage})`,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "2rem",
+        }}
+      >
+        <Card className="auth-card request-dtr-card">
+          {/* Encoded Biometrics Announcement */}
+          <div className="cutoff-banner">
+            <div className="cutoff-banner__icon">
+              <FieldTimeOutlined />
             </div>
-          </div>
-        </div>
-
-        <Title level={3} className="auth-title">
-          DTR Request
-        </Title>
-        <Text>
-    Please fill out the form below to request a copy of your DTR.
-        </Text>
-
-        <Form form={form} layout="vertical" onFinish={onFinish}>
-          <Form.Item label="Employee ID" name="employeeId" rules={[{ required: true, message: "Employee ID is required" }]}>
-            <Input placeholder="Enter your Employee ID" />
-          </Form.Item>
-
-          <Form.Item
-            label="Date Range"
-            name="dateRange"
-            rules={[{ required: true, message: "Please select a date range" }]}
-            className="responsive-range-picker-item"
-          >
-            <DatePicker.RangePicker
-              style={{ width: "100%" }}
-              getPopupContainer={(trigger) => trigger.parentNode}
-              popupClassName="mobile-friendly-range-picker"
-              placement="bottomLeft"
-            />
-          </Form.Item>
-
-          <Form.Item
-            label="Email Address"
-            name="email"
-            rules={[
-              { required: true, message: "Email is required" },
-              { type: "email", message: "Please enter a valid email address" },
-            ]}
-          >
-            <Input placeholder="Enter your email where DTR will be sent" />
-          </Form.Item>
-
-          <Form.Item>
-            <Button type="primary" htmlType="submit" block>
-              Submit Request
-            </Button>
-          </Form.Item>
-        </Form>
-
-        <Modal
-          title={
-            previewMeta?.employee
-              ? `DTR Preview - ${previewMeta.employee.name} (${previewMeta.employee.empId})`
-              : "DTR Preview"
-          }
-          open={previewOpen}
-          onCancel={() => setPreviewOpen(false)}
-          className="dtr-preview-modal"
-          footer={[
-            <Button key="close" onClick={() => setPreviewOpen(false)}>
-              Close
-            </Button>,
-            <Button
-              key="download"
-              type="primary"
-              disabled={previewLoading}
-              onClick={async () => {
-                try {
-                  const { employee, startDate, endDate, selectedRecord } =
-                    previewMeta || {};
-                  // Reconstruct dtrLogs map for PDF util from previewRows
-                  const map = {};
-                  previewRows.forEach((r) => {
-                    const k = dayjs(r.date, "MM/DD/YYYY").format("YYYY-MM-DD");
-                    map[k] = {
-                      "Time In": r.timeIn !== "---" ? r.timeIn : undefined,
-                      "Break Out":
-                        r.breakOut !== "---" ? r.breakOut : undefined,
-                      "Break In": r.breakIn !== "---" ? r.breakIn : undefined,
-                      "Time Out": r.timeOut !== "---" ? r.timeOut : undefined,
-                    };
-                  });
-                  const dtrLogsForPdf = { [employee.empId]: map };
-                  await generateDTRPdf({
-                    employee,
-                    dtrLogs: dtrLogsForPdf,
-                    selectedRecord,
-                  });
-                  // Log generation and notify (best-effort)
-                  try {
-                    await axiosInstance.post("/dtr/log-generation", {
-                      employeeId: employee.empId,
-                      period: `${startDate.format(
-                        "YYYY-MM-DD"
-                      )} to ${endDate.format("YYYY-MM-DD")}`,
-                      generatedBy: form.getFieldValue("email"),
-                    });
-                  } catch (_) {}
-                  message.success("DTR generated successfully!");
-                } catch (e) {
-                  message.error("Failed to generate DTR PDF");
-                }
-              }}
-            >
-              Download PDF
-            </Button>,
-          ]}
-          width={640}
-        >
-          {previewLoading ? (
-            <div style={{ padding: 16 }}>
-              <Skeleton active paragraph={{ rows: 6 }} />
-            </div>
-          ) : (
-            <Space direction="vertical" style={{ width: "100%" }}>
-              <div>
-                <strong>Period: </strong>
-                {previewMeta.startDate && previewMeta.endDate
-                  ? `${previewMeta.startDate.format(
-                      "MM/DD/YYYY"
-                    )} - ${previewMeta.endDate.format("MM/DD/YYYY")}`
-                  : ""}
+            <div className="cutoff-banner__content">
+              <div className="cutoff-banner__title">
+                Encoded biometrics cut-offs
               </div>
-              <Table
-                size="small"
-                className="dtr-table-compact"
-                columns={columns}
-                dataSource={previewRows}
-                pagination={false}
-                bordered
-                style={{ fontSize: 10 }}
-              />
-            </Space>
-          )}
-        </Modal>
+              <div className="cutoff-banner__desc">
+                {cutoffsLoading ? (
+                  <span>Loading latest coverage…</span>
+                ) : cutoffs.length > 0 ? (
+                  (() => {
+                    const r = cutoffs[0];
+                    const s = r?.DTR_Cut_Off?.start
+                      ? dayjs(r.DTR_Cut_Off.start)
+                      : null;
+                    const e = r?.DTR_Cut_Off?.end
+                      ? dayjs(r.DTR_Cut_Off.end)
+                      : null;
+                    const label =
+                      s && e
+                        ? s.isSame(e, "month")
+                          ? `${s.format("MMM D")}–${e.format("D, YYYY")}`
+                          : `${s.format("MMM D, YYYY")} – ${e.format(
+                              "MMM D, YYYY"
+                            )}`
+                        : r?.DTR_Record_Name || "Cut-off";
+                    return (
+                      <span className="cutoff-recent">
+                        <CalendarOutlined />
+                        <span className="cutoff-recent__label">
+                          Recent Biometrics:
+                        </span>
+                        <strong>{label}</strong>
+                      </span>
+                    );
+                  })()
+                ) : (
+                  <span>
+                    No DTR cut-offs published yet. Your request will be queued
+                    once available.
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
 
-        <div style={{ textAlign: "center", marginTop: "1rem" }}>
-          <Link to="/requests">
-            <Button type="link">⬅ Back to Requests</Button>
-          </Link>
-        </div>
-      </Card>
-    </div>
+          <Title level={3} className="auth-title">
+            DTR Request
+          </Title>
+          <Text>
+            Please fill out the form below to request a copy of your DTR.
+          </Text>
+
+          <Form form={form} layout="vertical" onFinish={onFinish}>
+            <Form.Item
+              label="Employee ID"
+              name="employeeId"
+              rules={[{ required: true, message: "Employee ID is required" }]}
+            >
+              <AutoComplete
+                options={empOptions}
+                onSearch={handleEmpSearch}
+                placeholder="Enter your Employee ID (e.g. 03-0946)"
+                allowClear
+                notFoundContent={empSearching ? "Searching…" : "No matches"}
+                filterOption={false}
+                getPopupContainer={(trigger) => trigger.parentNode}
+              />
+            </Form.Item>
+
+            <Form.Item
+              label="Date Range"
+              name="dateRange"
+              rules={[
+                { required: true, message: "Please select a date range" },
+              ]}
+              className="responsive-range-picker-item"
+            >
+              <DatePicker.RangePicker
+                style={{ width: "100%" }}
+                placeholder={["Start date", "End date"]}
+                getPopupContainer={(trigger) => trigger.parentNode}
+                popupClassName="mobile-friendly-range-picker"
+                placement="bottomLeft"
+                inputReadOnly
+              />
+            </Form.Item>
+
+            <Form.Item
+              label="Email Address"
+              name="email"
+              rules={[
+                { required: true, message: "Email is required" },
+                {
+                  type: "email",
+                  message: "Please enter a valid email address",
+                },
+              ]}
+            >
+              <Input placeholder="Enter your email where DTR will be sent" />
+            </Form.Item>
+
+            <Form.Item>
+              <Button
+                type="primary"
+                htmlType="submit"
+                block
+                className="fixed-primary-btn"
+              >
+                Submit Request
+              </Button>
+            </Form.Item>
+          </Form>
+
+          <Modal
+            title={
+              previewMeta?.employee
+                ? `DTR Preview - ${previewMeta.employee.name} (${previewMeta.employee.empId})`
+                : "DTR Preview"
+            }
+            open={previewOpen}
+            onCancel={() => setPreviewOpen(false)}
+            className="dtr-preview-modal"
+            footer={[
+              <Button key="close" onClick={() => setPreviewOpen(false)}>
+                Close
+              </Button>,
+              <Button
+                key="download"
+                type="primary"
+                disabled={previewLoading}
+                onClick={async () => {
+                  try {
+                    const { employee, startDate, endDate, selectedRecord } =
+                      previewMeta || {};
+                    // Reconstruct dtrLogs map for PDF util from previewRows
+                    const map = {};
+                    previewRows.forEach((r) => {
+                      const k = dayjs(r.date, "MM/DD/YYYY").format(
+                        "YYYY-MM-DD"
+                      );
+                      map[k] = {
+                        "Time In": r.timeIn !== "---" ? r.timeIn : undefined,
+                        "Break Out":
+                          r.breakOut !== "---" ? r.breakOut : undefined,
+                        "Break In": r.breakIn !== "---" ? r.breakIn : undefined,
+                        "Time Out": r.timeOut !== "---" ? r.timeOut : undefined,
+                      };
+                    });
+                    const dtrLogsForPdf = { [employee.empId]: map };
+                    await generateDTRPdf({
+                      employee,
+                      dtrLogs: dtrLogsForPdf,
+                      selectedRecord,
+                    });
+                    // Log generation and notify (best-effort)
+                    try {
+                      await axiosInstance.post("/dtr/log-generation", {
+                        employeeId: employee.empId,
+                        period: `${startDate.format(
+                          "YYYY-MM-DD"
+                        )} to ${endDate.format("YYYY-MM-DD")}`,
+                        generatedBy: form.getFieldValue("email"),
+                      });
+                    } catch (_) {}
+                    message.success("DTR generated successfully!");
+                  } catch (e) {
+                    message.error("Failed to generate DTR PDF");
+                  }
+                }}
+              >
+                Download PDF
+              </Button>,
+            ]}
+            width={640}
+          >
+            {previewLoading ? (
+              <div style={{ padding: 16 }}>
+                <Skeleton active paragraph={{ rows: 6 }} />
+              </div>
+            ) : (
+              <Space direction="vertical" style={{ width: "100%" }}>
+                <div>
+                  <strong>Period: </strong>
+                  {previewMeta.startDate && previewMeta.endDate
+                    ? `${previewMeta.startDate.format(
+                        "MM/DD/YYYY"
+                      )} - ${previewMeta.endDate.format("MM/DD/YYYY")}`
+                    : ""}
+                </div>
+                <Table
+                  size="small"
+                  className="dtr-table-compact"
+                  columns={columns}
+                  dataSource={previewRows}
+                  pagination={false}
+                  bordered
+                  style={{ fontSize: 10 }}
+                />
+              </Space>
+            )}
+          </Modal>
+
+          <div style={{ textAlign: "center", marginTop: "1rem" }}>
+            <Link to="/requests">
+              <Button type="link">⬅ Back to Requests</Button>
+            </Link>
+          </div>
+        </Card>
+      </div>
+    </ConfigProvider>
   );
 };
 

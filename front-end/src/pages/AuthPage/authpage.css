@@ -55,6 +55,32 @@
   margin-top: 10px;
 }
 
+/* Unified fixed primary button styling (theme-independent) */
+.auth-card .fixed-primary-btn.ant-btn-primary {
+  background: linear-gradient(135deg, #005b99, #1677ff) !important;
+  border-color: #0a6dd8 !important;
+  color: #fff !important;
+  font-weight: 600;
+  box-shadow: 0 2px 6px rgba(0, 91, 153, 0.35);
+  transition: background 0.25s, box-shadow 0.25s;
+}
+.auth-card .fixed-primary-btn.ant-btn-primary:hover,
+.auth-card .fixed-primary-btn.ant-btn-primary:focus {
+  background: linear-gradient(135deg, #1677ff, #4098ff) !important;
+  border-color: #1677ff !important;
+  box-shadow: 0 3px 8px rgba(0, 91, 153, 0.45);
+}
+.auth-card .fixed-primary-btn.ant-btn-primary:active {
+  background: linear-gradient(135deg, #004b80, #0a6dd8) !important;
+  border-color: #004b80 !important;
+}
+.auth-card .fixed-primary-btn.ant-btn-primary[disabled] {
+  background: #b3d4f8 !important;
+  border-color: #b3d4f8 !important;
+  color: #ffffff !important;
+  box-shadow: none !important;
+}
+
 @media (max-width: 500px) {
   .auth-card {
     width: 100%;

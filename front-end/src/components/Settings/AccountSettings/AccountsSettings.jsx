@@ -9,20 +9,36 @@ import {
   Radio,
   Segmented,
   Space,
-  notification,
   Spin,
   Typography,
+  Modal,
+  Upload,
+  Avatar,
+  Slider,
 } from "antd";
 import axiosInstance from "../../../api/axiosInstance";
 import { useTheme } from "../../../context/ThemeContext";
 import "./accountsettings.css";
 import useAuth from "../../../hooks/useAuth";
 import useDemoMode from "../../../hooks/useDemoMode";
+import { UploadOutlined, UserOutlined, ZoomInOutlined, ZoomOutOutlined } from "@ant-design/icons";
+import Cropper from 'react-easy-crop';
+import useNotify from '../../../hooks/useNotify';
 
 const { Title } = Typography;
 
 const AccountsSettings = () => {
+  const { notification } = useNotify();
   const [loading, setLoading] = useState(false);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [pwdModalOpen, setPwdModalOpen] = useState(false);
+  const [pendingNewPassword, setPendingNewPassword] = useState("");
+  const [confirmToken, setConfirmToken] = useState("");
+  const [cropModalOpen, setCropModalOpen] = useState(false);
+  const [imageSrc, setImageSrc] = useState(null);
+  const [crop, setCrop] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
+  const [croppedAreaPixels, setCroppedAreaPixels] = useState(null);
   const [profileForm] = Form.useForm();
   const [passwordForm] = Form.useForm();
   const { user, updateCurrentUser } = useAuth();
@@ -38,6 +54,7 @@ const AccountsSettings = () => {
   const handleProfileUpdate = async (values) => {
     setLoading(true);
     try {
+      // Back end mounts auth routes at /api/users; both /profile and /users/profile are available
       const res = await axiosInstance.put("/users/profile", values);
       updateCurrentUser({ ...user, ...res.data });
       notification.success({ message: "Profile updated successfully!" });
@@ -53,18 +70,115 @@ const AccountsSettings = () => {
       notification.error({ message: "New passwords do not match!" });
       return;
     }
+    // Step 1: request email verification
     setLoading(true);
     try {
-      await axiosInstance.put("/users/change-password", {
+      await axiosInstance.post("/users/request-password-change", {
         oldPassword: values.oldPassword,
         newPassword: values.newPassword,
       });
+      setPendingNewPassword(values.newPassword);
+      setPwdModalOpen(true);
+      notification.info({ message: "Verification email sent. Please check your inbox." });
+    } catch (error) {
+      notification.error({ message: error.response?.data?.message || "Failed to start password change." });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const submitPasswordConfirm = async () => {
+    if (!confirmToken) {
+      notification.error({ message: "Please paste the verification token from your email." });
+      return;
+    }
+    setLoading(true);
+    try {
+      await axiosInstance.post("/users/confirm-password-change", {
+        token: confirmToken,
+        newPassword: pendingNewPassword,
+      });
       notification.success({ message: "Password changed successfully!" });
+      setPwdModalOpen(false);
+      setConfirmToken("");
+      setPendingNewPassword("");
       passwordForm.resetFields();
     } catch (error) {
       notification.error({ message: error.response?.data?.message || "Failed to change password." });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const beforeUpload = (file) => {
+    const isImage = file.type.startsWith("image/");
+    const isLt5M = file.size / 1024 / 1024 < 5;
+    if (!isImage) notification.error({ message: "You can only upload image files" });
+    if (!isLt5M) notification.error({ message: "Image must be smaller than 5MB" });
+    if (!(isImage && isLt5M)) return Upload.LIST_IGNORE;
+    // Open cropper
+    const reader = new FileReader();
+    reader.onload = () => {
+      setImageSrc(reader.result);
+      setCropModalOpen(true);
+    };
+    reader.readAsDataURL(file);
+    return false; // prevent auto upload
+  };
+
+  const getCroppedBlob = (image, cropPixels) => new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const size = Math.max(cropPixels.width, cropPixels.height);
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = 'transparent';
+      ctx.fillRect(0, 0, size, size);
+      ctx.drawImage(
+        img,
+        cropPixels.x,
+        cropPixels.y,
+        cropPixels.width,
+        cropPixels.height,
+        0,
+        0,
+        size,
+        size
+      );
+      canvas.toBlob((blob) => {
+        if (!blob) return reject(new Error('Canvas is empty'));
+        resolve(blob);
+      }, 'image/png');
+    };
+    img.onerror = reject;
+    img.src = image;
+  });
+
+  const onCropComplete = (_, croppedPixels) => setCroppedAreaPixels(croppedPixels);
+
+  const uploadCropped = async () => {
+    if (!imageSrc || !croppedAreaPixels) return;
+    setAvatarUploading(true);
+    try {
+      const blob = await getCroppedBlob(imageSrc, croppedAreaPixels);
+      const formData = new FormData();
+      formData.append('avatar', new File([blob], 'avatar.png', { type: 'image/png' }));
+      const res = await axiosInstance.post('/users/avatar', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+      const avatarUrl = res.data?.avatarUrl;
+      if (avatarUrl) {
+        // Cache-bust by appending version param (timestamp or extracted version)
+        const cacheBusted = `${avatarUrl}${avatarUrl.includes('?') ? '&' : '?'}v=${Date.now()}`;
+        updateCurrentUser({ ...user, avatarUrl: cacheBusted });
+        notification.success({ message: 'Avatar updated.' });
+      }
+      setCropModalOpen(false);
+      setImageSrc(null);
+    } catch (e) {
+      notification.error({ message: e.response?.data?.message || 'Failed to upload avatar.' });
+    } finally {
+      setAvatarUploading(false);
     }
   };
 
@@ -104,8 +218,32 @@ const AccountsSettings = () => {
       <Row gutter={[16, 16]}>
         {/* Profile Information Card */}
         <Col xs={24} md={isDemoActive && isDemoUser ? 24 : 12}>
-          <Card title="Profile Information">
-            <Form form={profileForm} layout="vertical" onFinish={handleProfileUpdate}>
+          <Card title="Profile Information" className="account-settings-panel corp-panel compact-table">
+            <Space align="start" size={16} style={{ width: '100%', marginBottom: 8 }}>
+              <Avatar
+                size={64}
+                src={user?.avatarUrl}
+                icon={<UserOutlined />}
+                style={{ cursor: 'pointer' }}
+                onClick={() => {
+                  if (user?.avatarUrl) {
+                    // Force reload if browser cached aggressively
+                    updateCurrentUser({ ...user, avatarUrl: `${user.avatarUrl.split('?')[0]}?v=${Date.now()}` });
+                  }
+                }}
+              />
+              <Upload
+                accept="image/*"
+                showUploadList={false}
+                beforeUpload={beforeUpload}
+                disabled={avatarUploading || (isDemoActive && isDemoUser)}
+              >
+                <Button size="small" icon={<UploadOutlined />} loading={avatarUploading} disabled={isDemoActive && isDemoUser}>
+                  Change Avatar
+                </Button>
+              </Upload>
+            </Space>
+            <Form form={profileForm} layout="vertical" size="small" onFinish={handleProfileUpdate}>
               <Form.Item name="name" label="Full Name" rules={[{ required: true }]}>
                 <Input />
               </Form.Item>
@@ -113,7 +251,7 @@ const AccountsSettings = () => {
                 <Input />
               </Form.Item>
               <Form.Item>
-                <Button type="primary" htmlType="submit">
+                <Button type="primary" htmlType="submit" size="small" disabled={isDemoActive && isDemoUser}>
                   Update Profile
                 </Button>
               </Form.Item>
@@ -124,8 +262,8 @@ const AccountsSettings = () => {
         {/* Change Password Card (hidden in demo mode) */}
         {!(isDemoActive && isDemoUser) && (
           <Col xs={24} md={12}>
-            <Card title="Change Password">
-              <Form form={passwordForm} layout="vertical" onFinish={handlePasswordChange}>
+            <Card title="Change Password" className="account-settings-panel corp-panel compact-table">
+              <Form form={passwordForm} layout="vertical" size="small" onFinish={handlePasswordChange}>
                 <Form.Item name="oldPassword" label="Old Password" rules={[{ required: true }]}>
                   <Input.Password />
                 </Form.Item>
@@ -136,7 +274,7 @@ const AccountsSettings = () => {
                   <Input.Password />
                 </Form.Item>
                 <Form.Item>
-                  <Button type="primary" htmlType="submit">
+                  <Button type="primary" htmlType="submit" size="small">
                     Change Password
                   </Button>
                 </Form.Item>
@@ -147,10 +285,10 @@ const AccountsSettings = () => {
 
         {/* Theme Preferences (User-level, fixed presets) */}
         <Col xs={24}>
-          <Card title="Theme Preferences" className="theme-preferences-card">
+          <Card title="Theme Preferences" className="theme-preferences-card account-settings-panel corp-panel compact-table">
             <Row gutter={[16, 16]}>
               <Col xs={24} md={12}>
-                <Form layout="vertical">
+                <Form layout="vertical" size="small">
                   <Form.Item label="Mode">
                     <Segmented
                       block
@@ -198,16 +336,16 @@ const AccountsSettings = () => {
                 </Form>
               </Col>
               <Col xs={24} md={12}>
-                <Card size="small" title="Preview" className="theme-preview-card">
+                <Card size="small" title="Preview" className="theme-preview-card corp-panel compact-table">
                   <Space direction="vertical">
                     <Space>
-                      <Button type="primary">Primary</Button>
-                      <Button type="default">Default</Button>
-                      <Button type="dashed">Dashed</Button>
+                      <Button type="primary" size="small">Primary</Button>
+                      <Button type="default" size="small">Default</Button>
+                      <Button type="dashed" size="small">Dashed</Button>
                     </Space>
                     <Space>
                       <a>Link</a>
-                      <Button type="link">Link Button</Button>
+                      <Button type="link" size="small">Link Button</Button>
                     </Space>
                   </Space>
                 </Card>
@@ -216,6 +354,81 @@ const AccountsSettings = () => {
           </Card>
         </Col>
       </Row>
+
+      <Modal
+        title="Confirm Password Change"
+        open={pwdModalOpen}
+        onOk={submitPasswordConfirm}
+        onCancel={() => setPwdModalOpen(false)}
+        okText="Confirm"
+        cancelText="Cancel"
+      >
+        <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
+          We sent a verification link to your email. Paste the token from the URL here to confirm.
+        </Typography.Paragraph>
+        <Input
+          placeholder="Paste verification token"
+          value={confirmToken}
+          onChange={(e) => setConfirmToken(e.target.value)}
+        />
+      </Modal>
+
+      <Modal
+        title="Crop Avatar"
+        open={cropModalOpen}
+        onOk={uploadCropped}
+        okButtonProps={{ loading: avatarUploading }}
+        onCancel={() => setCropModalOpen(false)}
+        width={560}
+      >
+        <div style={{ position: 'relative', width: '100%', height: 320, background: '#000', borderRadius: 4, overflow: 'hidden' }}>
+          {imageSrc && (
+            <Cropper
+              image={imageSrc}
+              crop={crop}
+              zoom={zoom}
+              aspect={1}
+              cropShape="round"
+              onCropChange={setCrop}
+              onZoomChange={setZoom}
+              onCropComplete={onCropComplete}
+              showGrid={false}
+              minZoom={0.5}
+              maxZoom={3}
+              zoomSpeed={0.1}
+              zoomWithScroll={true}
+              restrictPosition={true}
+            />
+          )}
+        </div>
+        <div style={{ marginTop: 12 }}>
+          <Space align="center" style={{ width: '100%' }}>
+            <Button
+              size="small"
+              icon={<ZoomOutOutlined />}
+              onClick={() => setZoom((z) => Math.max(0.5, +(z - 0.1).toFixed(2)))}
+              disabled={zoom <= 0.5}
+            />
+            <div style={{ flex: 1, paddingLeft: 8, paddingRight: 8 }}>
+              <Slider
+                min={0.5}
+                max={3}
+                step={0.01}
+                value={zoom}
+                onChange={(val) => setZoom(Array.isArray(val) ? val[0] : val)}
+                tooltip={{ open: false }}
+              />
+            </div>
+            <Button
+              size="small"
+              icon={<ZoomInOutlined />}
+              onClick={() => setZoom((z) => Math.min(3, +(z + 0.1).toFixed(2)))}
+              disabled={zoom >= 3}
+            />
+            <span style={{ minWidth: 48, textAlign: 'right', fontSize: 12 }}>{(zoom * 100).toFixed(0)}%</span>
+          </Space>
+        </div>
+      </Modal>
     </Spin>
   );
 };

@@ -32,6 +32,7 @@ const RecentAttendanceTable = ({
   error,
   setPresentCount,
   setLastAttendanceDate,
+  attendanceRows, // optional pre-built multi-day rows
 }) => {
   const [searchKeyword, setSearchKeyword] = useState("");
   const [empTypeFilter, setEmpTypeFilter] = useState("");
@@ -39,114 +40,352 @@ const RecentAttendanceTable = ({
   const [pageSize, setPageSize] = useState(5);
 
   useEffect(() => {
+    // When multi-day rows provided, compute PRESENT as distinct employees with a Time In across either of the last two dates.
+    // Fallback to previous single-day logic when only one date exists or no multi-day rows yet.
+    if (attendanceRows && attendanceRows.length) {
+      const uniqueDates = Array.from(new Set(
+        attendanceRows.map(r => r.attendance?.date).filter(Boolean)
+      )).sort(); // ascending chronological
+
+      if (uniqueDates.length >= 2) {
+        const lastTwo = uniqueDates.slice(-2); // [older, newer]
+        const presentEmpSet = new Set();
+        attendanceRows.forEach(r => {
+          const d = r.attendance?.date;
+            if (d && lastTwo.includes(d) && r.attendance?.timeIn) {
+              const key = r.empId || r.empNo || r._id;
+              presentEmpSet.add(key);
+            }
+        });
+        setPresentCount(presentEmpSet.size);
+        // Keep the latest date for backward compatibility / fallback displays
+        setLastAttendanceDate(lastTwo[1]);
+        return;
+      } else if (uniqueDates.length === 1) {
+        const onlyDate = uniqueDates[0];
+        const count = attendanceRows.filter(r => r.attendance?.date === onlyDate && r.attendance?.timeIn).length;
+        setPresentCount(count);
+        setLastAttendanceDate(onlyDate);
+        return;
+      }
+    }
     if (employees && employees.length > 0) {
       const present = employees.filter(
         (emp) => emp.attendance && emp.attendance.timeIn
       ).length;
       setPresentCount(present);
-
       const dates = employees
         .map((emp) => emp.attendance && emp.attendance.date)
         .filter(Boolean);
       if (dates.length > 0) {
-        // Assuming dates are in a format that can be sorted, e.g., MM/DD/YYYY
         dates.sort((a, b) => new Date(b) - new Date(a));
         setLastAttendanceDate(dates[0]);
       }
     }
-  }, [employees, setPresentCount, setLastAttendanceDate]);
+  }, [employees, attendanceRows, setPresentCount, setLastAttendanceDate]);
 
-  const columns = [
-    {
-      title: "Employee",
-      dataIndex: "name",
-      key: "name",
-      render: (text, record) => (
-        <div style={{ display: "flex", alignItems: "center" }}>
-          {/* <Avatar icon={<UserOutlined />} style={{ marginRight: 8 }} /> */}
-          <div>
-            <Text strong>{text}</Text>
-            <br />
-            <Text type="secondary" style={{ fontSize: "12px" }}>
-              ID: {record.empId} | Emp No: {record.empNo}
+  const isTablet =
+    typeof window !== "undefined" &&
+    window.innerWidth >= 768 &&
+    window.innerWidth <= 1080;
+
+  // When multi-day rows are provided, merge last two dates into a single row per employee
+  let columns;
+  let tableData;
+
+  if (attendanceRows && attendanceRows.length) {
+    const allDates = Array.from(
+      new Set(attendanceRows.map((r) => r.attendance?.date).filter(Boolean))
+    ).sort();
+    const twoDates = allDates.slice(-2); // last two
+    const [d1, d2] = twoDates;
+
+    // Group by employee
+    const byEmp = new Map();
+    attendanceRows.forEach((r) => {
+      const key = r.empId || r.empNo || r._id;
+      if (!byEmp.has(key)) {
+        byEmp.set(key, {
+          ...r,
+          d1: {
+            date: d1,
+            timeIn: null,
+            breakOut: null,
+            breakIn: null,
+            timeOut: null,
+          },
+          d2: {
+            date: d2,
+            timeIn: null,
+            breakOut: null,
+            breakIn: null,
+            timeOut: null,
+          },
+        });
+      }
+      const row = byEmp.get(key);
+      if (r.attendance?.date === d1) row.d1 = { ...row.d1, ...r.attendance };
+      if (r.attendance?.date === d2) row.d2 = { ...row.d2, ...r.attendance };
+    });
+
+    // Remove employees with no records across both days
+    const merged = Array.from(byEmp.values()).filter((r) => {
+      const hasAny = !!(
+        r.d1.timeIn ||
+        r.d1.breakOut ||
+        r.d1.breakIn ||
+        r.d1.timeOut ||
+        r.d2.timeIn ||
+        r.d2.breakOut ||
+        r.d2.breakIn ||
+        r.d2.timeOut
+      );
+      return hasAny;
+    });
+
+    tableData = merged;
+
+    const dayGroup = (label, keyPrefix) => ({
+      title: (
+        <div className="table-header-with-icon">
+          <CalendarOutlined className="table-header-icon" /> {label}
+        </div>
+      ),
+      dataIndex: keyPrefix,
+      key: keyPrefix + "Combined",
+      width: 200,
+      render: (day) => {
+        if (!day) return "";
+        const { timeIn, breakOut, breakIn, timeOut } = day;
+        const cellStyle = {
+          fontSize: isTablet ? 10 : 11,
+          lineHeight: 1.2,
+        };
+        return (
+          <div style={cellStyle}>
+            {timeIn && (
+              <div>
+                <strong>IN:</strong> {timeIn}
+              </div>
+            )}
+            {breakOut && (
+              <div>
+                <strong>BO:</strong> {breakOut}
+              </div>
+            )}
+            {breakIn && (
+              <div>
+                <strong>BI:</strong> {breakIn}
+              </div>
+            )}
+            {timeOut && (
+              <div>
+                <strong>OUT:</strong> {timeOut}
+              </div>
+            )}
+            {!timeIn && !breakOut && !breakIn && !timeOut && (
+              <div style={{ opacity: 0.6 }}>No Records</div>
+            )}
+          </div>
+        );
+      },
+    });
+
+    columns = [
+      {
+        title: "Employee",
+        dataIndex: "name",
+        key: "name",
+        fixed: "left",
+        width: 110, // reduced for horizontal space
+        ellipsis: true,
+        render: (text, record) => (
+          <div
+            style={{
+              fontSize: isTablet ? 11 : 12,
+              lineHeight: 1.15,
+              display: "flex",
+              flexDirection: "column",
+              overflow: 'hidden'
+            }}
+            title={`${text}\n${record.empId || ''}${record.empNo ? ` / ${record.empNo}` : ''}`}
+          >
+            <Text strong style={{ fontSize: isTablet ? 11 : 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {text}
+            </Text>
+            <Text type="secondary" style={{ fontSize: isTablet ? 9 : 10, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {record.empId || ''}{record.empNo ? ` / ${record.empNo}` : ''}
             </Text>
           </div>
-        </div>
-      ),
-    },
-    {
-      title: "Type",
-      dataIndex: "empType",
-      key: "empType",
-      width: 150,
-      render: (type) => (
-        <Tag color={type === "Regular" ? "green" : "orange"}>{type}</Tag>
-      ),
-    },
-    {
-      title: (
-        <div className="table-header-with-icon">
-          <CalendarOutlined className="table-header-icon" /> Date
-        </div>
-      ),
-      dataIndex: ["attendance", "date"],
-      key: "date",
-      width: 120,
-      render: (date) => date || "",
-    },
-    {
-      title: (
-        <div className="table-header-with-icon">
-          <LoginOutlined className="table-header-icon" /> Time In
-        </div>
-      ),
-      dataIndex: ["attendance", "timeIn"],
-      key: "timeIn",
-      width: 100,
-      render: (timeIn) => timeIn || "",
-    },
-    {
-      title: (
-        <div className="table-header-with-icon">
-          <LogoutOutlined className="table-header-icon" /> Break Out
-        </div>
-      ),
-      dataIndex: ["attendance", "breakOut"],
-      key: "breakOut",
-      width: 100,
-      render: (breakOut) => breakOut || "",
-    },
-    {
-      title: (
-        <div className="table-header-with-icon">
-          <PlayCircleOutlined className="table-header-icon" /> Break In
-        </div>
-      ),
-      dataIndex: ["attendance", "breakIn"],
-      key: "breakIn",
-      width: 100,
-      render: (breakIn) => breakIn || "",
-    },
-    {
-      title: (
-        <div className="table-header-with-icon">
-          <LogoutOutlined className="table-header-icon" /> Time Out
-        </div>
-      ),
-      dataIndex: ["attendance", "timeOut"],
-      key: "timeOut",
-      width: 100,
-      render: (timeOut) => timeOut || "",
-    },
-  ];
+        ),
+      },
+      {
+        title: "Type",
+        dataIndex: "empType",
+        key: "empType",
+        width: 120,
+        render: (type) => (
+          <Tag
+            color={type === "Regular" ? "green" : "orange"}
+            style={{ fontSize: isTablet ? 11 : undefined }}
+          >
+            {type}
+          </Tag>
+        ),
+      },
+      { ...dayGroup(d1 || "Day 1", "d1"), width: 220 },
+      { ...dayGroup(d2 || "Day 2", "d2"), width: 220 },
+    ];
+  } else {
+    // Single-day default columns
+    columns = [
+      {
+        title: "Employee",
+        dataIndex: "name",
+        key: "name",
+        width: 110,
+        ellipsis: true,
+        render: (text, record) => (
+          <div
+            style={{
+              fontSize: isTablet ? 11 : 12,
+              lineHeight: 1.15,
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden'
+            }}
+            title={`${text}\n${record.empId || ''}${record.empNo ? ` / ${record.empNo}` : ''}`}
+          >
+            <Text strong style={{ fontSize: isTablet ? 11 : 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{text}</Text>
+            <Text type="secondary" style={{ fontSize: isTablet ? 9 : 10, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {record.empId || ''}{record.empNo ? ` / ${record.empNo}` : ''}
+            </Text>
+          </div>
+        ),
+      },
+      {
+        title: "Type",
+        dataIndex: "empType",
+        key: "empType",
+        width: 150,
+        render: (type) => (
+          <Tag
+            color={type === "Regular" ? "green" : "orange"}
+            style={{ fontSize: isTablet ? 11 : undefined }}
+          >
+            {type}
+          </Tag>
+        ),
+      },
+      {
+        title: (
+          <div className="table-header-with-icon">
+            <CalendarOutlined className="table-header-icon" /> Date
+          </div>
+        ),
+        dataIndex: ["attendance", "date"],
+        key: "date",
+        width: 120,
+        render: (date) => (
+          <span style={{ fontSize: isTablet ? 12 : undefined }}>
+            {date || ""}
+          </span>
+        ),
+      },
+      {
+        title: (
+          <div className="table-header-with-icon">
+            <LoginOutlined className="table-header-icon" /> Time In
+          </div>
+        ),
+        dataIndex: ["attendance", "timeIn"],
+        key: "timeIn",
+        width: 100,
+        render: (timeIn) => (
+          <span style={{ fontSize: isTablet ? 12 : undefined }}>
+            {timeIn || ""}
+          </span>
+        ),
+      },
+      {
+        title: (
+          <div className="table-header-with-icon">
+            <LogoutOutlined className="table-header-icon" /> Break Out
+          </div>
+        ),
+        dataIndex: ["attendance", "breakOut"],
+        key: "breakOut",
+        width: 100,
+        render: (breakOut) => (
+          <span style={{ fontSize: isTablet ? 12 : undefined }}>
+            {breakOut || ""}
+          </span>
+        ),
+      },
+      {
+        title: (
+          <div className="table-header-with-icon">
+            <PlayCircleOutlined className="table-header-icon" /> Break In
+          </div>
+        ),
+        dataIndex: ["attendance", "breakIn"],
+        key: "breakIn",
+        width: 100,
+        render: (breakIn) => (
+          <span style={{ fontSize: isTablet ? 12 : undefined }}>
+            {breakIn || ""}
+          </span>
+        ),
+      },
+      {
+        title: (
+          <div className="table-header-with-icon">
+            <LogoutOutlined className="table-header-icon" /> Time Out
+          </div>
+        ),
+        dataIndex: ["attendance", "timeOut"],
+        key: "timeOut",
+        width: 100,
+        render: (timeOut) => (
+          <span style={{ fontSize: isTablet ? 12 : undefined }}>
+            {timeOut || ""}
+          </span>
+        ),
+      },
+    ];
 
-  const employeesWithTimeRecords = employees.filter(
-    (employee) => employee.attendance && employee.attendance.date
-  );
+    tableData = undefined; // will use baseRows below
+  }
 
-  const empTypes = [...new Set(employeesWithTimeRecords.map((e) => e.empType))];
+  let baseRows;
+  if (attendanceRows && attendanceRows.length) {
+    // Use provided rows (already normalized)
+    baseRows = (tableData || attendanceRows).filter(
+      (r) => (r.attendance && r.attendance.date) || r.d1 || r.d2
+    );
+  } else {
+    // Fallback single-day behavior
+    baseRows = employees
+      .map((emp) => {
+        const att =
+          emp.attendance || emp.recentAttendance || emp.latestAttendance;
+        if (!att) return emp;
+        const norm = {
+          date: att.date || att.attendanceDate || att.day || null,
+          timeIn: att.timeIn || att.time_in || att.in || att.firstIn || null,
+          breakOut: att.breakOut || att.break_out || att.lunchOut || null,
+          breakIn: att.breakIn || att.break_in || att.lunchIn || null,
+          timeOut:
+            att.timeOut || att.time_out || att.out || att.lastOut || null,
+        };
+        return { ...emp, attendance: norm };
+      })
+      .filter((emp) => emp.attendance && emp.attendance.date);
+  }
+  const empTypes = [...new Set((tableData || baseRows).map((e) => e.empType))];
 
-  const filteredEmployees = employeesWithTimeRecords.filter((employee) => {
+  const dataToFilter = tableData || baseRows;
+  const filteredEmployees = dataToFilter.filter((employee) => {
     const keyword = searchKeyword.toLowerCase();
     const matchesKeyword =
       (employee.name && employee.name.toLowerCase().includes(keyword)) ||
@@ -195,7 +434,7 @@ const RecentAttendanceTable = ({
             pagination={false} // disable built-in pagination
             size="small"
             style={{ marginTop: "5px" }}
-            scroll={{ y: 400 }}
+            scroll={{ x: 900, y: 400 }}
             title={() => (
               <Space style={{ width: "100%" }}>
                 <Input

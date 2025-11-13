@@ -10,6 +10,11 @@ import {
   Popconfirm,
   InputNumber,
   Radio,
+  Space,
+  Typography,
+  Card,
+  Tag,
+  Divider,
 } from "antd";
 import { PlusOutlined, EditOutlined, DeleteOutlined } from "@ant-design/icons";
 import axiosInstance from "../../api/axiosInstance.js";
@@ -116,21 +121,28 @@ const DeductionSettings = () => {
       title: "Name",
       dataIndex: "name",
       key: "name",
+      render: (text) => <span style={{ fontSize: 12, fontWeight: 500 }}>{text}</span>,
     },
     {
       title: "Type",
       dataIndex: "type",
       key: "type",
       render: (text) => (
-        <span style={{ color: text === "incentive" ? "green" : "red" }}>
+        <Tag
+          color={text === "incentive" ? "green" : "red"}
+          style={{ fontSize: 11, padding: '0 6px', lineHeight: '18px' }}
+        >
           {text}
-        </span>
+        </Tag>
       ),
     },
     {
         title: "Calculation Type",
         dataIndex: "calculationType",
         key: "calculationType",
+        render: (val) => (
+          <Tag color={val === 'formula' ? 'purple' : 'blue'} style={{ fontSize: 11, padding: '0 6px', lineHeight: '18px' }}>{val}</Tag>
+        )
     },
     {
       title: "Amount/Formula",
@@ -138,60 +150,81 @@ const DeductionSettings = () => {
       key: "amount",
       render: (text, record) => {
         if (record.calculationType === 'formula') {
-            return record.formula;
+            return <code style={{ fontSize: 11 }}>{record.formula}</code>;
         }
-        return `₱${text.toLocaleString()}`;
+        return <span style={{ fontSize: 12 }}>₱{text.toLocaleString()}</span>;
       }
     },
     {
       title: "Description",
       dataIndex: "description",
       key: "description",
+      render: (val) => <span style={{ fontSize: 11, color: '#aaa' }}>{val}</span>
     },
     {
       title: "Actions",
       key: "actions",
       render: (_, record) => (
-        <span>
+        <Space size={4} wrap>
           <Button
+            size="small"
             icon={<EditOutlined />}
             onClick={() => handleEdit(record)}
-            style={{ marginRight: 8 }}
             disabled={readOnly && isDemoActive && isDemoUser}
           >
             Edit
           </Button>
           <Popconfirm
-            title="Are you sure you want to delete this?"
+            title="Delete this deduction type?"
             onConfirm={() => handleDelete(record._id)}
             okText="Yes"
             cancelText="No"
+            disabled={!canDelete(record)}
           >
-            <Button icon={<DeleteOutlined />} danger disabled={!canDelete(record)}>
+            <Button size="small" icon={<DeleteOutlined />} danger disabled={!canDelete(record)}>
               Delete
             </Button>
           </Popconfirm>
-        </span>
+        </Space>
       ),
     },
   ];
 
   return (
-    <div>
-      <Button
-        type="primary"
-        icon={<PlusOutlined />}
-        onClick={handleAdd}
-        style={{ marginBottom: 16 }}
-        disabled={readOnly && isDemoActive && isDemoUser}
-      >
-        Add Deduction/Incentive
-      </Button>
+    <Card
+      className="compact-table corp-panel"
+      bodyStyle={{ padding: 16 }}
+      title={
+        <Space direction="vertical" size={2} style={{ width: '100%' }}>
+          <Typography.Title level={4} style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>Payroll Deductions & Incentives</Typography.Title>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>Configure standardized deduction and incentive types used in payslip calculations.</Typography.Text>
+        </Space>
+      }
+      extra={
+        <Button
+          type="primary"
+          size="small"
+          icon={<PlusOutlined />}
+          onClick={handleAdd}
+          disabled={readOnly && isDemoActive && isDemoUser}
+        >
+          New Type
+        </Button>
+      }
+    >
+      <div className="corp-toolbar">
+        <Tag color="blue" style={{ fontSize: 11 }}>Total: {deductionTypes.length}</Tag>
+        {isDemoActive && isDemoUser && (
+          <Tag color="gold" style={{ fontSize: 11 }}>Demo Mode: edits restricted</Tag>
+        )}
+      </div>
       <Table
         columns={columns}
         dataSource={deductionTypes}
         rowKey="_id"
-        bordered
+        size="small"
+        className="compact-table"
+        pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: [5,10,20,50] }}
       />
 
       <Modal
@@ -199,22 +232,23 @@ const DeductionSettings = () => {
         open={isModalOpen}
         onOk={handleOk}
         onCancel={handleCancel}
+        width={520}
         okButtonProps={{ disabled: readOnly && isDemoActive && isDemoUser }}
       >
-        <Form form={form} layout="vertical">
+        <Form form={form} layout="vertical" size="small">
           <Form.Item
             name="name"
             label="Name"
             rules={[{ required: true, message: "Please enter a name" }]}
           >
-            <Input disabled={readOnly && isDemoActive && isDemoUser} />
+            <Input disabled={readOnly && isDemoActive && isDemoUser} placeholder="e.g., SSS Contribution" />
           </Form.Item>
           <Form.Item
             name="type"
             label="Type"
             rules={[{ required: true, message: "Please select a type" }]}
           >
-            <Select disabled={readOnly && isDemoActive && isDemoUser}>
+            <Select disabled={readOnly && isDemoActive && isDemoUser} placeholder="Select category">
               <Option value="deduction">Deduction</Option>
               <Option value="incentive">Incentive</Option>
             </Select>
@@ -241,7 +275,7 @@ const DeductionSettings = () => {
                     label="Formula"
                     rules={[{ required: true, message: 'Please enter the formula' }]}
                 >
-                    <Input.TextArea rows={2} placeholder="e.g., salary * 0.1" disabled={readOnly && isDemoActive && isDemoUser} />
+                    <Input.TextArea rows={2} placeholder="e.g., grossIncome * 0.05" disabled={readOnly && isDemoActive && isDemoUser} style={{ fontSize: 12 }} />
                 </Form.Item>
               ) : (
                 <Form.Item
@@ -249,7 +283,7 @@ const DeductionSettings = () => {
                     label="Amount"
                     rules={[{ required: true, message: "Please enter an amount" }]}
                 >
-                    <InputNumber style={{ width: '100%' }} min={0} disabled={readOnly && isDemoActive && isDemoUser} />
+                    <InputNumber style={{ width: '100%' }} min={0} disabled={readOnly && isDemoActive && isDemoUser} size="small" />
                 </Form.Item>
               )
             }
@@ -259,11 +293,11 @@ const DeductionSettings = () => {
             label="Description"
             rules={[{ required: true, message: "Please enter a description" }]}
           >
-            <Input.TextArea rows={4} disabled={readOnly && isDemoActive && isDemoUser} />
+            <Input.TextArea rows={3} disabled={readOnly && isDemoActive && isDemoUser} style={{ fontSize: 12 }} placeholder="Short description for internal reference" />
           </Form.Item>
         </Form>
       </Modal>
-    </div>
+    </Card>
   );
 };
 

@@ -5,6 +5,7 @@ import {
 	listCollections,
 	backupCollection,
 	listAuditLogs,
+    exportAuditLogs,
     createAuditLog,
 	listNotifications,
 	updateNotification,
@@ -15,7 +16,9 @@ import {
 	downloadBackupJobResult,
 	deleteBackupJob,
 	clearBackupJobs,
-	driveSelfTest,
+    testSmtp,
+	testDrive,
+	getDeploymentNotes,
 } from "../controllers/devController.js";
 
 const router = express.Router();
@@ -34,6 +37,7 @@ router.get('/backup', backupCollection);
 
 // Audit logs
 router.get('/audit-logs', listAuditLogs);
+router.get('/audit-logs/export', exportAuditLogs);
 router.post('/audit-logs', createAuditLog);
 
 // Notifications management
@@ -49,7 +53,11 @@ router.get('/backup-jobs/:id/download', downloadBackupJobResult);
 router.delete('/backup-jobs/:id', deleteBackupJob);
 router.delete('/backup-jobs', clearBackupJobs);
 
-// Drive credential quick validation
-router.get('/drive/self-test', driveSelfTest);
+// SMTP test endpoint
+router.post('/test-smtp', testSmtp);
+// Google Drive test endpoint
+router.get('/test-drive', testDrive);
+// Deployment notes
+router.get('/deployment-notes', getDeploymentNotes);
 
 export default router;

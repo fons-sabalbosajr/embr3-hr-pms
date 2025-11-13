@@ -144,6 +144,38 @@ const OnlineUsers = () => {
     };
   }, [users]);
 
+  // Track viewport width for tablet first-name rendering
+  const [viewportWidth, setViewportWidth] = useState(
+    typeof window !== "undefined" ? window.innerWidth : 0
+  );
+
+  useEffect(() => {
+    const handleResize = () => {
+      setViewportWidth(window.innerWidth);
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  const isTablet = viewportWidth >= 768 && viewportWidth <= 1080;
+
+  const renderName = (fullName, isCurrentUser) => {
+    if (!fullName) return fullName;
+    if (isTablet) {
+      const first = String(fullName).trim().split(/\s+/)[0];
+      return (
+        <>
+          {first} {isCurrentUser && <span className="you-indicator">(You)</span>}
+        </>
+      );
+    }
+    return (
+      <>
+        {fullName} {isCurrentUser && <span className="you-indicator">(You)</span>}
+      </>
+    );
+  };
+
   const renderUserItem = (user) => {
     const isCurrentUser = user._id === currentUser?._id;
     const itemClasses = `user-list-item ${
@@ -164,11 +196,7 @@ const OnlineUsers = () => {
               </Avatar>
             </Badge>
           }
-          title={
-            <span className="user-title">
-              {user.name} {isCurrentUser && <span className="you-indicator">(You)</span>}
-            </span>
-          }
+          title={<span className="user-title">{renderName(user.name, isCurrentUser)}</span>}
           description={<span className="user-description">{user.lastSeen}</span>}
         />
       </List.Item>

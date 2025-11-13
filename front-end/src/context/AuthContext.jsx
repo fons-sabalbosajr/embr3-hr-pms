@@ -31,10 +31,23 @@ export const AuthProvider = ({ children }) => {
       const onConnect = () => {
         socket.emit("store-user", user);
       };
+      const onAvatarUpdated = (payload) => {
+        try {
+          if (payload && String(payload.userId) === String(user._id) && payload.avatarUrl) {
+            // Cache-bust to ensure immediate refresh across the app
+            const cacheBusted = `${payload.avatarUrl}${payload.avatarUrl.includes('?') ? '&' : '?'}v=${Date.now()}`;
+            const updated = { ...user, avatarUrl: cacheBusted };
+            setUser(updated);
+            secureStore("user", updated);
+          }
+        } catch (_) {}
+      };
       socket.on("connect", onConnect);
+      socket.on("user-avatar-updated", onAvatarUpdated);
       // Clean listener on effect cleanup
       return () => {
         socket.off("connect", onConnect);
+        socket.off("user-avatar-updated", onAvatarUpdated);
         socket.disconnect(); // Disconnect on logout
       };
     } else {

@@ -91,8 +91,68 @@ const HomePage = () => {
   const [dtrPreviewLoading, setDtrPreviewLoading] = useState(false);
   const [dtrPreviewRows, setDtrPreviewRows] = useState([]);
   const [dtrPreviewError, setDtrPreviewError] = useState(null);
+  // Bug report modal state
+  const [isBugOpen, setIsBugOpen] = useState(false);
+  const [bugSubmitting, setBugSubmitting] = useState(false);
+  const [bugScreenshot, setBugScreenshot] = useState(null);
+  const [bugForm] = Form.useForm();
+  
+  const beforeUploadScreenshot = (file) => {
+    const isImage = file.type.startsWith("image/");
+    if (!isImage) {
+      message.error("Please upload an image file.");
+      return Upload.LIST_IGNORE;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      message.error("Image must be smaller than 5MB.");
+      return Upload.LIST_IGNORE;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setBugScreenshot(reader.result);
+    };
+    reader.readAsDataURL(file);
+    return false; // prevent auto upload
+  };
+  const submitBugReport = async () => {
+    try {
+      const values = await bugForm.validateFields();
+      setBugSubmitting(true);
+      const payload = {
+        title: values.title,
+        description: values.description,
+        pageUrl: window.location.href,
+        userAgent: navigator.userAgent,
+        email: user?.email,
+        name: user?.name,
+        employeeId: user?.employeeId || user?.id,
+        screenshotBase64: bugScreenshot,
+      };
+      await axiosInstance.post("/bug-report", payload);
+      message.success("Bug report sent. Thank you!");
+      bugForm.resetFields();
+      setBugScreenshot(null);
+      setIsBugOpen(false);
+    } catch (err) {
+      // Ignore validation errors (they have errorFields)
+      if (err?.errorFields) return;
+      message.error(
+        err?.response?.data?.message || "Failed to send bug report."
+      );
+      console.debug("Bug report failed", err);
+    } finally {
+      setBugSubmitting(false);
+    }
+  };
+  
   // Demo mode state
   const { isDemoActive, isDemoUser, demoSettings } = useDemoMode();
+  // Close bug modal if demo mode is turned off
+  useEffect(() => {
+    if (!isDemoActive) setIsBugOpen(false);
+  }, [isDemoActive]);
+
+  // Ant Design breakpoint collapse now manages responsive state; remove manual resize listener.
 
   useEffect(() => {
     // 1. Instant preload from secure storage (if any)
@@ -578,15 +638,32 @@ const HomePage = () => {
     }
   };
 
-  // Load inline DTR preview for DTRRequest notifications
+  // Load inline time log preview for DTR or Payslip notifications (payslip uses whole month)
   useEffect(() => {
     const n = selectedNotification;
-    const isDTR =
-      n && n.type === "DTRRequest" && n.startDate && n.endDate && n.employeeId;
-    if (!isNotificationModalOpen || !isDTR) {
+    const isOpen = isNotificationModalOpen && n && n.employeeId;
+    if (!isOpen) {
       setDtrPreviewRows([]);
       setDtrPreviewError(null);
       setDtrPreviewLoading(false);
+      return;
+    }
+    // Determine range: DTRRequest uses explicit start/end; PayslipRequest uses period month (YYYY-MM)
+    let rangeStart = null;
+    let rangeEnd = null;
+    if (n.type === 'DTRRequest' && n.startDate && n.endDate) {
+      rangeStart = dayjs(n.startDate).startOf('day');
+      rangeEnd = dayjs(n.endDate).startOf('day');
+    } else if ((n.type === 'PayslipRequest' || n.period) && n.period) {
+      // Expect n.period like YYYY-MM; fallback skip if malformed
+      const parsed = dayjs(n.period + '-01');
+      if (parsed.isValid()) {
+        rangeStart = parsed.startOf('month');
+        rangeEnd = parsed.endOf('month');
+      }
+    }
+    if (!rangeStart || !rangeEnd) {
+      setDtrPreviewRows([]);
       return;
     }
     let cancelled = false;
@@ -595,100 +672,46 @@ const HomePage = () => {
         setDtrPreviewLoading(true);
         setDtrPreviewError(null);
         setDtrPreviewRows([]);
-        const { data } = await axiosInstance.get("/dtrlogs/merged", {
+        const { data } = await axiosInstance.get('/dtrlogs/merged', {
           params: {
-            startDate: dayjs(n.startDate).format("YYYY-MM-DD"),
-            endDate: dayjs(n.endDate).format("YYYY-MM-DD"),
+            startDate: rangeStart.format('YYYY-MM-DD'),
+            endDate: rangeEnd.format('YYYY-MM-DD'),
             empIds: n.employeeId,
           },
         });
         if (cancelled) return;
         const logs = data?.data || [];
-        // Group logs by day
         const byDate = logs.reduce((acc, log) => {
-          const dateKey = dayjs(log.time).format("YYYY-MM-DD");
+          const dateKey = dayjs(log.time).format('YYYY-MM-DD');
           if (!acc[dateKey]) acc[dateKey] = [];
           acc[dateKey].push(log);
           return acc;
         }, {});
-
-        const start = dayjs(n.startDate).startOf("day");
-        const end = dayjs(n.endDate).startOf("day");
-        const totalDays = end.diff(start, "day") + 1;
+        const totalDays = rangeEnd.diff(rangeStart, 'day') + 1;
         const rows = Array.from({ length: totalDays }).map((_, idx) => {
-          const date = start.add(idx, "day");
-          const key = date.format("YYYY-MM-DD");
-          const list = (byDate[key] || []).map((l) => ({
-            time: dayjs(l.time),
-            state: l.state,
-          }));
-
-          const timeInCandidates = list
-            .filter((l) => l.state === "C/In" && l.time.hour() < 12)
-            .sort((a, b) => a.time - b.time);
-          const timeOutCandidates = list
-            .filter((l) => l.state === "C/Out" && l.time.hour() >= 12)
-            .sort((a, b) => a.time - b.time);
-          const breakOutCandidates = list
-            .filter(
-              (l) =>
-                l.state === "Out" && l.time.hour() >= 12 && l.time.hour() < 13
-            )
-            .sort((a, b) => a.time - b.time);
-          const breakInCandidates = list
-            .filter(
-              (l) =>
-                l.state === "Out Back" &&
-                l.time.hour() >= 12 &&
-                l.time.hour() < 14
-            )
-            .sort((a, b) => a.time - b.time);
-
-          let timeIn = timeInCandidates.length
-            ? timeInCandidates[0].time.format("h:mm")
-            : "";
-          let timeOut = timeOutCandidates.length
-            ? timeOutCandidates[timeOutCandidates.length - 1].time.format(
-                "h:mm"
-              )
-            : "";
-          let breakOut = breakOutCandidates.length
-            ? breakOutCandidates[0].time.format("h:mm")
-            : "";
-          let breakIn = breakInCandidates.length
-            ? breakInCandidates[0].time.format("h:mm")
-            : "";
-
-          if (timeIn && timeOut && !breakOut && !breakIn) {
-            breakOut = "12:00";
-            breakIn = "1:00";
-          }
-
-          return {
-            key,
-            date: date.format("MM/DD/YYYY"),
-            timeIn: timeIn || "---",
-            breakOut: breakOut || "---",
-            breakIn: breakIn || "---",
-            timeOut: timeOut || "---",
-          };
+          const date = rangeStart.add(idx, 'day');
+          const key = date.format('YYYY-MM-DD');
+          const list = (byDate[key] || []).map(l => ({ time: dayjs(l.time), state: l.state }));
+          const timeInCandidates = list.filter(l => l.state === 'C/In' && l.time.hour() < 12).sort((a,b)=>a.time-b.time);
+          const timeOutCandidates = list.filter(l => l.state === 'C/Out' && l.time.hour() >= 12).sort((a,b)=>a.time-b.time);
+          const breakOutCandidates = list.filter(l => l.state === 'Out' && l.time.hour() >= 12 && l.time.hour() < 13).sort((a,b)=>a.time-b.time);
+          const breakInCandidates = list.filter(l => l.state === 'Out Back' && l.time.hour() >= 12 && l.time.hour() < 14).sort((a,b)=>a.time-b.time);
+          let timeIn = timeInCandidates[0]?.time.format('h:mm') || '';
+          let timeOut = timeOutCandidates.length ? timeOutCandidates[timeOutCandidates.length-1].time.format('h:mm') : '';
+            let breakOut = breakOutCandidates[0]?.time.format('h:mm') || '';
+          let breakIn = breakInCandidates[0]?.time.format('h:mm') || '';
+          if (timeIn && timeOut && !breakOut && !breakIn) { breakOut = '12:00'; breakIn = '1:00'; }
+          return { key, date: date.format('MM/DD/YYYY'), timeIn: timeIn || '---', breakOut: breakOut || '---', breakIn: breakIn || '---', timeOut: timeOut || '---' };
         });
         setDtrPreviewRows(rows);
       } catch (err) {
-        if (!cancelled)
-          setDtrPreviewError(
-            err?.response?.data?.message ||
-              err.message ||
-              "Failed to load DTR preview"
-          );
+        if (!cancelled) setDtrPreviewError(err?.response?.data?.message || err.message || 'Failed to load time logs');
       } finally {
         if (!cancelled) setDtrPreviewLoading(false);
       }
     };
     load();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [isNotificationModalOpen, selectedNotification]);
 
   // ---- Messages Modal Logic ----
@@ -1074,8 +1097,10 @@ const HomePage = () => {
               </Descriptions.Item>
             )}
           </Descriptions>
+          {/* Show grid only when we have a known range (DTR or Payslip request) */}
           {!dtrPreviewLoading &&
             !dtrPreviewError &&
+            (selectedNotification?.type === 'DTRRequest' || selectedNotification?.type === 'PayslipRequest' || selectedNotification?.period) &&
             dtrPreviewRows.length > 0 && (
               <Table
                 size="small"
@@ -1125,6 +1150,7 @@ const HomePage = () => {
             )}
           {!dtrPreviewLoading &&
             !dtrPreviewError &&
+            (selectedNotification?.type === 'DTRRequest' || selectedNotification?.type === 'PayslipRequest' || selectedNotification?.period) &&
             dtrPreviewRows.length > 0 &&
             dtrPreviewRows.every(
               (r) =>
@@ -1142,6 +1168,7 @@ const HomePage = () => {
             )}
           {!dtrPreviewLoading &&
             !dtrPreviewError &&
+            (selectedNotification?.type === 'DTRRequest' || selectedNotification?.type === 'PayslipRequest' || selectedNotification?.period) &&
             dtrPreviewRows.length === 0 && (
               <Alert
                 type="warning"
@@ -1357,21 +1384,19 @@ const HomePage = () => {
   );
 
   return (
-    <Layout
-      className="homepage-root-layout"
-      style={{
-        marginLeft: collapsed ? 80 : 220,
-        transition: "margin-left 0.2s",
-      }}
-    >
+    <Layout className="homepage-root-layout">
       {notificationModal}
       {messageModal}
       <Sider
+        breakpoint="lg"
+        collapsedWidth={80}
         width={220}
         collapsible
         collapsed={collapsed}
-        onCollapse={setCollapsed}
-        collapsedWidth={80}
+        onCollapse={(val) => setCollapsed(val)}
+        onBreakpoint={(broken) => {
+          if (broken) setCollapsed(true);
+        }}
         className="sider"
         style={{ background: "var(--app-sider-bg, #001529)" }}
       >
@@ -1563,8 +1588,18 @@ const HomePage = () => {
               trigger="hover"
               classNames="user-popover"
             >
-              <Avatar className="user-avatar">
-                {user?.name?.charAt(0).toUpperCase() || <UserOutlined />}
+              <Avatar
+                className="user-avatar"
+                src={user?.avatarUrl || undefined}
+                onError={(e) => {
+                  try {
+                    // Remove broken src to let fallback render
+                    e.currentTarget.src = '';
+                  } catch(_) {}
+                  return false;
+                }}
+              >
+                {!user?.avatarUrl && (user?.name?.charAt(0).toUpperCase() || <UserOutlined />)}
               </Avatar>
             </Popover>
           </div>
@@ -1694,77 +1729,87 @@ const HomePage = () => {
         </Footer>
       </Layout>
 
-      {/* Report a bug floating button */}
-      <FloatButton
-        icon={<BugOutlined />}
-        tooltip="Report a bug"
-        type="primary"
-        style={{ right: 24, bottom: 96 }}
-        onClick={() => setIsBugOpen(true)}
-      />
+      
 
-      <Modal
-        title="Report a bug"
-        open={isBugOpen}
-        onCancel={() => {
-          if (!bugSubmitting) {
-            setIsBugOpen(false);
-          }
-        }}
-        okText={bugSubmitting ? "Sending..." : "Send"}
-        onOk={submitBugReport}
-        confirmLoading={bugSubmitting}
-        destroyOnClose
-      >
-        <Form form={bugForm} layout="vertical" preserve={false}>
-          <Form.Item
-            name="title"
-            label="Title"
-            rules={[{ required: true, message: "Please add a short title" }]}
-          >
-            <Input maxLength={180} placeholder="Short summary" />
-          </Form.Item>
-          <Form.Item
-            name="description"
-            label="Description"
-            rules={[{ required: true, message: "Please describe the issue" }]}
-          >
-            <Input.TextArea
-              rows={6}
-              placeholder="What happened? Steps to reproduce, expected vs actual, etc."
-            />
-          </Form.Item>
-          <Form.Item label="Screenshot (optional)">
-            <Upload
-              beforeUpload={beforeUploadScreenshot}
-              maxCount={1}
-              accept="image/*"
-              listType="picture-card"
-              showUploadList={{ showPreviewIcon: false }}
-            >
-              Upload
-            </Upload>
-            {bugScreenshot && (
-              <div style={{ marginTop: 8 }}>
-                <img
-                  src={bugScreenshot}
-                  alt="screenshot"
-                  style={{
-                    maxWidth: "100%",
-                    border: "1px solid #eee",
-                    borderRadius: 4,
-                  }}
-                />
-              </div>
-            )}
-          </Form.Item>
-          <Alert
-            type="info"
-            showIcon
-            message="Your report will be sent to embrhrpms@gmail.com. We include page URL and browser info for faster fixes."
+      {isDemoActive && (
+        <>
+          {/* Report a bug floating button (visible only in demo mode) */}
+          <FloatButton
+            icon={<BugOutlined />}
+            tooltip="Report a bug"
+            type="primary"
+            style={{ right: 24, bottom: 24 }}
+            onClick={() => setIsBugOpen(true)}
           />
-        </Form>
-      </Modal>
+
+          <Modal
+            title="Report a bug"
+            open={isBugOpen}
+            onCancel={() => {
+              if (!bugSubmitting) {
+                setIsBugOpen(false);
+              }
+            }}
+            okText={bugSubmitting ? "Sending..." : "Send"}
+            onOk={submitBugReport}
+            confirmLoading={bugSubmitting}
+            destroyOnHidden
+          >
+            <Form form={bugForm} layout="vertical" preserve={false}>
+              <Form.Item
+                name="title"
+                label="Title"
+                rules={[
+                  { required: true, message: "Please add a short title" },
+                ]}
+              >
+                <Input maxLength={180} placeholder="Short summary" />
+              </Form.Item>
+              <Form.Item
+                name="description"
+                label="Description"
+                rules={[
+                  { required: true, message: "Please describe the issue" },
+                ]}
+              >
+                <Input.TextArea
+                  rows={6}
+                  placeholder="What happened? Steps to reproduce, expected vs actual, etc."
+                />
+              </Form.Item>
+              <Form.Item label="Screenshot (optional)">
+                <Upload
+                  beforeUpload={beforeUploadScreenshot}
+                  maxCount={1}
+                  accept="image/*"
+                  listType="picture-card"
+                  showUploadList={{ showPreviewIcon: false }}
+                >
+                  Upload
+                </Upload>
+                {bugScreenshot && (
+                  <div style={{ marginTop: 8 }}>
+                    <img
+                      src={bugScreenshot}
+                      alt="screenshot"
+                      style={{
+                        maxWidth: "100%",
+                        border: "1px solid #eee",
+                        borderRadius: 4,
+                      }}
+                    />
+                  </div>
+                )}
+              </Form.Item>
+              <Alert
+                type="info"
+                showIcon
+                message="Your report will be sent to embrhrpms@gmail.com. We include page URL and browser info for faster fixes."
+              />
+            </Form>
+          </Modal>
+        </>
+      )}
 
       <ProfileModal
         open={isProfileModalOpen}

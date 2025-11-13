@@ -12,6 +12,7 @@ const EmployeeStatsCards = ({
   employeeTypeCounts,
   loadingAttendance,
   lastAttendanceDate,
+  lastTwoAttendanceDates,
   presentCount,
 }) => {
   return (
@@ -25,7 +26,7 @@ const EmployeeStatsCards = ({
               title="Total Employees"
               value={totalEmployees}
               prefix={
-                <UserOutlined style={{ color: "#1890ff", fontSize: 40 }} />
+                <UserOutlined className="stats-icon stats-icon-total" />
               }
             />
           )}
@@ -41,7 +42,7 @@ const EmployeeStatsCards = ({
               title="Regular Employees"
               value={employeeTypeCounts.Regular || 0}
               prefix={
-                <TeamOutlined style={{ color: "#52c41a", fontSize: 40 }} />
+                <TeamOutlined className="stats-icon stats-icon-regular" />
               }
             />
           )}
@@ -57,7 +58,7 @@ const EmployeeStatsCards = ({
               title="COS Employees"
               value={employeeTypeCounts.COS || 0}
               prefix={
-                <TeamOutlined style={{ color: "#faad14", fontSize: 40 }} />
+                <TeamOutlined className="stats-icon stats-icon-cos" />
               }
             />
           )}
@@ -70,11 +71,15 @@ const EmployeeStatsCards = ({
             <Skeleton active paragraph={{ rows: 1 }} />
           ) : (
             <Statistic
-              title={`Present as of ${lastAttendanceDate || "-"}`}
+              title={(() => {
+                if (lastTwoAttendanceDates && lastTwoAttendanceDates.length === 2) {
+                  const [d1, d2] = lastTwoAttendanceDates;
+                  return `Present (${d1} – ${d2})`;
+                }
+                return `Present as of ${lastAttendanceDate || "-"}`;
+              })()}
               value={`${presentCount} / ${totalEmployees}`}
-              prefix={
-                <CalendarOutlined style={{ color: "#eb2f96", fontSize: 40 }} />
-              }
+              prefix={<CalendarOutlined className="stats-icon stats-icon-present" />}
             />
           )}
         </Card>

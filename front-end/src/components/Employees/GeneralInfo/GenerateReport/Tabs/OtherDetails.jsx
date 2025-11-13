@@ -72,8 +72,7 @@ const OtherDetails = ({ employee }) => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatingDocId, setGeneratingDocId] = useState(null);
   const [form] = Form.useForm();
-  const { isDemoActive } = useDemoMode();
-  const demoDisabled = isDemoActive;
+  const { readOnly: demoDisabled } = useDemoMode();
 
   useEffect(() => {
     if (!employee?.empId) return;
@@ -136,10 +135,6 @@ const OtherDetails = ({ employee }) => {
   };
 
   const handleViewDoc = async (record) => {
-    if (demoDisabled) {
-      message.warning("Action disabled in demo mode");
-      return;
-    }
     setGeneratingDocId(record._id);
     setIsGenerating(true);
 
@@ -268,18 +263,18 @@ const OtherDetails = ({ employee }) => {
             style={{ padding: 0 }}
             onClick={() => handleViewDoc(record)}
             loading={generatingDocId === record._id}
-            disabled={isGenerating || demoDisabled}
+            disabled={isGenerating}
           >
             View
           </Button>
-          {record.docType !== "DTR" && (
+          {!demoDisabled && record.docType !== "DTR" && (
             <Popconfirm
               title="Are you sure you want to delete this document?"
               okText="Yes"
               cancelText="No"
               onConfirm={() => handleDeleteDoc(record._id)}
             >
-              <Button type="link" danger style={{ padding: 0 }} disabled={demoDisabled}>Delete</Button>
+              <Button type="link" danger style={{ padding: 0 }}>Delete</Button>
             </Popconfirm>
           )}
         </div>
@@ -292,14 +287,15 @@ const OtherDetails = ({ employee }) => {
 
   return (
     <div>
-      <Button
-        type="primary"
-        style={{ marginBottom: 16 }}
-        onClick={() => setAddModalVisible(true)}
-        disabled={demoDisabled}
-      >
-        Add Document
-      </Button>
+      {!demoDisabled && (
+        <Button
+          type="primary"
+          style={{ marginBottom: 16 }}
+          onClick={() => setAddModalVisible(true)}
+        >
+          Add Document
+        </Button>
+      )}
 
       {/* DTR History */}
       {dtrDocs.length > 0 && (
@@ -375,13 +371,13 @@ const OtherDetails = ({ employee }) => {
       </Modal>
 
       {/* Add Document Modal */}
+      {!demoDisabled && (
       <Modal
         title="Add Document"
         open={addModalVisible}
         onCancel={() => setAddModalVisible(false)}
-        onOk={() => (!demoDisabled ? form.submit() : message.warning("Action disabled in demo mode"))}
+        onOk={() => form.submit()}
         okText="Save"
-        okButtonProps={{ disabled: demoDisabled }}
       >
         <Form
           form={form}
@@ -396,7 +392,7 @@ const OtherDetails = ({ employee }) => {
               { required: true, message: "Please select a document type" },
             ]}
           >
-            <Select disabled={demoDisabled}>
+            <Select>
               <Option value="Payslip">Payslip</Option>
               <Option value="Certificate of Employment">
                 Certificate of Employment
@@ -412,22 +408,23 @@ const OtherDetails = ({ employee }) => {
             label="Reference (IIS No. or Link)"
             rules={[{ required: true, message: "Reference is required" }]}
           >
-            <Input placeholder="R3-2025-0***** or Google Drive/OneDrive link" disabled={demoDisabled} />
+            <Input placeholder="R3-2025-0***** or Google Drive/OneDrive link" />
           </Form.Item>
 
           <Form.Item name="description" label="Description">
-            <Input.TextArea rows={2} placeholder="Optional description" disabled={demoDisabled} />
+            <Input.TextArea rows={2} placeholder="Optional description" />
           </Form.Item>
 
           <Form.Item name="period" label="Period (optional)">
-            <Input placeholder="e.g. July 2025" disabled={demoDisabled} />
+            <Input placeholder="e.g. July 2025" />
           </Form.Item>
 
           <Form.Item name="dateIssued" label="Date Issued (optional)">
-            <DatePicker style={{ width: "100%" }} disabled={demoDisabled} />
+            <DatePicker style={{ width: "100%" }} />
           </Form.Item>
         </Form>
       </Modal>
+      )}
     </div>
   );
 };

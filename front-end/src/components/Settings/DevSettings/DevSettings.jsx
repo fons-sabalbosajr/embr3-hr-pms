@@ -24,14 +24,15 @@ import {
   Select,
   Table,
   Modal,
+  Checkbox,
 } from "antd";
 import dayjs from "dayjs";
 import useAuth from "../../../hooks/useAuth";
-import { ExclamationCircleOutlined } from "@ant-design/icons";
 import { NotificationsContext } from "../../../context/NotificationsContext";
 import SecureStorageDiagnostics from "./SecureStorageDiagnostics";
 import axiosInstance from "../../../api/axiosInstance";
 import DemoModeSettings from "./DemoModeSettings";
+import { secureStore } from "../../../../utils/secureStorage";
 
 const { Title, Text } = Typography;
 
@@ -42,7 +43,7 @@ const Section = ({ title, children, extra }) => (
 );
 
 const DevSettings = () => {
-  const { user, hasPermission } = useAuth();
+  const { user, hasPermission, updateCurrentUser } = useAuth();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [devInfo, setDevInfo] = useState(null);
@@ -115,16 +116,62 @@ const DevSettings = () => {
   const [maintenanceEnabled, setMaintenanceEnabled] = useState(
     () => settings?.maintenance?.enabled || false
   );
+  const [isMaintPreviewOpen, setIsMaintPreviewOpen] = useState(false);
 
   // Audit logs and Notifications state
   const [auditLogs, setAuditLogs] = useState([]);
   const [auditLoading, setAuditLoading] = useState(false);
+  const [auditPage, setAuditPage] = useState(1);
+  const [auditPageSize, setAuditPageSize] = useState(10);
+  const [auditTotal, setAuditTotal] = useState(0);
+  // Multi-select actions (empty means all)
+  const [auditActionsFilter, setAuditActionsFilter] = useState([]);
+  const [auditUserFilter, setAuditUserFilter] = useState("all");
+  const [auditDateRange, setAuditDateRange] = useState(null); // [dayjs, dayjs]
+  const [auditSortBy, setAuditSortBy] = useState("createdAt");
+  const [auditSortOrder, setAuditSortOrder] = useState("descend");
+  const [auditDetailOpen, setAuditDetailOpen] = useState(false);
+  const [auditDetailObj, setAuditDetailObj] = useState(null);
+  const [auditDetailsQuery, setAuditDetailsQuery] = useState("");
   const [notifications, setNotifications] = useState([]);
   const notificationsContext = useContext(NotificationsContext);
   const [notifLoading, setNotifLoading] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editingRow, setEditingRow] = useState(null);
   const [editForm] = Form.useForm();
+
+  // Google Drive quick browser
+  const [driveLoading, setDriveLoading] = useState(false);
+  const [driveFiles, setDriveFiles] = useState([]);
+  const fetchDriveFiles = async () => {
+    try {
+      setDriveLoading(true);
+      const res = await axiosInstance.get("/uploads");
+      const rows = res?.data?.data || res?.data || [];
+      setDriveFiles(Array.isArray(rows) ? rows : []);
+    } catch (e) {
+      message.error(e?.response?.data?.message || "Failed to load Drive files");
+    } finally {
+      setDriveLoading(false);
+    }
+  };
+  const testDrive = async () => {
+    try {
+      setDriveLoading(true);
+      const res = await axiosInstance.get("/dev/test-drive");
+      if (res.data?.success) {
+        message.success(`Drive OK • ${res.data.count} file(s)`);
+        // Optionally update table with sample
+        if (Array.isArray(res.data.sample)) setDriveFiles(res.data.sample);
+      } else {
+        message.error(res.data?.message || "Drive test failed");
+      }
+    } catch (e) {
+      message.error(e?.response?.data?.message || "Drive test failed");
+    } finally {
+      setDriveLoading(false);
+    }
+  };
 
   // Employees management
   const [employeesLoading, setEmployeesLoading] = useState(false);
@@ -157,6 +204,90 @@ const DevSettings = () => {
   const [empFilterSection, setEmpFilterSection] = useState("all");
   const [empFilterType, setEmpFilterType] = useState("all");
   const [empFilterStatus, setEmpFilterStatus] = useState("all");
+
+  // Demo users management (per-user demo flag)
+  const [demoUsers, setDemoUsers] = useState([]);
+  const [demoUsersLoading, setDemoUsersLoading] = useState(false);
+  const [showOnlyDemoUsers, setShowOnlyDemoUsers] = useState(false);
+  const [savingDemoIds, setSavingDemoIds] = useState(new Set());
+
+  const fetchDemoUsers = async () => {
+    try {
+      setDemoUsersLoading(true);
+      const res = await axiosInstance.get("/users");
+      // API may return { success, data } or raw array; normalize
+      const rows = res?.data?.data || res?.data?.users || res?.data;
+      const arr = Array.isArray(rows) ? rows : [];
+      setDemoUsers(arr);
+    } catch (e) {
+      message.error("Failed to fetch users for demo management");
+    } finally {
+      setDemoUsersLoading(false);
+    }
+  };
+
+  const toggleUserDemo = async (u, value) => {
+    // Prevent duplicate in-flight updates for same user
+    if (savingDemoIds.has(u._id)) return;
+    setSavingDemoIds((prev) => new Set(prev).add(u._id));
+
+    // Snapshot previous for revert
+    const prevUsers = demoUsers;
+
+    // Optimistic local update using functional set to avoid stale closure
+    setDemoUsers((prev) =>
+      prev.map((r) => (r._id === u._id ? { ...r, isDemo: value } : r))
+    );
+
+    try {
+      const res = await axiosInstance.put(`/users/${u._id}/access`, {
+        isDemo: value,
+      });
+      const updated = res?.data?.data || res?.data;
+      if (updated && updated._id) {
+        setDemoUsers((prev) =>
+          prev.map((r) => (r._id === updated._id ? { ...r, ...updated } : r))
+        );
+        if (user?._id === updated._id) {
+          updateCurrentUser(updated);
+          // Persist updated current user so interceptor reflects new demo flag immediately
+          try {
+            secureStore("user", updated);
+            window.dispatchEvent(new Event("current-user-updated"));
+          } catch (_) {}
+        }
+        message.success(
+          value
+            ? `Marked ${
+                updated.name || updated.fullName || updated.email
+              } as demo user`
+            : `Removed ${
+                updated.name || updated.fullName || updated.email
+              } from demo users`
+        );
+      } else {
+        // Fallback: re-fetch to sync state if API response shape unexpected
+        fetchDemoUsers();
+      }
+    } catch (e) {
+      // Revert state
+      setDemoUsers(prevUsers);
+      message.error(e?.response?.data?.message || "Failed to update demo flag");
+    } finally {
+      setSavingDemoIds((prev) => {
+        const n = new Set(prev);
+        n.delete(u._id);
+        return n;
+      });
+    }
+  };
+
+  // Auto-load demo users when entering Demo Mode tab
+  useEffect(() => {
+    if (activeTab === "demo-mode") {
+      fetchDemoUsers();
+    }
+  }, [activeTab]);
 
   const loadAllEmployees = async () => {
     try {
@@ -229,17 +360,20 @@ const DevSettings = () => {
       setBioLoading(true);
       const params = { page: 1, pageSize: bioPageSize };
       if (bioRange && bioRange[0] && bioRange[1]) {
-        params.dateFrom = bioRange[0].startOf('day').toISOString();
-        params.dateTo = bioRange[1].endOf('day').toISOString();
+        params.dateFrom = bioRange[0].startOf("day").toISOString();
+        params.dateTo = bioRange[1].endOf("day").toISOString();
       }
-      const res = await axiosInstance.get(`/employees/${resignedSelected._id}/records`, { params });
+      const res = await axiosInstance.get(
+        `/employees/${resignedSelected._id}/records`,
+        { params }
+      );
       const data = res?.data?.data || {};
-      setEmpRecords((prev) => ({ ...(prev||{}), ...data }));
+      setEmpRecords((prev) => ({ ...(prev || {}), ...data }));
       setBioLogs(data?.biometricLogs || []);
       setBioMeta(data?.biometricMeta || null);
       setBioPage(1);
     } catch (e) {
-      message.error('Failed to refresh biometrics');
+      message.error("Failed to refresh biometrics");
     } finally {
       setBioLoading(false);
     }
@@ -252,17 +386,20 @@ const DevSettings = () => {
       const nextPage = bioPage + 1;
       const params = { page: nextPage, pageSize: bioPageSize };
       if (bioRange && bioRange[0] && bioRange[1]) {
-        params.dateFrom = bioRange[0].startOf('day').toISOString();
-        params.dateTo = bioRange[1].endOf('day').toISOString();
+        params.dateFrom = bioRange[0].startOf("day").toISOString();
+        params.dateTo = bioRange[1].endOf("day").toISOString();
       }
-      const res = await axiosInstance.get(`/employees/${resignedSelected._id}/records`, { params });
+      const res = await axiosInstance.get(
+        `/employees/${resignedSelected._id}/records`,
+        { params }
+      );
       const data = res?.data?.data || {};
       const more = data?.biometricLogs || [];
-      setBioLogs((prev)=> [...prev, ...more]);
+      setBioLogs((prev) => [...prev, ...more]);
       setBioMeta(data?.biometricMeta || null);
       setBioPage(nextPage);
     } catch (e) {
-      message.error('Failed to load more biometrics');
+      message.error("Failed to load more biometrics");
     } finally {
       setBioLoading(false);
     }
@@ -276,36 +413,48 @@ const DevSettings = () => {
         if (!t) return false;
         // Date range filter (client-side visual filter as extra guard)
         if (bioRange && bioRange[0] && bioRange[1]) {
-          if (!t.isBetween(bioRange[0], bioRange[1], 'day', '[]')) return false;
+          if (!t.isBetween(bioRange[0], bioRange[1], "day", "[]")) return false;
         }
         // Time-of-day filter
         if (bioTimeFrom || bioTimeTo) {
-          const minutes = t.hour()*60 + t.minute();
-          const startM = bioTimeFrom ? (bioTimeFrom.hour()*60 + bioTimeFrom.minute()) : null;
-          const endM = bioTimeTo ? (bioTimeTo.hour()*60 + bioTimeTo.minute()) : null;
+          const minutes = t.hour() * 60 + t.minute();
+          const startM = bioTimeFrom
+            ? bioTimeFrom.hour() * 60 + bioTimeFrom.minute()
+            : null;
+          const endM = bioTimeTo
+            ? bioTimeTo.hour() * 60 + bioTimeTo.minute()
+            : null;
           if (startM !== null && minutes < startM) return false;
           if (endM !== null && minutes > endM) return false;
         }
         return true;
       });
-      const header = ['AC-No','Name','Time','State'];
-      const lines = [header.join(',')].concat(rows.map(r=>[
-        JSON.stringify(r['AC-No']||''),
-        JSON.stringify(r['Name']||''),
-        JSON.stringify(r['Time']?dayjs(r['Time']).format('YYYY-MM-DD HH:mm'):'') ,
-        JSON.stringify(r['State']||'')
-      ].join(',')));
-      const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+      const header = ["AC-No", "Name", "Time", "State"];
+      const lines = [header.join(",")].concat(
+        rows.map((r) =>
+          [
+            JSON.stringify(r["AC-No"] || ""),
+            JSON.stringify(r["Name"] || ""),
+            JSON.stringify(
+              r["Time"] ? dayjs(r["Time"]).format("YYYY-MM-DD HH:mm") : ""
+            ),
+            JSON.stringify(r["State"] || ""),
+          ].join(",")
+        )
+      );
+      const blob = new Blob([lines.join("\n")], {
+        type: "text/csv;charset=utf-8;",
+      });
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
+      const a = document.createElement("a");
       a.href = url;
-      a.download = `${(resignedSelected?.empId||'employee')}-biometrics.csv`;
+      a.download = `${resignedSelected?.empId || "employee"}-biometrics.csv`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (e) {
-      message.error('Failed to export CSV');
+      message.error("Failed to export CSV");
     }
   };
 
@@ -326,37 +475,60 @@ const DevSettings = () => {
   const deleteResignedEmployee = async (emp) => {
     try {
       // Fetch a fresh summary right before deleting
-      const summaryRes = await axiosInstance.get(`/employees/${emp._id}/records`);
+      const summaryRes = await axiosInstance.get(
+        `/employees/${emp._id}/records`
+      );
       const s = summaryRes?.data?.data || {};
       Modal.confirm({
         width: 700,
         title: `Delete ${emp.name}?`,
-        okText: 'Yes, delete', okButtonProps: { danger: true }, cancelText: 'Cancel',
+        okText: "Yes, delete",
+        okButtonProps: { danger: true },
+        cancelText: "Cancel",
         content: (
           <div style={{ fontSize: 12 }}>
-            <Alert type="warning" showIcon style={{ marginBottom: 8 }} message="This will permanently remove the employee and all linked records. Emp No will be reordered." />
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 8 }}
+              message="This will permanently remove the employee and all linked records. Emp No will be reordered."
+            />
             <Space size={8} wrap>
-              <Tag>Docs: {(s.docs||[]).length}</Tag>
-              <Tag color="green">Payslip Requests: {(s.payslipRequests||[]).length}</Tag>
-              <Tag color="geekblue">DTR Gen Logs: {(s.dtrGenerationLogs||[]).length}</Tag>
-              <Tag color="blue">Biometric Logs: {(s.biometricLogs||[]).length}</Tag>
-              <Tag color="purple">DTR Requests: {(s.dtrRequests||[]).length}</Tag>
-              <Tag color={s.salary? 'gold':'default'}>Salary: {s.salary? 'Yes':'No'}</Tag>
-              <Tag color="magenta">Trainings: {(s.trainings||[]).length}</Tag>
+              <Tag>Docs: {(s.docs || []).length}</Tag>
+              <Tag color="green">
+                Payslip Requests: {(s.payslipRequests || []).length}
+              </Tag>
+              <Tag color="geekblue">
+                DTR Gen Logs: {(s.dtrGenerationLogs || []).length}
+              </Tag>
+              <Tag color="blue">
+                Biometric Logs: {(s.biometricLogs || []).length}
+              </Tag>
+              <Tag color="purple">
+                DTR Requests: {(s.dtrRequests || []).length}
+              </Tag>
+              <Tag color={s.salary ? "gold" : "default"}>
+                Salary: {s.salary ? "Yes" : "No"}
+              </Tag>
+              <Tag color="magenta">Trainings: {(s.trainings || []).length}</Tag>
             </Space>
           </div>
         ),
         onOk: async () => {
           await axiosInstance.delete(`/employees/${emp._id}`);
-          message.success('Employee and related records deleted; Emp No reordered');
+          message.success(
+            "Employee and related records deleted; Emp No reordered"
+          );
           loadResignedEmployees();
-          if (activeTab === 'employees') loadAllEmployees();
+          if (activeTab === "employees") loadAllEmployees();
           setResignedDetailsOpen(false);
           setResignedSelected(null);
-        }
+        },
       });
     } catch (err) {
-      message.error(err?.response?.data?.message || 'Failed to delete employee');
+      message.error(
+        err?.response?.data?.message || "Failed to delete employee"
+      );
     }
   };
 
@@ -461,20 +633,133 @@ const DevSettings = () => {
   };
 
   // Audit logs
-  const fetchAuditLogs = async () => {
+  const fetchAuditLogs = async (
+    page = auditPage,
+    limit = auditPageSize,
+    opts = {}
+  ) => {
     try {
       setAuditLoading(true);
-      const res = await axiosInstance.get("/dev/audit-logs");
+      const params = { page, limit };
+      const acts = opts.actions ?? auditActionsFilter;
+      const usr = opts.user ?? auditUserFilter;
+      const range = opts.dateRange ?? auditDateRange;
+      const sortBy = opts.sortBy ?? auditSortBy;
+      const sortOrder = opts.sortOrder ?? auditSortOrder;
+      if (Array.isArray(acts) && acts.length > 0) params.actions = acts;
+      if (usr && usr !== "all") params.user = usr;
+      if (range && range.length === 2) {
+        params.dateFrom = range[0]?.toISOString?.() || range[0];
+        params.dateTo = range[1]?.toISOString?.() || range[1];
+      }
+      if (sortBy) params.sortBy = sortBy;
+      if (sortOrder) params.sortOrder = sortOrder;
+      const detailsFragment =
+        opts.detailsFragment !== undefined
+          ? opts.detailsFragment
+          : auditDetailsQuery;
+      if (detailsFragment) params.detailsFragment = detailsFragment;
+
+      const res = await axiosInstance.get("/dev/audit-logs", { params });
       const rows = Array.isArray(res.data?.data)
         ? res.data.data
         : Array.isArray(res.data)
         ? res.data
         : [];
       setAuditLogs(rows);
+      if (typeof res.data?.total === "number") setAuditTotal(res.data.total);
+      setAuditPage(page);
+      setAuditPageSize(limit);
     } catch (err) {
       message.error("Failed to load audit logs");
     } finally {
       setAuditLoading(false);
+    }
+  };
+
+  const auditActionOptions = useMemo(() => {
+    // derive unique actions from current page, plus currently selected to keep them visible
+    const set = new Set((auditLogs || []).map((a) => a.action).filter(Boolean));
+    (auditActionsFilter || []).forEach((v) => set.add(v));
+    return Array.from(set)
+      .sort()
+      .map((v) => ({ label: v, value: v }));
+  }, [auditLogs, auditActionsFilter]);
+
+  const auditUserOptions = useMemo(() => {
+    const set = new Set(
+      (auditLogs || []).map((a) => a.performedByName).filter(Boolean)
+    );
+    return [
+      { label: "All Users", value: "all" },
+      ...Array.from(set)
+        .sort()
+        .map((v) => ({ label: v, value: v })),
+    ];
+  }, [auditLogs]);
+
+  // With server-side filtering, table rows are the server result
+  const filteredAuditLogs = auditLogs;
+
+  const exportAuditCsv = () => {
+    const rows = filteredAuditLogs;
+    const headers = ["Action", "By", "CreatedAt", "Details"];
+    const lines = [headers.join(",")];
+    for (const r of rows) {
+      const vals = [
+        r.action || "",
+        r.performedByName || "",
+        r.createdAt ? dayjs(r.createdAt).format("YYYY-MM-DD HH:mm:ss") : "",
+        JSON.stringify(r.details || {}),
+      ];
+      const esc = (s) => '"' + String(s).replace(/"/g, '""') + '"';
+      lines.push(vals.map(esc).join(","));
+    }
+    const blob = new Blob([lines.join("\n")], {
+      type: "text/csv;charset=utf-8;",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `audit-logs-${dayjs().format("YYYYMMDD-HHmmss")}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportAuditCsvServer = () => {
+    const params = new URLSearchParams();
+    if (Array.isArray(auditActionsFilter) && auditActionsFilter.length > 0) {
+      auditActionsFilter.forEach((a) => params.append('actions', a));
+    }
+    if (auditUserFilter && auditUserFilter !== 'all') params.set('user', auditUserFilter);
+    if (auditDateRange && auditDateRange.length === 2) {
+      params.set('dateFrom', auditDateRange[0]?.toISOString?.() || auditDateRange[0]);
+      params.set('dateTo', auditDateRange[1]?.toISOString?.() || auditDateRange[1]);
+    }
+    if (auditSortBy) params.set('sortBy', auditSortBy);
+    if (auditSortOrder) params.set('sortOrder', auditSortOrder);
+    if (auditDetailsQuery) params.set('detailsFragment', auditDetailsQuery);
+    const base = window.location.origin;
+    const url = `${base}/api/dev/audit-logs/export?${params.toString()}`;
+    window.open(url, '_blank');
+  };
+
+  const tagColorForAction = (action) => {
+    if (!action) return "default";
+    const key = String(action).split(":")[0];
+    switch (key) {
+      case "backup":
+        return "geekblue";
+      case "notification":
+        return "purple";
+      case "audit":
+        return "gold";
+      case "user":
+        return "cyan";
+      case "demo":
+        return "magenta";
+      default:
+        return "blue";
     }
   };
 
@@ -765,129 +1050,483 @@ const DevSettings = () => {
     }
   };
 
+  const [smtpForm] = Form.useForm();
+  const onSaveSmtp = async (vals) => {
+    try {
+      const payload = {
+        ...(settings || {}),
+        smtp: { ...(settings?.smtp || {}), ...vals },
+      };
+      const res = await axiosInstance.put("/settings", payload);
+      setSettings(res.data);
+      message.success("SMTP settings saved");
+    } catch (e) {
+      message.error(e?.response?.data?.message || "Failed to save SMTP");
+    }
+  };
+  const [testingSmtp, setTestingSmtp] = useState(false);
+  const testSmtp = async () => {
+    try {
+      const vals = smtpForm.getFieldsValue();
+      setTestingSmtp(true);
+      const res = await axiosInstance.post("/dev/test-smtp", vals);
+      if (res.data?.success) {
+        message.success(`SMTP test sent to ${res.data.to}`);
+      } else {
+        message.error(res.data?.message || "SMTP test failed");
+      }
+    } catch (e) {
+      message.error(e?.response?.data?.message || "SMTP test failed");
+    } finally {
+      setTestingSmtp(false);
+    }
+  };
+
+  const runtimeCardStyle = { height: "100%" };
+  const cardBodySmall = { padding: 12 };
+
   const runtimeTab = (
     <Space direction="vertical" style={{ width: "100%" }}>
-      <Section
-        title="Application"
-        extra={
-          <Button onClick={() => window.location.reload()}>Reload App</Button>
-        }
-      >
-        {loading || !devInfo ? (
-          <Card loading />
-        ) : (
-          <Descriptions size="small" column={1}>
-            <Descriptions.Item label="Node Version">
-              {devInfo.app.node}
-            </Descriptions.Item>
-            <Descriptions.Item label="Environment">
-              {devInfo.app.env}
-            </Descriptions.Item>
-            <Descriptions.Item label="Server Host">
-              {devInfo.app.serverHost}
-            </Descriptions.Item>
-            <Descriptions.Item label="Server Port">
-              {devInfo.app.serverPort}
-            </Descriptions.Item>
-            <Descriptions.Item label="Client Origin">
-              {devInfo.app.clientOrigin || <Tag>not set</Tag>}
-            </Descriptions.Item>
-          </Descriptions>
-        )}
-      </Section>
-
-      <Section title="Database">
-        {loading || !devInfo ? (
-          <Card loading />
-        ) : (
-          <Descriptions
+      <Row gutter={[12, 12]}>
+        <Col xs={24} md={12}>
+          <Card
             size="small"
-            column={1}
+            title="Application"
+            style={runtimeCardStyle}
+            bodyStyle={cardBodySmall}
             extra={
-              <Tag color={devInfo.db.connected ? "green" : "red"}>
-                {devInfo.db.connected ? "Connected" : "Disconnected"}
-              </Tag>
+              <Button size="small" onClick={() => window.location.reload()}>
+                Reload
+              </Button>
             }
           >
-            <Descriptions.Item label="Name">
-              {devInfo.db.name || <Tag>unknown</Tag>}
-            </Descriptions.Item>
-            <Descriptions.Item label="Host">
-              {devInfo.db.host || <Tag>unknown</Tag>}
-            </Descriptions.Item>
-            <Descriptions.Item label="Port">
-              {devInfo.db.port || <Tag>unknown</Tag>}
-            </Descriptions.Item>
-          </Descriptions>
-        )}
-      </Section>
+            {loading || !devInfo ? (
+              <Card loading size="small" />
+            ) : (
+              <Descriptions
+                size="small"
+                column={1}
+                labelStyle={{ fontSize: 12 }}
+                contentStyle={{ fontSize: 12 }}
+              >
+                <Descriptions.Item label="Node">
+                  {devInfo.app.node}
+                </Descriptions.Item>
+                <Descriptions.Item label="Env">
+                  {devInfo.app.env}
+                </Descriptions.Item>
+                <Descriptions.Item label="Server Host">
+                  {devInfo.app.serverHost}
+                </Descriptions.Item>
+                <Descriptions.Item label="Server Port">
+                  {devInfo.app.serverPort}
+                </Descriptions.Item>
+                <Descriptions.Item label="Client Origin">
+                  {devInfo.app.clientOrigin || <Tag>not set</Tag>}
+                </Descriptions.Item>
+              </Descriptions>
+            )}
+          </Card>
+        </Col>
+        <Col xs={24} md={12}>
+          <Card
+            size="small"
+            title="Database"
+            style={runtimeCardStyle}
+            bodyStyle={cardBodySmall}
+            extra={
+              loading || !devInfo ? null : (
+                <Tag color={devInfo.db.connected ? "green" : "red"}>
+                  {devInfo.db.connected ? "Connected" : "Disconnected"}
+                </Tag>
+              )
+            }
+          >
+            {loading || !devInfo ? (
+              <Card loading size="small" />
+            ) : (
+              <Descriptions
+                size="small"
+                column={1}
+                labelStyle={{ fontSize: 12 }}
+                contentStyle={{ fontSize: 12 }}
+              >
+                <Descriptions.Item label="Name">
+                  {devInfo.db.name || <Tag>unknown</Tag>}
+                </Descriptions.Item>
+                <Descriptions.Item label="Host">
+                  {devInfo.db.host || <Tag>unknown</Tag>}
+                </Descriptions.Item>
+                <Descriptions.Item label="Port">
+                  {devInfo.db.port || <Tag>unknown</Tag>}
+                </Descriptions.Item>
+              </Descriptions>
+            )}
+          </Card>
+        </Col>
+      </Row>
 
-      <Section title="Email">
-        {loading || !devInfo ? (
-          <Card loading />
-        ) : (
-          <Descriptions size="small" column={1}>
-            <Descriptions.Item label="Configured">
-              {devInfo.email.configured ? (
-                <Tag color="green">yes</Tag>
-              ) : (
-                <Tag color="red">no</Tag>
-              )}
-            </Descriptions.Item>
-            <Descriptions.Item label="User">
-              {devInfo.email.user || <Tag>not set</Tag>}
-            </Descriptions.Item>
-          </Descriptions>
-        )}
-      </Section>
+      <Row gutter={[12, 12]}>
+        <Col xs={24} md={12}>
+          <Card
+            size="small"
+            title="Email (SMTP)"
+            style={runtimeCardStyle}
+            bodyStyle={cardBodySmall}
+          >
+            {loading || !settings ? (
+              <Card loading size="small" />
+            ) : (
+              <Form
+                form={smtpForm}
+                size="small"
+                layout="vertical"
+                initialValues={{
+                  host: settings?.smtp?.host,
+                  port: settings?.smtp?.port,
+                  secure: settings?.smtp?.secure,
+                  user: settings?.smtp?.user,
+                  fromEmail: settings?.smtp?.fromEmail,
+                  fromName: settings?.smtp?.fromName,
+                }}
+                onFinish={onSaveSmtp}
+              >
+                <Row gutter={[8, 8]}>
+                  <Col span={16}>
+                    <Form.Item
+                      name="host"
+                      label="Host"
+                      rules={[
+                        {
+                          validator: (_, v) => {
+                            if (!v) return Promise.resolve();
+                            const ok = /^[A-Za-z0-9.-]+$/.test(v);
+                            return ok
+                              ? Promise.resolve()
+                              : Promise.reject(new Error("Invalid host name"));
+                          },
+                        },
+                      ]}
+                    >
+                      <Input placeholder="smtp.gmail.com" />
+                    </Form.Item>
+                  </Col>
+                  <Col span={8}>
+                    <Form.Item
+                      name="port"
+                      label="Port"
+                      rules={[
+                        {
+                          validator: (_, v) => {
+                            if (v == null || v === "") return Promise.resolve();
+                            const n = Number(v);
+                            if (!Number.isFinite(n) || n <= 0 || n > 65535)
+                              return Promise.reject(
+                                new Error("Port must be 1-65535")
+                              );
+                            return Promise.resolve();
+                          },
+                        },
+                      ]}
+                    >
+                      <InputNumber
+                        style={{ width: "100%" }}
+                        placeholder={465}
+                      />
+                    </Form.Item>
+                  </Col>
+                  <Col span={12}>
+                    <Form.Item
+                      name="secure"
+                      label="Secure (SSL/TLS)"
+                      valuePropName="checked"
+                    >
+                      <Switch />
+                    </Form.Item>
+                  </Col>
+                  <Col span={12}>
+                    <Form.Item
+                      name="user"
+                      label="User"
+                      rules={[
+                        {
+                          type: "email",
+                          message: "Provide a valid email user",
+                        },
+                      ]}
+                    >
+                      <Input placeholder="email user (no password here)" />
+                    </Form.Item>
+                  </Col>
+                  <Col span={12}>
+                    <Form.Item name="fromName" label="From Name">
+                      <Input placeholder="EMBR3 System" />
+                    </Form.Item>
+                  </Col>
+                  <Col span={12}>
+                    <Form.Item
+                      name="fromEmail"
+                      label="From Email"
+                      rules={[
+                        { type: "email", message: "Invalid email address" },
+                      ]}
+                    >
+                      <Input placeholder="noreply@domain" />
+                    </Form.Item>
+                  </Col>
+                </Row>
+                <Space>
+                  <Button type="primary" htmlType="submit" size="small">
+                    Save SMTP
+                  </Button>
+                  <Button size="small" onClick={testSmtp} loading={testingSmtp}>
+                    Test SMTP
+                  </Button>
+                  <Text type="secondary" style={{ fontSize: 11 }}>
+                    Password stays in server env (EMAIL_PASS).
+                  </Text>
+                </Space>
+                {settings?.smtp?.updatedAt && (
+                  <Text
+                    type="secondary"
+                    style={{ fontSize: 11, display: "block", marginTop: 4 }}
+                  >
+                    Last Updated:{" "}
+                    {dayjs(settings.smtp.updatedAt).format("MMM D, YYYY HH:mm")}{" "}
+                    | Effective From:{" "}
+                    {settings.smtp.fromName ||
+                      settings.general?.appName ||
+                      "EMBR3 System"}{" "}
+                    &lt;
+                    {settings.smtp.fromEmail || settings.smtp.user || "not set"}
+                    &gt;
+                  </Text>
+                )}
+              </Form>
+            )}
+          </Card>
+        </Col>
+        <Col xs={24} md={12}>
+          <Card
+            size="small"
+            title="Google Drive"
+            style={runtimeCardStyle}
+            bodyStyle={cardBodySmall}
+          >
+            {loading || !devInfo ? (
+              <Card loading size="small" />
+            ) : (
+              <>
+                <Descriptions
+                  size="small"
+                  column={1}
+                  labelStyle={{ fontSize: 12 }}
+                  contentStyle={{ fontSize: 12 }}
+                >
+                  <Descriptions.Item label="Service Account Key">
+                    {devInfo.google.serviceAccountKey || <Tag>not set</Tag>}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Configured">
+                    {devInfo.google.configured ? (
+                      <Tag color="green">yes</Tag>
+                    ) : (
+                      <Tag color="red">no</Tag>
+                    )}
+                  </Descriptions.Item>
+                </Descriptions>
+                <Divider style={{ margin: "8px 0" }} />
+                <Space style={{ marginBottom: 8 }}>
+                  <Button
+                    size="small"
+                    onClick={fetchDriveFiles}
+                    loading={driveLoading}
+                  >
+                    Load Files
+                  </Button>
+                  <Button
+                    size="small"
+                    onClick={testDrive}
+                    loading={driveLoading}
+                  >
+                    Test Drive
+                  </Button>
+                  <Text type="secondary" style={{ fontSize: 11 }}>
+                    Folder: server env GOOGLE_DRIVE_FOLDER_ID
+                  </Text>
+                </Space>
+                <Table
+                  className="compact-table"
+                  size="small"
+                  dataSource={driveFiles}
+                  loading={driveLoading}
+                  rowKey={(r) => r.id || r._id || r.name}
+                  pagination={{
+                    pageSize: 5,
+                    showSizeChanger: true,
+                    pageSizeOptions: [5, 10, 20, 50],
+                  }}
+                  columns={[
+                    {
+                      title: "Name",
+                      dataIndex: "name",
+                      key: "name",
+                      render: (v, r) =>
+                        r.webViewLink ? (
+                          <a
+                            href={r.webViewLink}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            {v || r.id}
+                          </a>
+                        ) : (
+                          v || r.id
+                        ),
+                    },
+                    {
+                      title: "Type",
+                      dataIndex: "mimeType",
+                      key: "mimeType",
+                      width: 180,
+                    },
+                    {
+                      title: "Size",
+                      dataIndex: "size",
+                      key: "size",
+                      width: 100,
+                      render: (s) =>
+                        s ? `${Number(s).toLocaleString()} B` : "",
+                    },
+                    {
+                      title: "Created",
+                      dataIndex: "createdTime",
+                      key: "createdTime",
+                      width: 160,
+                      render: (v) =>
+                        v ? dayjs(v).format("YYYY-MM-DD HH:mm") : "",
+                    },
+                    {
+                      title: "Action",
+                      key: "action",
+                      width: 140,
+                      render: (_, r) => (
+                        <Space>
+                          {r.webViewLink && (
+                            <Button
+                              size="small"
+                              onClick={() =>
+                                window.open(r.webViewLink, "_blank")
+                              }
+                            >
+                              Open
+                            </Button>
+                          )}
+                          {r.id && (
+                            <Button
+                              size="small"
+                              onClick={() =>
+                                window.open(`/api/uploads/${r.id}`, "_blank")
+                              }
+                            >
+                              Download
+                            </Button>
+                          )}
+                        </Space>
+                      ),
+                    },
+                  ]}
+                />
+                <Text
+                  type="secondary"
+                  style={{ fontSize: 11, display: "block", marginTop: 6 }}
+                >
+                  To enable listing, use a Google Service Account and share the
+                  folder with it; avoid putting a Google account password in
+                  .env.
+                </Text>
+              </>
+            )}
+          </Card>
+        </Col>
+      </Row>
 
-      <Section title="Google Drive">
-        {loading || !devInfo ? (
-          <Card loading />
-        ) : (
-          <Descriptions size="small" column={1}>
-            <Descriptions.Item label="Service Account Key">
-              {devInfo.google.serviceAccountKey || <Tag>not set</Tag>}
-            </Descriptions.Item>
-            <Descriptions.Item label="Configured">
-              {devInfo.google.configured ? (
-                <Tag color="green">yes</Tag>
-              ) : (
-                <Tag color="red">no</Tag>
-              )}
-            </Descriptions.Item>
-          </Descriptions>
-        )}
-      </Section>
-
-      <Section title="Socket.IO">
-        {loading || !devInfo ? (
-          <Card loading />
-        ) : (
-          <Descriptions size="small" column={1}>
-            <Descriptions.Item label="Path">
-              {devInfo.socket.path}
-            </Descriptions.Item>
-            <Descriptions.Item label="Ping Interval">
-              {devInfo.socket.pingInterval} ms
-            </Descriptions.Item>
-            <Descriptions.Item label="Ping Timeout">
-              {devInfo.socket.pingTimeout} ms
-            </Descriptions.Item>
-            <Descriptions.Item label="CORS Origin">
-              {String(devInfo.socket.corsOrigin)}
-            </Descriptions.Item>
-          </Descriptions>
-        )}
-      </Section>
-
-      <Divider />
-      <Text type="secondary">
-        Tip: sensitive values (passwords, tokens, URIs) are intentionally
-        omitted here.
-      </Text>
+      <Row gutter={[12, 12]}>
+        <Col xs={24} md={12}>
+          <Card
+            size="small"
+            title="Socket.IO"
+            style={runtimeCardStyle}
+            bodyStyle={cardBodySmall}
+          >
+            {loading || !devInfo ? (
+              <Card loading size="small" />
+            ) : (
+              <Descriptions
+                size="small"
+                column={1}
+                labelStyle={{ fontSize: 12 }}
+                contentStyle={{ fontSize: 12 }}
+              >
+                <Descriptions.Item label="Path">
+                  {devInfo.socket.path}
+                </Descriptions.Item>
+                <Descriptions.Item label="Ping Interval">
+                  {devInfo.socket.pingInterval} ms
+                </Descriptions.Item>
+                <Descriptions.Item label="Ping Timeout">
+                  {devInfo.socket.pingTimeout} ms
+                </Descriptions.Item>
+                <Descriptions.Item label="CORS Origin">
+                  {String(devInfo.socket.corsOrigin)}
+                </Descriptions.Item>
+              </Descriptions>
+            )}
+          </Card>
+        </Col>
+        <Col xs={24} md={12}>
+          <Card
+            size="small"
+            title="Notes"
+            style={runtimeCardStyle}
+            bodyStyle={cardBodySmall}
+          >
+            <Space direction="vertical" style={{ width: "100%" }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                Tip: sensitive values (passwords, tokens, URIs) are
+                intentionally omitted here.
+              </Text>
+              <Button size="small" onClick={() => setDeploymentModalOpen(true)}>
+                Deployment (UAT) Notes
+              </Button>
+            </Space>
+          </Card>
+        </Col>
+      </Row>
     </Space>
   );
+
+  // Deployment notes modal state
+  const [deploymentModalOpen, setDeploymentModalOpen] = useState(false);
+  const [deploymentNotes, setDeploymentNotes] = useState("");
+  const [loadingDeployment, setLoadingDeployment] = useState(false);
+  useEffect(() => {
+    const loadNotes = async () => {
+      if (!deploymentModalOpen) return;
+      try {
+        setLoadingDeployment(true);
+        const res = await axiosInstance.get("/dev/deployment-notes");
+        if (res.data?.success) setDeploymentNotes(res.data.content || "");
+        else setDeploymentNotes(res.data?.message || "Not available");
+      } catch (e) {
+        setDeploymentNotes(
+          e?.response?.data?.message || "Failed to load notes"
+        );
+      } finally {
+        setLoadingDeployment(false);
+      }
+    };
+    loadNotes();
+  }, [deploymentModalOpen]);
 
   const fetchAttendancePreview = async (range) => {
     try {
@@ -1042,7 +1681,11 @@ const DevSettings = () => {
             loading={attendanceLoading}
             size="small"
             rowKey={(r) => `${r.empId}-${r.date}`}
-            pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: [5,10,20,50] }}
+            pagination={{
+              pageSize: 10,
+              showSizeChanger: true,
+              pageSizeOptions: [5, 10, 20, 50],
+            }}
           />
         </Space>
       </Section>
@@ -1218,100 +1861,224 @@ const DevSettings = () => {
     <Space direction="vertical" style={{ width: "100%" }}>
       <Row gutter={[12, 12]}>
         <Col xs={24} md={12}>
-          <Card size="small" title="Database Status" bodyStyle={{ fontSize: 12 }}>
+          <Card
+            size="small"
+            title="Database Status"
+            bodyStyle={{ fontSize: 12 }}
+          >
             {loading || !devInfo ? (
               <Card loading />
             ) : (
-              <Descriptions size="small" column={1} labelStyle={{ fontSize: 12 }} contentStyle={{ fontSize: 12 }}>
+              <Descriptions
+                size="small"
+                column={1}
+                labelStyle={{ fontSize: 12 }}
+                contentStyle={{ fontSize: 12 }}
+              >
                 <Descriptions.Item label="Connected">
-                  <Tag color={devInfo.db.connected ? "green" : "red"}>{devInfo.db.connected ? "yes" : "no"}</Tag>
+                  <Tag color={devInfo.db.connected ? "green" : "red"}>
+                    {devInfo.db.connected ? "yes" : "no"}
+                  </Tag>
                 </Descriptions.Item>
-                <Descriptions.Item label="DB Name">{devInfo.db.name || "unknown"}</Descriptions.Item>
-                <Descriptions.Item label="Host">{devInfo.db.host || "unknown"}</Descriptions.Item>
-                <Descriptions.Item label="Port">{devInfo.db.port || "unknown"}</Descriptions.Item>
-                <Descriptions.Item label="Runtime">{devInfo.app.node}</Descriptions.Item>
+                <Descriptions.Item label="DB Name">
+                  {devInfo.db.name || "unknown"}
+                </Descriptions.Item>
+                <Descriptions.Item label="Host">
+                  {devInfo.db.host || "unknown"}
+                </Descriptions.Item>
+                <Descriptions.Item label="Port">
+                  {devInfo.db.port || "unknown"}
+                </Descriptions.Item>
+                <Descriptions.Item label="Runtime">
+                  {devInfo.app.node}
+                </Descriptions.Item>
               </Descriptions>
             )}
-            <Button size="small" style={{ marginTop: 12 }} onClick={loadCollections} loading={collectionsLoading}>
+            <Button
+              size="small"
+              style={{ marginTop: 12 }}
+              onClick={loadCollections}
+              loading={collectionsLoading}
+            >
               Load Collections
             </Button>
           </Card>
         </Col>
         <Col xs={24} md={12}>
-          <Card size="small" title="Maintenance Mode" bodyStyle={{ fontSize: 12 }}>
+          <Card
+            size="small"
+            title="Maintenance Mode"
+            bodyStyle={{ fontSize: 12 }}
+          >
             <Space direction="vertical" style={{ width: "100%" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
-                <Switch checked={maintenanceEnabled} onChange={(v) => setMaintenanceEnabled(v)} />
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  fontSize: 12,
+                }}
+              >
+                <Switch
+                  checked={maintenanceEnabled}
+                  onChange={(v) => setMaintenanceEnabled(v)}
+                />
                 <span>Enable Maintenance Mode (developers excluded)</span>
               </div>
-              <DatePicker.RangePicker size="small" value={maintenanceRange} onChange={(vals) => setMaintenanceRange(vals)} />
-              <Input.TextArea rows={3} value={maintenanceMessage} onChange={(e) => setMaintenanceMessage(e.target.value)} placeholder="Maintenance message shown to users" />
+              <DatePicker.RangePicker
+                size="small"
+                value={maintenanceRange}
+                onChange={(vals) => setMaintenanceRange(vals)}
+              />
+              <Input.TextArea
+                rows={3}
+                value={maintenanceMessage}
+                onChange={(e) => setMaintenanceMessage(e.target.value)}
+                placeholder="Maintenance message shown to users"
+              />
               <Space>
-                <Button size="small" type="primary" onClick={() => saveMaintenance(true)} loading={maintenanceLoading} disabled={!maintenanceRange || maintenanceRange.length !== 2}>
+                <Button
+                  size="small"
+                  type="primary"
+                  onClick={() => saveMaintenance(true)}
+                  loading={maintenanceLoading}
+                  disabled={!maintenanceRange || maintenanceRange.length !== 2}
+                >
                   Enable
                 </Button>
-                <Button size="small" danger onClick={() => saveMaintenance(false)} loading={maintenanceLoading}>
+                <Button
+                  size="small"
+                  danger
+                  onClick={() => saveMaintenance(false)}
+                  loading={maintenanceLoading}
+                >
                   Disable
                 </Button>
+                <Button
+                  size="small"
+                  onClick={() => setIsMaintPreviewOpen(true)}
+                >
+                  Preview (Non-developer view)
+                </Button>
               </Space>
-              <Card size="small" title="Preview (Non-developer view)">
-                <div style={{ padding: 12, background: "#fff", fontSize: 12 }}>
-                  <h3 style={{ marginTop: 0, fontSize: 14 }}>Maintenance</h3>
-                  <p style={{ marginBottom: 4 }}>{maintenanceMessage || "No message set"}</p>
-                  {maintenanceRange && maintenanceRange.length === 2 && (
-                    <p style={{ color: "#999", fontSize: 11 }}>
-                      {maintenanceRange[0].format("MM/DD/YYYY hh:mm A")} - {maintenanceRange[1].format("MM/DD/YYYY hh:mm A")}
+              <Modal
+                title="Preview • Non-developer view"
+                open={isMaintPreviewOpen}
+                onCancel={() => setIsMaintPreviewOpen(false)}
+                footer={null}
+                width={720}
+                bodyStyle={{ maxHeight: 520, overflow: "auto" }}
+                destroyOnHidden
+              >
+                <Space direction="vertical" style={{ width: "100%" }} size={12}>
+                  <Alert
+                    type="info"
+                    showIcon
+                    message={
+                      <span style={{ fontSize: 12 }}>
+                        This is how regular users will see the maintenance
+                        notice.
+                      </span>
+                    }
+                  />
+                  <div
+                    style={{
+                      padding: 16,
+                      background: "var(--ant-color-bg-container)",
+                      border: "1px solid var(--ant-color-border)",
+                      borderRadius: 8,
+                    }}
+                  >
+                    <h3 style={{ marginTop: 0, fontSize: 16, marginBottom: 8 }}>
+                      Maintenance
+                    </h3>
+                    <p style={{ marginBottom: 8, fontSize: 13 }}>
+                      {maintenanceMessage || "No message set"}
                     </p>
-                  )}
-                </div>
-              </Card>
+                    {maintenanceRange && maintenanceRange.length === 2 && (
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        {maintenanceRange[0].format("MM/DD/YYYY hh:mm A")} -{" "}
+                        {maintenanceRange[1].format("MM/DD/YYYY hh:mm A")}
+                      </Text>
+                    )}
+                    {!maintenanceRange && (
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        No active window selected
+                      </Text>
+                    )}
+                  </div>
+                </Space>
+              </Modal>
             </Space>
           </Card>
         </Col>
       </Row>
       <Row gutter={[12, 12]} style={{ marginTop: 12 }}>
         <Col xs={24}>
-          <Card size="small" title="Backup Collections" bodyStyle={{ fontSize: 12 }}>
+          <Card
+            size="small"
+            title="Backup Collections"
+            bodyStyle={{ fontSize: 12 }}
+          >
             <Space direction="vertical" style={{ width: "100%" }}>
-              <Row gutter={[8, 8]} align="middle">
-                <Col xs={24} md={12}>
-                  <Select
+              <Space wrap size={8} align="center">
+                <Select
+                  size="small"
+                  placeholder="Select collection"
+                  value={selectedCollection}
+                  onChange={setSelectedCollection}
+                  options={collections.map((c) => ({
+                    label: c.name,
+                    value: c.name,
+                  }))}
+                  loading={collectionsLoading}
+                  style={{ minWidth: 240, maxWidth: 360 }}
+                />
+                <Select
+                  size="small"
+                  value={backupFormat}
+                  onChange={setBackupFormat}
+                  options={[
+                    { label: "JSON", value: "json" },
+                    { label: "CSV", value: "csv" },
+                  ]}
+                  style={{ width: 140, maxWidth: 180 }}
+                />
+                <Space size={8} wrap>
+                  <Button
                     size="small"
-                    placeholder="Select collection"
-                    value={selectedCollection}
-                    onChange={setSelectedCollection}
-                    options={collections.map((c) => ({ label: c.name, value: c.name }))}
-                    loading={collectionsLoading}
-                    style={{ width: "100%" }}
-                  />
-                </Col>
-                <Col xs={12} md={6}>
-                  <Select
+                    onClick={downloadCollectionNow}
+                    disabled={!selectedCollection}
+                  >
+                    Download
+                  </Button>
+                  <Button
                     size="small"
-                    value={backupFormat}
-                    onChange={setBackupFormat}
-                    options={[{ label: "JSON", value: "json" }, { label: "CSV", value: "csv" }]}
-                    style={{ width: "100%" }}
-                  />
-                </Col>
-                <Col xs={12} md={6}>
-                  <Space wrap>
-                    <Button size="small" onClick={downloadCollectionNow} disabled={!selectedCollection}>Download</Button>
-                    <Button size="small" type="primary" onClick={handleBackup} disabled={!selectedCollection}>Queue</Button>
-                  </Space>
-                </Col>
-              </Row>
+                    type="primary"
+                    onClick={handleBackup}
+                    disabled={!selectedCollection}
+                  >
+                    Queue
+                  </Button>
+                  <Button
+                    size="small"
+                    onClick={fetchJobs}
+                    loading={jobsLoading}
+                  >
+                    Refresh Jobs
+                  </Button>
+                  <Popconfirm
+                    title="Clear completed/failed jobs?"
+                    onConfirm={() => clearJobs("done")}
+                  >
+                    <Button size="small" danger>
+                      Clear Completed
+                    </Button>
+                  </Popconfirm>
+                </Space>
+              </Space>
 
-              <Row gutter={[8, 8]} align="middle">
-                <Col>
-                  <Space wrap>
-                    <Button size="small" onClick={fetchJobs} loading={jobsLoading}>Refresh Jobs</Button>
-                    <Popconfirm title="Clear completed/failed jobs?" onConfirm={() => clearJobs("done")}>
-                      <Button size="small" danger>Clear Completed</Button>
-                    </Popconfirm>
-                  </Space>
-                </Col>
-              </Row>
+              {/* Refresh/Clear actions moved next to Queue button above */}
 
               <Row gutter={[8, 8]}>
                 <Col xs={24} sm={12} md={8}>
@@ -1334,7 +2101,10 @@ const DevSettings = () => {
                     size="small"
                     value={jobCollectionFilter}
                     onChange={setJobCollectionFilter}
-                    options={[{ label: "All Collections", value: "all" }, ...jobCollections.map((c) => ({ label: c, value: c }))]}
+                    options={[
+                      { label: "All Collections", value: "all" },
+                      ...jobCollections.map((c) => ({ label: c, value: c })),
+                    ]}
                     style={{ width: "100%" }}
                   />
                 </Col>
@@ -1346,24 +2116,47 @@ const DevSettings = () => {
                 dataSource={filteredJobs}
                 loading={jobsLoading}
                 rowKey={(r) => r._id}
-                pagination={{ pageSize: 5, showSizeChanger: true, pageSizeOptions: [5,10,20,50] }}
+                pagination={{
+                  pageSize: 5,
+                  showSizeChanger: true,
+                  pageSizeOptions: [5, 10, 20, 50],
+                }}
                 columns={[
-                  { title: "Collection", dataIndex: "collection", key: "collection" },
+                  {
+                    title: "Collection",
+                    dataIndex: "collection",
+                    key: "collection",
+                  },
                   { title: "Format", dataIndex: "format", key: "format" },
                   {
                     title: "Status",
                     dataIndex: "status",
                     key: "status",
                     render: (v) => (
-                      <Tag color={v === "completed" ? "green" : v === "failed" ? "red" : "blue"}>{v}</Tag>
+                      <Tag
+                        color={
+                          v === "completed"
+                            ? "green"
+                            : v === "failed"
+                            ? "red"
+                            : "blue"
+                        }
+                      >
+                        {v}
+                      </Tag>
                     ),
                   },
-                  { title: "Requested By", dataIndex: "requestedByName", key: "requestedByName" },
+                  {
+                    title: "Requested By",
+                    dataIndex: "requestedByName",
+                    key: "requestedByName",
+                  },
                   {
                     title: "Created",
                     dataIndex: "createdAt",
                     key: "createdAt",
-                    render: (v) => (v ? dayjs(v).format("MM/DD/YYYY hh:mm A") : ""),
+                    render: (v) =>
+                      v ? dayjs(v).format("MM/DD/YYYY hh:mm A") : "",
                   },
                   {
                     title: "Action",
@@ -1371,14 +2164,24 @@ const DevSettings = () => {
                     render: (_, row) => (
                       <Space>
                         {row.status === "completed" && row.resultPath ? (
-                          <Button size="small" onClick={() => downloadBackupJob(row)}>Download</Button>
+                          <Button
+                            size="small"
+                            onClick={() => downloadBackupJob(row)}
+                          >
+                            Download
+                          </Button>
                         ) : row.status === "failed" ? (
                           <Text type="danger">Failed</Text>
                         ) : (
                           <Text type="secondary">{row.status}</Text>
                         )}
-                        <Popconfirm title="Delete this job?" onConfirm={() => deleteJob(row._id)}>
-                          <Button size="small" danger>Delete</Button>
+                        <Popconfirm
+                          title="Delete this job?"
+                          onConfirm={() => deleteJob(row._id)}
+                        >
+                          <Button size="small" danger>
+                            Delete
+                          </Button>
                         </Popconfirm>
                       </Space>
                     ),
@@ -1406,7 +2209,11 @@ const DevSettings = () => {
         dataSource={resignedEmployees}
         rowKey={(r) => r._id}
         locale={{ emptyText: "No resigned employees found" }}
-        pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: [5,10,20,50] }}
+        pagination={{
+          pageSize: 10,
+          showSizeChanger: true,
+          pageSizeOptions: [5, 10, 20, 50],
+        }}
         columns={[
           { title: "Emp ID", dataIndex: "empId", key: "empId" },
           { title: "Emp No", dataIndex: "empNo", key: "empNo" },
@@ -1440,79 +2247,272 @@ const DevSettings = () => {
 
       <Modal
         width={960}
-        styles={{ body: { maxHeight: 600, overflowY: 'auto' } }}
-        title={resignedSelected ? `Resigned: ${resignedSelected.name}` : 'Resigned Employee'}
+        styles={{ body: { maxHeight: 600, overflowY: "auto" } }}
+        title={
+          resignedSelected
+            ? `Resigned: ${resignedSelected.name}`
+            : "Resigned Employee"
+        }
         open={resignedDetailsOpen}
-        onCancel={() => { setResignedDetailsOpen(false); setResignedSelected(null); setEmpRecords(null); setBioRange(null); }}
+        onCancel={() => {
+          setResignedDetailsOpen(false);
+          setResignedSelected(null);
+          setEmpRecords(null);
+          setBioRange(null);
+        }}
         footer={null}
       >
         {resignedSelected && (
           <div style={{ fontSize: 12, lineHeight: 1.4 }}>
-            <Space direction="vertical" style={{ width: '100%' }} size={8}>
-              <Card size="small" bodyStyle={{ padding: 8 }} title={<span style={{ fontSize: 13 }}>Basic Info</span>}>
-                <Descriptions size="small" column={3} bordered labelStyle={{ fontSize: 11 }} contentStyle={{ fontSize: 11 }}>
-                  <Descriptions.Item label="Emp ID">{resignedSelected.empId}</Descriptions.Item>
-                  <Descriptions.Item label="Emp No">{resignedSelected.empNo}</Descriptions.Item>
-                  <Descriptions.Item label="Type">{resignedSelected.empType}</Descriptions.Item>
-                  <Descriptions.Item label="Division">{resignedSelected.division}</Descriptions.Item>
-                  <Descriptions.Item label="Section/Unit">{resignedSelected.sectionOrUnit}</Descriptions.Item>
-                  <Descriptions.Item label="Resigned At">{resignedSelected.resignedAt ? dayjs(resignedSelected.resignedAt).format('YYYY-MM-DD') : ''}</Descriptions.Item>
+            <Space direction="vertical" style={{ width: "100%" }} size={8}>
+              <Card
+                size="small"
+                bodyStyle={{ padding: 8 }}
+                title={<span style={{ fontSize: 13 }}>Basic Info</span>}
+              >
+                <Descriptions
+                  size="small"
+                  column={3}
+                  bordered
+                  labelStyle={{ fontSize: 11 }}
+                  contentStyle={{ fontSize: 11 }}
+                >
+                  <Descriptions.Item label="Emp ID">
+                    {resignedSelected.empId}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Emp No">
+                    {resignedSelected.empNo}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Type">
+                    {resignedSelected.empType}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Division">
+                    {resignedSelected.division}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Section/Unit">
+                    {resignedSelected.sectionOrUnit}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Resigned At">
+                    {resignedSelected.resignedAt
+                      ? dayjs(resignedSelected.resignedAt).format("YYYY-MM-DD")
+                      : ""}
+                  </Descriptions.Item>
                 </Descriptions>
               </Card>
-              <Alert type="warning" style={{ fontSize: 11 }} showIcon message={<span style={{ fontSize: 12 }}>Deletion will remove employee, salary, payslip requests, generation logs, documents, and training participation.</span>} />
-              <Space style={{ justifyContent:'space-between', width:'100%' }}>
-                <Text type="secondary" style={{ fontSize: 11 }}>Employee Records (collapsible)</Text>
+              <Alert
+                type="warning"
+                style={{ fontSize: 11 }}
+                showIcon
+                message={
+                  <span style={{ fontSize: 12 }}>
+                    Deletion will remove employee, salary, payslip requests,
+                    generation logs, documents, and training participation.
+                  </span>
+                }
+              />
+              <Space style={{ justifyContent: "space-between", width: "100%" }}>
+                <Text type="secondary" style={{ fontSize: 11 }}>
+                  Employee Records (collapsible)
+                </Text>
                 <Space>
-                  <Popconfirm title="Restore this employee?" okText="Restore" cancelText="Cancel" onConfirm={() => restoreResignedEmployee(resignedSelected)}>
-                    <Button size="small" type="primary">Restore</Button>
+                  <Popconfirm
+                    title="Restore this employee?"
+                    okText="Restore"
+                    cancelText="Cancel"
+                    onConfirm={() => restoreResignedEmployee(resignedSelected)}
+                  >
+                    <Button size="small" type="primary">
+                      Restore
+                    </Button>
                   </Popconfirm>
-                  <Popconfirm title="Delete this employee?" okText="Delete" okButtonProps={{ danger:true }} cancelText="Cancel" description="This action cannot be undone." onConfirm={() => deleteResignedEmployee(resignedSelected)}>
-                    <Button size="small" danger>Delete</Button>
+                  <Popconfirm
+                    title="Delete this employee?"
+                    okText="Delete"
+                    okButtonProps={{ danger: true }}
+                    cancelText="Cancel"
+                    description="This action cannot be undone."
+                    onConfirm={() => deleteResignedEmployee(resignedSelected)}
+                  >
+                    <Button size="small" danger>
+                      Delete
+                    </Button>
                   </Popconfirm>
                 </Space>
               </Space>
-              <Card size="small" bodyStyle={{ padding: 8 }} title={<span style={{ fontSize: 13 }}>Summary</span>} loading={empRecordsLoading}>
+              <Card
+                size="small"
+                bodyStyle={{ padding: 8 }}
+                title={<span style={{ fontSize: 13 }}>Summary</span>}
+                loading={empRecordsLoading}
+              >
                 {empRecords && (
                   <Space size={16} wrap>
-                    <Tag color="blue" style={{ fontSize:11, padding:'2px 6px' }}>Docs: {(empRecords.docs||[]).length}</Tag>
-                    <Tag color="green" style={{ fontSize:11, padding:'2px 6px' }}>Payslip Requests: {(empRecords.payslipRequests||[]).length}</Tag>
-                    <Tag color="geekblue" style={{ fontSize:11, padding:'2px 6px' }}>DTR Logs: {(empRecords.dtrGenerationLogs||[]).length}</Tag>
-                    <Tag color="blue" style={{ fontSize:11, padding:'2px 6px' }}>Biometric Logs: {empRecords?.biometricMeta?.total ?? (empRecords.biometricLogs||[]).length}</Tag>
-                    <Tag color="purple" style={{ fontSize:11, padding:'2px 6px' }}>Trainings: {(empRecords.trainings||[]).length}</Tag>
-                    <Tag color={empRecords.salary? 'gold':'default'} style={{ fontSize:11, padding:'2px 6px' }}>Salary: {empRecords.salary? 'Yes':'No'}</Tag>
+                    <Tag
+                      color="blue"
+                      style={{ fontSize: 11, padding: "2px 6px" }}
+                    >
+                      Docs: {(empRecords.docs || []).length}
+                    </Tag>
+                    <Tag
+                      color="green"
+                      style={{ fontSize: 11, padding: "2px 6px" }}
+                    >
+                      Payslip Requests:{" "}
+                      {(empRecords.payslipRequests || []).length}
+                    </Tag>
+                    <Tag
+                      color="geekblue"
+                      style={{ fontSize: 11, padding: "2px 6px" }}
+                    >
+                      DTR Logs: {(empRecords.dtrGenerationLogs || []).length}
+                    </Tag>
+                    <Tag
+                      color="blue"
+                      style={{ fontSize: 11, padding: "2px 6px" }}
+                    >
+                      Biometric Logs:{" "}
+                      {empRecords?.biometricMeta?.total ??
+                        (empRecords.biometricLogs || []).length}
+                    </Tag>
+                    <Tag
+                      color="purple"
+                      style={{ fontSize: 11, padding: "2px 6px" }}
+                    >
+                      Trainings: {(empRecords.trainings || []).length}
+                    </Tag>
+                    <Tag
+                      color={empRecords.salary ? "gold" : "default"}
+                      style={{ fontSize: 11, padding: "2px 6px" }}
+                    >
+                      Salary: {empRecords.salary ? "Yes" : "No"}
+                    </Tag>
                   </Space>
                 )}
               </Card>
               <Collapse size="small" accordion>
-                <Collapse.Panel header={<span style={{ fontSize:12 }}>Documents</span>} key="docs">
-                  <Table className="compact-table" size="small" scroll={{y:200}} pagination={false} rowKey={r=>r._id} dataSource={empRecords?.docs||[]} columns={[
-                    { title:'Type', dataIndex:'docType', key:'docType', width:120 },
-                    { title:'Reference', dataIndex:'reference', key:'reference' },
-                    { title:'Period', dataIndex:'period', key:'period', width:110 },
-                    { title:'Issued', dataIndex:'dateIssued', key:'dateIssued', width:110, render:v=>v?dayjs(v).format('YYYY-MM-DD'):'' },
-                  ]} />
+                <Collapse.Panel
+                  header={<span style={{ fontSize: 12 }}>Documents</span>}
+                  key="docs"
+                >
+                  <Table
+                    className="compact-table"
+                    size="small"
+                    scroll={{ y: 200 }}
+                    pagination={false}
+                    rowKey={(r) => r._id}
+                    dataSource={empRecords?.docs || []}
+                    columns={[
+                      {
+                        title: "Type",
+                        dataIndex: "docType",
+                        key: "docType",
+                        width: 120,
+                      },
+                      {
+                        title: "Reference",
+                        dataIndex: "reference",
+                        key: "reference",
+                      },
+                      {
+                        title: "Period",
+                        dataIndex: "period",
+                        key: "period",
+                        width: 110,
+                      },
+                      {
+                        title: "Issued",
+                        dataIndex: "dateIssued",
+                        key: "dateIssued",
+                        width: 110,
+                        render: (v) => (v ? dayjs(v).format("YYYY-MM-DD") : ""),
+                      },
+                    ]}
+                  />
                 </Collapse.Panel>
-                <Collapse.Panel header={<span style={{ fontSize:12 }}>Payslip Requests</span>} key="payslips">
-                  <Table className="compact-table" size="small" scroll={{y:200}} pagination={false} rowKey={r=>r._id} dataSource={empRecords?.payslipRequests||[]} columns={[
-                    { title:'Period', dataIndex:'period', key:'period', width:120 },
-                    { title:'Email', dataIndex:'email', key:'email' },
-                    { title:'Status', dataIndex:'status', key:'status', width:100 },
-                    { title:'Created', dataIndex:'createdAt', key:'createdAt', width:110, render:v=>v?dayjs(v).format('YYYY-MM-DD'):'' },
-                  ]} />
+                <Collapse.Panel
+                  header={
+                    <span style={{ fontSize: 12 }}>Payslip Requests</span>
+                  }
+                  key="payslips"
+                >
+                  <Table
+                    className="compact-table"
+                    size="small"
+                    scroll={{ y: 200 }}
+                    pagination={false}
+                    rowKey={(r) => r._id}
+                    dataSource={empRecords?.payslipRequests || []}
+                    columns={[
+                      {
+                        title: "Period",
+                        dataIndex: "period",
+                        key: "period",
+                        width: 120,
+                      },
+                      { title: "Email", dataIndex: "email", key: "email" },
+                      {
+                        title: "Status",
+                        dataIndex: "status",
+                        key: "status",
+                        width: 100,
+                      },
+                      {
+                        title: "Created",
+                        dataIndex: "createdAt",
+                        key: "createdAt",
+                        width: 110,
+                        render: (v) => (v ? dayjs(v).format("YYYY-MM-DD") : ""),
+                      },
+                    ]}
+                  />
                 </Collapse.Panel>
-                <Collapse.Panel header={<span style={{ fontSize:12 }}>DTR Generation Logs</span>} key="dtr">
-                  <Table className="compact-table" size="small" scroll={{y:200}} pagination={false} rowKey={r=>r._id} dataSource={empRecords?.dtrGenerationLogs||[]} columns={[
-                    { title:'Period', dataIndex:'period', key:'period', width:120 },
-                    { title:'Generated By', dataIndex:'generatedBy', key:'generatedBy' },
-                    { title:'Created', dataIndex:'createdAt', key:'createdAt', width:110, render:v=>v?dayjs(v).format('YYYY-MM-DD'):'' },
-                  ]} />
+                <Collapse.Panel
+                  header={
+                    <span style={{ fontSize: 12 }}>DTR Generation Logs</span>
+                  }
+                  key="dtr"
+                >
+                  <Table
+                    className="compact-table"
+                    size="small"
+                    scroll={{ y: 200 }}
+                    pagination={false}
+                    rowKey={(r) => r._id}
+                    dataSource={empRecords?.dtrGenerationLogs || []}
+                    columns={[
+                      {
+                        title: "Period",
+                        dataIndex: "period",
+                        key: "period",
+                        width: 120,
+                      },
+                      {
+                        title: "Generated By",
+                        dataIndex: "generatedBy",
+                        key: "generatedBy",
+                      },
+                      {
+                        title: "Created",
+                        dataIndex: "createdAt",
+                        key: "createdAt",
+                        width: 110,
+                        render: (v) => (v ? dayjs(v).format("YYYY-MM-DD") : ""),
+                      },
+                    ]}
+                  />
                 </Collapse.Panel>
-                <Collapse.Panel header={<span style={{ fontSize:12 }}>Biometrics Logs</span>} key="biometrics">
+                <Collapse.Panel
+                  header={<span style={{ fontSize: 12 }}>Biometrics Logs</span>}
+                  key="biometrics"
+                >
                   <div style={{ fontSize: 11, lineHeight: 1.3 }}>
-                    <Space size={6} style={{ marginBottom: 8, flexWrap:'wrap' }}>
+                    <Space
+                      size={6}
+                      style={{ marginBottom: 8, flexWrap: "wrap" }}
+                    >
                       <DatePicker.RangePicker
                         size="small"
-                        onChange={(v)=> setBioRange(v)}
+                        onChange={(v) => setBioRange(v)}
                         value={bioRange}
                         style={{ width: 260 }}
                         allowClear
@@ -1531,11 +2531,35 @@ const DevSettings = () => {
                         onChange={setBioTimeTo}
                         placeholder="End time"
                       />
-                      <Button size="small" onClick={refreshBiometricLogs} loading={bioLoading}>Apply</Button>
-                      <Button size="small" onClick={()=>{ setBioRange(null); setBioTimeFrom(null); setBioTimeTo(null); refreshBiometricLogs(); }}>Reset</Button>
-                      <Button size="small" onClick={exportBiometricsCSV} disabled={(bioLogs||[]).length===0}>Export CSV</Button>
+                      <Button
+                        size="small"
+                        onClick={refreshBiometricLogs}
+                        loading={bioLoading}
+                      >
+                        Apply
+                      </Button>
+                      <Button
+                        size="small"
+                        onClick={() => {
+                          setBioRange(null);
+                          setBioTimeFrom(null);
+                          setBioTimeTo(null);
+                          refreshBiometricLogs();
+                        }}
+                      >
+                        Reset
+                      </Button>
+                      <Button
+                        size="small"
+                        onClick={exportBiometricsCSV}
+                        disabled={(bioLogs || []).length === 0}
+                      >
+                        Export CSV
+                      </Button>
                       {bioMeta && (
-                        <Tag color="processing" style={{ marginLeft: 6 }}>Total: {bioMeta.total} • Showing {bioLogs.length}</Tag>
+                        <Tag color="processing" style={{ marginLeft: 6 }}>
+                          Total: {bioMeta.total} • Showing {bioLogs.length}
+                        </Tag>
                       )}
                     </Space>
                     <div className="bio-tight">
@@ -1544,36 +2568,98 @@ const DevSettings = () => {
                         size="small"
                         scroll={{ y: 220 }}
                         pagination={false}
-                        rowKey={r=>r._id}
-                        dataSource={(bioLogs||[]).filter(r=>{
+                        rowKey={(r) => r._id}
+                        dataSource={(bioLogs || []).filter((r) => {
                           const t = r?.Time ? dayjs(r.Time) : null;
                           if (!t) return false;
                           // Date filter (client side safeguard)
                           if (bioRange && bioRange[0] && bioRange[1]) {
-                            if (!t.isBetween(bioRange[0], bioRange[1], 'day', '[]')) return false;
+                            if (
+                              !t.isBetween(
+                                bioRange[0],
+                                bioRange[1],
+                                "day",
+                                "[]"
+                              )
+                            )
+                              return false;
                           }
                           // Time-of-day filter
                           if (bioTimeFrom || bioTimeTo) {
-                            const minutes = t.hour()*60 + t.minute();
-                            const startM = bioTimeFrom ? (bioTimeFrom.hour()*60 + bioTimeFrom.minute()) : null;
-                            const endM = bioTimeTo ? (bioTimeTo.hour()*60 + bioTimeTo.minute()) : null;
-                            if (startM !== null && minutes < startM) return false;
+                            const minutes = t.hour() * 60 + t.minute();
+                            const startM = bioTimeFrom
+                              ? bioTimeFrom.hour() * 60 + bioTimeFrom.minute()
+                              : null;
+                            const endM = bioTimeTo
+                              ? bioTimeTo.hour() * 60 + bioTimeTo.minute()
+                              : null;
+                            if (startM !== null && minutes < startM)
+                              return false;
                             if (endM !== null && minutes > endM) return false;
                           }
                           return true;
                         })}
                         columns={[
-                          { title:<span style={{fontSize:11}}>AC-No</span>, dataIndex:'AC-No', key:'acno', width:110, render:v=> <span style={{fontSize:11}}>{v}</span> },
-                          { title:<span style={{fontSize:11}}>Name</span>, dataIndex:'Name', key:'name', render:v=> <span style={{fontSize:11}}>{v}</span> },
-                          { title:<span style={{fontSize:11}}>Time</span>, dataIndex:'Time', key:'time', width:150, render:v=> <span style={{fontSize:11}}>{v?dayjs(v).format('YYYY-MM-DD HH:mm'):''}</span> },
-                          { title:<span style={{fontSize:11}}>State</span>, dataIndex:'State', key:'state', width:90, render:v=> <span style={{fontSize:11}}>{v}</span> },
+                          {
+                            title: <span style={{ fontSize: 11 }}>AC-No</span>,
+                            dataIndex: "AC-No",
+                            key: "acno",
+                            width: 110,
+                            render: (v) => (
+                              <span style={{ fontSize: 11 }}>{v}</span>
+                            ),
+                          },
+                          {
+                            title: <span style={{ fontSize: 11 }}>Name</span>,
+                            dataIndex: "Name",
+                            key: "name",
+                            render: (v) => (
+                              <span style={{ fontSize: 11 }}>{v}</span>
+                            ),
+                          },
+                          {
+                            title: <span style={{ fontSize: 11 }}>Time</span>,
+                            dataIndex: "Time",
+                            key: "time",
+                            width: 150,
+                            render: (v) => (
+                              <span style={{ fontSize: 11 }}>
+                                {v ? dayjs(v).format("YYYY-MM-DD HH:mm") : ""}
+                              </span>
+                            ),
+                          },
+                          {
+                            title: <span style={{ fontSize: 11 }}>State</span>,
+                            dataIndex: "State",
+                            key: "state",
+                            width: 90,
+                            render: (v) => (
+                              <span style={{ fontSize: 11 }}>{v}</span>
+                            ),
+                          },
                         ]}
                       />
-                      <div style={{ marginTop: 8, display:'flex', gap:8, alignItems:'center' }}>
-                        <Button size="small" onClick={loadMoreBiometrics} disabled={!bioMeta?.hasMore} loading={bioLoading}>
-                          {bioMeta?.hasMore ? 'Load more' : 'No more'}
+                      <div
+                        style={{
+                          marginTop: 8,
+                          display: "flex",
+                          gap: 8,
+                          alignItems: "center",
+                        }}
+                      >
+                        <Button
+                          size="small"
+                          onClick={loadMoreBiometrics}
+                          disabled={!bioMeta?.hasMore}
+                          loading={bioLoading}
+                        >
+                          {bioMeta?.hasMore ? "Load more" : "No more"}
                         </Button>
-                        {bioMeta && <Text type="secondary">Page {bioMeta.page} • Returned {bioMeta.returned}</Text>}
+                        {bioMeta && (
+                          <Text type="secondary">
+                            Page {bioMeta.page} • Returned {bioMeta.returned}
+                          </Text>
+                        )}
                       </div>
                     </div>
                     <style>
@@ -1584,23 +2670,71 @@ const DevSettings = () => {
                     </style>
                   </div>
                 </Collapse.Panel>
-                <Collapse.Panel header={<span style={{ fontSize:12 }}>Trainings</span>} key="trainings">
-                  <Table className="compact-table" size="small" scroll={{y:200}} pagination={false} rowKey={r=>r._id} dataSource={empRecords?.trainings||[]} columns={[
-                    { title:'Name', dataIndex:'name', key:'name' },
-                    { title:'Host', dataIndex:'host', key:'host', width:120 },
-                    { title:'Venue', dataIndex:'venue', key:'venue', width:120 },
-                    { title:'Date', dataIndex:'trainingDate', key:'trainingDate', width:110, render:v=>v?dayjs(v).format('YYYY-MM-DD'):'' },
-                  ]} />
+                <Collapse.Panel
+                  header={<span style={{ fontSize: 12 }}>Trainings</span>}
+                  key="trainings"
+                >
+                  <Table
+                    className="compact-table"
+                    size="small"
+                    scroll={{ y: 200 }}
+                    pagination={false}
+                    rowKey={(r) => r._id}
+                    dataSource={empRecords?.trainings || []}
+                    columns={[
+                      { title: "Name", dataIndex: "name", key: "name" },
+                      {
+                        title: "Host",
+                        dataIndex: "host",
+                        key: "host",
+                        width: 120,
+                      },
+                      {
+                        title: "Venue",
+                        dataIndex: "venue",
+                        key: "venue",
+                        width: 120,
+                      },
+                      {
+                        title: "Date",
+                        dataIndex: "trainingDate",
+                        key: "trainingDate",
+                        width: 110,
+                        render: (v) => (v ? dayjs(v).format("YYYY-MM-DD") : ""),
+                      },
+                    ]}
+                  />
                 </Collapse.Panel>
-                <Collapse.Panel header={<span style={{ fontSize:12 }}>Salary</span>} key="salary">
+                <Collapse.Panel
+                  header={<span style={{ fontSize: 12 }}>Salary</span>}
+                  key="salary"
+                >
                   {empRecords?.salary ? (
-                    <Descriptions size="small" column={3} bordered labelStyle={{ fontSize:11 }} contentStyle={{ fontSize:11 }}>
-                      <Descriptions.Item label="Type">{empRecords.salary.salaryType}</Descriptions.Item>
-                      <Descriptions.Item label="Payroll Type">{empRecords.salary.payrollType}</Descriptions.Item>
-                      <Descriptions.Item label="Basic Salary">{empRecords.salary.basicSalary}</Descriptions.Item>
-                      <Descriptions.Item label="Rate/Month">{empRecords.salary.ratePerMonth}</Descriptions.Item>
+                    <Descriptions
+                      size="small"
+                      column={3}
+                      bordered
+                      labelStyle={{ fontSize: 11 }}
+                      contentStyle={{ fontSize: 11 }}
+                    >
+                      <Descriptions.Item label="Type">
+                        {empRecords.salary.salaryType}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Payroll Type">
+                        {empRecords.salary.payrollType}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Basic Salary">
+                        {empRecords.salary.basicSalary}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Rate/Month">
+                        {empRecords.salary.ratePerMonth}
+                      </Descriptions.Item>
                     </Descriptions>
-                  ) : <Text type="secondary" style={{ fontSize:11 }}>No salary record</Text>}
+                  ) : (
+                    <Text type="secondary" style={{ fontSize: 11 }}>
+                      No salary record
+                    </Text>
+                  )}
                 </Collapse.Panel>
               </Collapse>
             </Space>
@@ -1722,7 +2856,11 @@ const DevSettings = () => {
           loading={employeesLoading}
           dataSource={filteredEmployees}
           rowKey={(r) => r._id}
-          pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: [5,10,20,50] }}
+          pagination={{
+            pageSize: 10,
+            showSizeChanger: true,
+            pageSizeOptions: [5, 10, 20, 50],
+          }}
           columns={[
             { title: "Emp ID", dataIndex: "empId", key: "empId" },
             { title: "Emp No", dataIndex: "empNo", key: "empNo" },
@@ -1944,7 +3082,9 @@ const DevSettings = () => {
 
   return (
     <Space direction="vertical" style={{ width: "100%" }}>
-  <Title level={3}>Developer Settings {isDemoUser && <Tag color="blue">Demo User</Tag>}</Title>
+      <Title level={3}>
+        Developer Settings {isDemoUser && <Tag color="blue">Demo User</Tag>}
+      </Title>
       {!canSeeDev && (
         <Alert
           type="warning"
@@ -1999,9 +3139,107 @@ const DevSettings = () => {
             key: "demo-mode",
             label: "Demo Mode",
             children: (
-              <Section title="Demo Mode Configuration" extra={settings?.demo?.enabled ? <Tag color="blue">Active</Tag> : <Tag>Disabled</Tag>}>
-                <DemoModeSettings settings={settings} onUpdated={(next)=>{ setSettings(next); window.dispatchEvent(new Event('app-settings-updated')); }} />
-              </Section>
+              <Space direction="vertical" style={{ width: "100%" }} size={16}>
+                <Section
+                  title="Demo Mode Configuration"
+                  extra={
+                    settings?.demo?.enabled ? (
+                      <Tag color="blue">Active</Tag>
+                    ) : (
+                      <Tag>Disabled</Tag>
+                    )
+                  }
+                >
+                  <DemoModeSettings
+                    settings={settings}
+                    onUpdated={(next) => {
+                      setSettings(next);
+                      window.dispatchEvent(new Event("app-settings-updated"));
+                    }}
+                  />
+                </Section>
+                <Section
+                  title="Per-User Demo Access"
+                  extra={
+                    <Space>
+                      <Checkbox
+                        checked={showOnlyDemoUsers}
+                        onChange={(e) => setShowOnlyDemoUsers(e.target.checked)}
+                      >
+                        Show only demo users
+                      </Checkbox>
+                      <Button
+                        size="small"
+                        onClick={fetchDemoUsers}
+                        loading={demoUsersLoading}
+                      >
+                        Refresh
+                      </Button>
+                    </Space>
+                  }
+                >
+                  <Alert
+                    type="info"
+                    showIcon
+                    style={{ marginBottom: 12 }}
+                    message="Toggle which accounts are treated as demo users when Demo Mode is active."
+                    description="Demo users are restricted by Demo Mode settings unless submissions are allowed or the account is a developer/admin."
+                  />
+                  <Table
+                    size="small"
+                    className="compact-table"
+                    rowKey={(r) => r._id}
+                    loading={demoUsersLoading}
+                    dataSource={(demoUsers || []).filter(
+                      (r) => !showOnlyDemoUsers || r.isDemo
+                    )}
+                    pagination={{
+                      pageSize: 8,
+                      showSizeChanger: true,
+                      pageSizeOptions: [5, 8, 15, 30],
+                    }}
+                    columns={[
+                      {
+                        title: "Name",
+                        dataIndex: "name",
+                        key: "name",
+                        render: (v, r) => (
+                          <span>
+                            {v}
+                            {r._id === user?._id && (
+                              <Tag color="geekblue" style={{ marginLeft: 4 }}>
+                                You
+                              </Tag>
+                            )}
+                          </span>
+                        ),
+                      },
+                      {
+                        title: "Username",
+                        dataIndex: "username",
+                        key: "username",
+                      },
+                      {
+                        title: "Type",
+                        dataIndex: "userType",
+                        key: "userType",
+                        render: (v) => v || "guest",
+                      },
+                      {
+                        title: "Demo User",
+                        key: "demo",
+                        render: (_, r) => (
+                          <Switch
+                            checked={!!r.isDemo}
+                            onChange={(val) => toggleUserDemo(r, val)}
+                            disabled={savingDemoIds.has(r._id)}
+                          />
+                        ),
+                      },
+                    ]}
+                  />
+                </Section>
+              </Space>
             ),
             forceRender: true,
           },
@@ -2020,21 +3258,151 @@ const DevSettings = () => {
             label: "Audit Logs",
             children: (
               <Section title="Audit Logs">
-                <Button onClick={fetchAuditLogs}>Refresh</Button>
+                <Space wrap size={8} style={{ marginBottom: 8 }}>
+                  <Button
+                    onClick={() => fetchAuditLogs(1, auditPageSize)}
+                    loading={auditLoading}
+                  >
+                    Refresh
+                  </Button>
+                  <Button onClick={exportAuditCsv}>Export Current Page</Button>
+                  <Button onClick={() => exportAuditCsvServer()}>
+                    Export CSV (All/Filtered)
+                  </Button>
+                  <Select
+                    mode="multiple"
+                    allowClear
+                    placeholder="Actions"
+                    size="small"
+                    value={auditActionsFilter}
+                    onChange={(vals) => {
+                      setAuditActionsFilter(vals);
+                      fetchAuditLogs(1, auditPageSize, { actions: vals });
+                    }}
+                    options={auditActionOptions}
+                    style={{ minWidth: 240 }}
+                  />
+                  <Select
+                    size="small"
+                    value={auditUserFilter}
+                    onChange={(v) => {
+                      setAuditUserFilter(v);
+                      fetchAuditLogs(1, auditPageSize, { user: v });
+                    }}
+                    options={auditUserOptions}
+                    style={{ minWidth: 180 }}
+                  />
+                  <Input.Search
+                    allowClear
+                    size="small"
+                    placeholder="Search in details…"
+                    value={auditDetailsQuery}
+                    onChange={(e) => setAuditDetailsQuery(e.target.value)}
+                    onSearch={(val) => {
+                      setAuditDetailsQuery(val);
+                      fetchAuditLogs(1, auditPageSize, {
+                        detailsFragment: val,
+                      });
+                    }}
+                    style={{ width: 220 }}
+                  />
+                  <DatePicker.RangePicker
+                    size="small"
+                    value={auditDateRange}
+                    onChange={(vals) => {
+                      setAuditDateRange(vals);
+                      fetchAuditLogs(1, auditPageSize, { dateRange: vals });
+                    }}
+                    showTime={{ format: "HH:mm" }}
+                  />
+                  <Button
+                    size="small"
+                    onClick={() => {
+                      setAuditActionsFilter([]);
+                      setAuditUserFilter("all");
+                      setAuditDateRange(null);
+                      setAuditDetailsQuery("");
+                      fetchAuditLogs(1, auditPageSize, {
+                        actions: [],
+                        user: "all",
+                        dateRange: null,
+                        detailsFragment: "",
+                      });
+                    }}
+                  >
+                    Reset Filters
+                  </Button>
+                </Space>
                 <Table
                   className="compact-table"
                   size="small"
-                  dataSource={auditLogs}
+                  dataSource={filteredAuditLogs}
                   loading={auditLoading}
                   rowKey={(r) => r._id}
-                  pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: [5,10,20,50] }}
+                  pagination={{
+                    current: auditPage,
+                    pageSize: auditPageSize,
+                    total: auditTotal || filteredAuditLogs.length,
+                    showSizeChanger: true,
+                    pageSizeOptions: [10, 20, 50, 100],
+                    showTotal: (total, range) =>
+                      `${range[0]}-${range[1]} of ${total}`,
+                    onShowSizeChange: (p, s) => {
+                      // Explicitly handle page size changes (some AntD versions only call this)
+                      if (s !== auditPageSize) {
+                        setAuditPageSize(s);
+                        fetchAuditLogs(1, s);
+                      }
+                    },
+                    onChange: (p, s) => {
+                      if (s !== auditPageSize) {
+                        setAuditPageSize(s);
+                        fetchAuditLogs(1, s);
+                      } else {
+                        fetchAuditLogs(p, s);
+                      }
+                    },
+                  }}
+                  onChange={(_, __, sorter) => {
+                    const sb =
+                      sorter?.field || sorter?.columnKey || "createdAt";
+                    const so = sorter?.order || "descend";
+                    setAuditSortBy(sb);
+                    setAuditSortOrder(so);
+                    fetchAuditLogs(1, auditPageSize, {
+                      sortBy: sb,
+                      sortOrder: so,
+                    });
+                  }}
                   columns={[
-                    { title: "Action", dataIndex: "action", key: "action" },
-                    { title: "By", dataIndex: "performedByName", key: "by" },
+                    {
+                      title: "Action",
+                      dataIndex: "action",
+                      key: "action",
+                      sorter: true,
+                      sortOrder:
+                        auditSortBy === "action" ? auditSortOrder : null,
+                      render: (v) => (
+                        <Tag color={tagColorForAction(v)}>{v}</Tag>
+                      ),
+                    },
+                    {
+                      title: "By",
+                      dataIndex: "performedByName",
+                      key: "performedByName",
+                      sorter: true,
+                      sortOrder:
+                        auditSortBy === "performedByName"
+                          ? auditSortOrder
+                          : null,
+                    },
                     {
                       title: "When",
                       dataIndex: "createdAt",
                       key: "createdAt",
+                      sorter: true,
+                      sortOrder:
+                        auditSortBy === "createdAt" ? auditSortOrder : null,
                       render: (v) =>
                         v ? dayjs(v).format("MM/DD/YYYY HH:mm") : "",
                     },
@@ -2042,10 +3410,49 @@ const DevSettings = () => {
                       title: "Details",
                       dataIndex: "details",
                       key: "details",
-                      render: (d) => JSON.stringify(d),
+                      render: (d, row) => (
+                        <Space>
+                          <code style={{ fontSize: 11, maxWidth: 320 }}>
+                            {JSON.stringify(d).slice(0, 60)}
+                            {JSON.stringify(d).length > 60 ? "…" : ""}
+                          </code>
+                          <Button
+                            size="small"
+                            onClick={() => {
+                              setAuditDetailObj(d || {});
+                              setAuditDetailOpen(true);
+                            }}
+                          >
+                            View
+                          </Button>
+                        </Space>
+                      ),
                     },
                   ]}
                 />
+                <Modal
+                  open={auditDetailOpen}
+                  onCancel={() => setAuditDetailOpen(false)}
+                  footer={null}
+                  width={720}
+                  title="Audit Details"
+                >
+                  <pre
+                    style={{
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-word",
+                      fontSize: 12,
+                      background: "var(--ant-color-bg-container)",
+                      border: "1px solid var(--ant-color-border)",
+                      borderRadius: 8,
+                      padding: 12,
+                    }}
+                  >
+                    {auditDetailObj
+                      ? JSON.stringify(auditDetailObj, null, 2)
+                      : ""}
+                  </pre>
+                </Modal>
               </Section>
             ),
             forceRender: true,
@@ -2064,7 +3471,11 @@ const DevSettings = () => {
                   dataSource={notifications}
                   loading={notifLoading}
                   rowKey={(r) => r._id}
-                  pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: [5,10,20,50] }}
+                  pagination={{
+                    pageSize: 10,
+                    showSizeChanger: true,
+                    pageSizeOptions: [5, 10, 20, 50],
+                  }}
                   columns={[
                     {
                       title: "Title",
@@ -2234,6 +3645,30 @@ const DevSettings = () => {
             <Input.TextArea rows={4} />
           </Form.Item>
         </Form>
+      </Modal>
+      <Modal
+        title="UAT Deployment Notes"
+        open={deploymentModalOpen}
+        onCancel={() => setDeploymentModalOpen(false)}
+        footer={
+          <Button onClick={() => setDeploymentModalOpen(false)}>Close</Button>
+        }
+        width={800}
+        styles={{ body: { maxHeight: 600, overflowY: "auto" } }}
+      >
+        {loadingDeployment ? (
+          <Card loading size="small" />
+        ) : (
+          <div
+            style={{
+              fontFamily: "monospace",
+              fontSize: 12,
+              whiteSpace: "pre-wrap",
+            }}
+          >
+            {deploymentNotes}
+          </div>
+        )}
       </Modal>
     </Space>
   );

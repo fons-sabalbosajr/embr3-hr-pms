@@ -1,4 +1,5 @@
 import Settings from "../models/Settings.js";
+import { setSettings } from "../utils/settingsCache.js";
 import bcrypt from "bcrypt";
 import AuditLog from "../models/AuditLog.js";
 import dayjs from "dayjs";
@@ -52,7 +53,33 @@ export const updateSettings = async (req, res) => {
       if (demo.allowedPermissions && !Array.isArray(demo.allowedPermissions)) {
         demo.allowedPermissions = [];
       }
+        if (demo.allowedActions && !Array.isArray(demo.allowedActions)) {
+          demo.allowedActions = [];
+        }
+      if (demo.hiddenActions && !Array.isArray(demo.hiddenActions)) {
+        demo.hiddenActions = [];
+      }
       body.demo = demo;
+    }
+
+    // Sanitize SMTP config (do not allow password overwrite via this endpoint for safety)
+    if (body.smtp) {
+      const smtp = body.smtp;
+      // Trim basic string fields
+      ['host','user','fromEmail','fromName'].forEach(k => {
+        if (typeof smtp[k] === 'string') smtp[k] = smtp[k].trim();
+      });
+      // Normalize port
+      if (smtp.port != null) {
+        const p = Number(smtp.port);
+        smtp.port = Number.isFinite(p) ? p : undefined;
+      }
+      // Ensure secure boolean if provided
+      if (smtp.secure != null) smtp.secure = Boolean(smtp.secure);
+      smtp.updatedAt = new Date();
+      // Never persist any password field from body (require env variable instead)
+      delete smtp.password;
+      body.smtp = smtp;
     }
 
     const settings = await Settings.findOneAndUpdate(
@@ -60,6 +87,9 @@ export const updateSettings = async (req, res) => {
       { $set: body },
       { new: true, upsert: true, runValidators: true }
     );
+
+    // Update in-memory cache so demo enforcement reflects immediately
+    try { setSettings(settings); } catch(_) {}
 
     // If maintenance settings changed, create an audit log
     const oldMaint = oldSettings?.maintenance || {};

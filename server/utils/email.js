@@ -184,6 +184,38 @@ export const sendResetPasswordEmail = async (to, name, resetLink) => {
   }, "password-reset");
 };
 
+export const sendPasswordChangeVerificationEmail = async (to, name, confirmLink, token) => {
+  return sendWithRetry({
+    from: `"EMB Region III Payroll Management System" <${process.env.EMAIL_USER}>`,
+    to,
+    subject: "Confirm Your Password Change",
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #e6e6e6; padding: 20px; border-radius: 8px;">
+        <h2 style="color: #1890ff;">Confirm Password Change</h2>
+        <p>Hi <strong>${name}</strong>,</p>
+  <p>You recently requested to change your password. For security reasons, please confirm this action by clicking the button below, or paste the token into the app:</p>
+        <div style="text-align: center; margin: 20px 0;">
+          <a href="${confirmLink}" style="
+            padding: 12px 24px;
+            background-color: #1890ff;
+            color: #ffffff;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: bold;
+            display: inline-block;
+          ">Confirm Password Change</a>
+        </div>
+  <p style="font-size: 13px; color: #666;">Verification token (copy & paste into the app if needed):</p>
+  <pre style="background:#f7f7f7;border:1px solid #eee;padding:10px;border-radius:6px;white-space:pre-wrap;word-break:break-all;">${token || ''}</pre>
+  <p style="font-size: 13px; color: #666;">If you did not initiate this request, you can safely ignore this email. Your password will remain unchanged.</p>
+        <hr style="border: none; border-top: 1px solid #ddd;" />
+        <p style="font-size: 12px; color: #999; text-align: center;">© 2025 EMB Region III. All rights reserved.</p>
+      </div>
+    `,
+    text: `Hi ${name},\n\nYou requested a password change. Confirm using this link: ${confirmLink}\nIf you did not request this, ignore this email.`,
+  }, "password-change-verify");
+};
+
 export const sendNoTimeRecordReminderEmail = async ({ to, name, empId, date, remarks }) => {
   const safeName = name || 'Employee';
   const dateStr = new Date(date).toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' });

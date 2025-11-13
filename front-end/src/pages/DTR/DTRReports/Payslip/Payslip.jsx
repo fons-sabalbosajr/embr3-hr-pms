@@ -8,11 +8,11 @@ import {
   Space,
   Tag,
   Tooltip,
-  notification,
   Tabs,
   Form,
   Modal,
 } from "antd";
+import useNotify from '../../../../hooks/useNotify';
 import { SearchOutlined } from "@ant-design/icons";
 import axiosInstance from "../../../../api/axiosInstance";
 import dayjs from "dayjs";
@@ -25,6 +25,7 @@ import {
   openPayslipInNewTabRegular,
 } from "../../../../../utils/generatePaySlipRegular.js";
 import { secureGet } from "../../../../../utils/secureStorage";
+import useDemoMode from "../../../../hooks/useDemoMode";
 import "./payslip.css";
 import GeneratePayslipModal from "./components/GeneratePayslipModal";
 import AddSalaryInfo from "../../../../components/Employees/SalaryInfo/AddSalaryInfo/AddSalaryInfo";
@@ -33,7 +34,9 @@ const { Option } = Select;
 const { TabPane } = Tabs;
 
 const Payslip = () => {
+  const { notification } = useNotify();
   const [form] = Form.useForm();
+  const { shouldHideInDemo } = useDemoMode();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isAddSalaryModalOpen, setIsAddSalaryModalOpen] = useState(false);
   const [combinedData, setCombinedData] = useState([]);
@@ -333,16 +336,18 @@ const Payslip = () => {
       width: 120,
       render: (_, record) => (
         <Space>
-          <Tooltip title="Generate Payslip">
-            <Button
-              size="small"
-              type="primary"
-              onClick={() => showGeneratePayslipModal(record)}
-              disabled={!record.salaryInfo} // Disable if no salary info exists
-            >
-              Generate
-            </Button>
-          </Tooltip>
+          {!shouldHideInDemo('ui.payslips.generatePDF') && (
+            <Tooltip title="Generate Payslip">
+              <Button
+                size="small"
+                type="primary"
+                onClick={() => showGeneratePayslipModal(record)}
+                disabled={!record.salaryInfo} // Disable if no salary info exists
+              >
+                Generate
+              </Button>
+            </Tooltip>
+          )}
         </Space>
       ),
     },
@@ -406,16 +411,18 @@ const Payslip = () => {
       width: 120,
       render: (_, record) => (
         <Space>
-          <Tooltip title="Generate Payslip">
-            <Button
-              size="small"
-              type="primary"
-              onClick={() => showGeneratePayslipModal(record)}
-              disabled={!record.salaryInfo} // Disable if no salary info exists
-            >
-              Generate
-            </Button>
-          </Tooltip>
+          {!shouldHideInDemo('ui.payslips.generatePDF') && (
+            <Tooltip title="Generate Payslip">
+              <Button
+                size="small"
+                type="primary"
+                onClick={() => showGeneratePayslipModal(record)}
+                disabled={!record.salaryInfo} // Disable if no salary info exists
+              >
+                Generate
+              </Button>
+            </Tooltip>
+          )}
         </Space>
       ),
     },

@@ -1,11 +1,13 @@
 // client/src/App.jsx
 import React, { Suspense, lazy } from "react";
+import ErrorBoundary from "./components/ErrorBoundary.jsx";
 import { Routes, Route, Navigate } from "react-router-dom";
 import useAuth from "./hooks/useAuth";
 
 // Route-level code splitting
 const AuthPage = lazy(() => import("./pages/AuthPage/AuthPage"));
 const ResetPassword = lazy(() => import("./pages/ResetPassword/ResetPassword"));
+const ConfirmPasswordChange = lazy(() => import("./pages/ConfirmPasswordChange/ConfirmPasswordChange"));
 const HomePage = lazy(() => import("./pages/HomePage/HomePage"));
 const EmailVerification = lazy(() => import("./pages/EmailVerification"));
 const PayslipRequest = lazy(() => import("./pages/RequestPayslipClient/PayslipRequest"));
@@ -26,6 +28,7 @@ const AppRoutes = () => {
       />
       <Route path="/verify/:token" element={<EmailVerification />} />
       <Route path="/reset-password/:token" element={<ResetPassword />} />
+  <Route path="/confirm-password-change/:token" element={<ConfirmPasswordChange />} />
       <Route path="/unauthorized" element={<Unauthorized />} />
 
       {/* 🌐 Public Requests (no login required) */}
@@ -47,6 +50,10 @@ const AppRoutes = () => {
   );
 };
 
-const App = () => <AppRoutes />;
+const App = () => (
+  <ErrorBoundary>
+    <AppRoutes />
+  </ErrorBoundary>
+);
 
 export default App;

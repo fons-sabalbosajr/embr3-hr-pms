@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import useDemoMode from "../../../hooks/useDemoMode";
+import useAuth from "../../../hooks/useAuth";
 import {
   Table,
   Button,
@@ -42,6 +43,10 @@ const Trainings = () => {
 
   const [form] = Form.useForm();
   const { readOnly, isDemoActive, isDemoUser } = useDemoMode();
+  const { user } = useAuth();
+  const isDeveloper = Boolean(
+    user?.userType === "developer" || user?.canAccessDeveloper || user?.canSeeDev
+  );
   // Track IDs or signatures of trainings created in this session to allow deletion in demo
   const DEMO_SESSION_KEY = "__demo_new_training__";
   const [demoNewSet, setDemoNewSet] = useState(() => {
@@ -370,7 +375,7 @@ const Trainings = () => {
       key: "actions",
       align: "center",
       render: (_, record) => {
-        const demoDeleteDisabled = isDemoActive && !isRecordSessionNew(record);
+        const demoDeleteDisabled = isDemoActive && !isRecordSessionNew(record) && !isDeveloper;
         return (
         <div style={{ textAlign: "left" }}>
           <Space>

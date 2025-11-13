@@ -28,6 +28,9 @@ const DTRDataTab = () => {
   const [filtered, setFiltered] = useState([]); // filtered dataset
   const [searchText, setSearchText] = useState("");
   const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [dateRange, setDateRange] = useState(null); // [start, end]
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form] = Form.useForm();
@@ -37,20 +40,29 @@ const DTRDataTab = () => {
   }, []);
 
   // when fetching
-  const fetchData = async () => {
-    const res = await axiosInstance.get("/dtrdatas");
-    const rows = res.data?.data ?? res.data ?? [];
-    setData(rows);
-    setFiltered(rows); // initialize with full dataset
+  const fetchData = async (range = dateRange) => {
+    try {
+      const params = {};
+      if (Array.isArray(range) && range[0] && range[1]) {
+        params.startDate = range[0].toISOString();
+        params.endDate = range[1].toISOString();
+      }
+      const res = await axiosInstance.get("/dtrdatas", { params });
+      const rows = res.data?.data ?? res.data ?? [];
+      setData(rows);
+    } catch (err) {
+      message.error("Failed to load DTR data");
+    }
   };
 
-  // handle search across all pages
+  // handle search across fetched (already date-filtered) data
   useEffect(() => {
-    const lowered = searchText.toLowerCase();
-    const results = data.filter(
-      (d) => JSON.stringify(d).toLowerCase().includes(lowered) // search across all fields
+    const lowered = (searchText || "").toLowerCase();
+    const results = (data || []).filter((d) =>
+      JSON.stringify(d || {}).toLowerCase().includes(lowered)
     );
     setFiltered(results);
+    setPage(1);
   }, [searchText, data]);
 
   const openEdit = (record) => {
@@ -141,14 +153,14 @@ const DTRDataTab = () => {
       key: "actions",
       render: (_, record) => (
         <Space>
-          <Button icon={<EditOutlined />} onClick={() => openEdit(record)}>
+          <Button icon={<EditOutlined />} size="small" onClick={() => openEdit(record)}>
             Edit
           </Button>
           <Popconfirm
             title="Delete this record?"
             onConfirm={() => handleDelete(record._id)}
           >
-            <Button danger icon={<DeleteOutlined />}>
+            <Button danger icon={<DeleteOutlined />} size="small">
               Delete
             </Button>
           </Popconfirm>
@@ -157,31 +169,72 @@ const DTRDataTab = () => {
     },
   ];
 
+  // Slice filtered for pagination (client-side because endpoint returns full list)
+  const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
+
   return (
-    <Card>
-      <Row justify="space-between" style={{ marginBottom: 12 }}>
-        <Col>
+    <Card className="compact-table">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+        <Space size={8} wrap align="center">
           <Input
+            size="small"
             placeholder="Search..."
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             prefix={<SearchOutlined />}
             allowClear
+            style={{ minWidth: 200 }}
           />
-        </Col>
-        <Col>
-          <Button icon={<DownloadOutlined />} onClick={exportCsv}>
+          <DatePicker.RangePicker
+            size="small"
+            value={dateRange}
+            onChange={(val) => {
+              setDateRange(val);
+              fetchData(val);
+            }}
+            allowEmpty={[true, true]}
+          />
+          <Button
+            size="small"
+            onClick={() => {
+              setSearchText("");
+              setDateRange(null);
+              fetchData(null);
+            }}
+          >
+            Clear Filters
+          </Button>
+        </Space>
+        <Space size={8}>
+          <Button size="small" icon={<DownloadOutlined />} onClick={exportCsv}>
             Export CSV
           </Button>
-        </Col>
-      </Row>
+        </Space>
+      </div>
 
       <Table
         columns={columns}
-        dataSource={filtered}
+        dataSource={paginated}
         rowKey={(r) => r._id}
         loading={loading}
         size="small"
+        className="compact-table"
+        pagination={{
+          current: page,
+          pageSize,
+          total: filtered.length,
+          showSizeChanger: true,
+          pageSizeOptions: [5, 10, 20, 50, 100],
+          showTotal: (t, range) => `${range[0]}-${range[1]} of ${t}`,
+          onChange: (p, ps) => {
+            if (ps !== pageSize) {
+              setPageSize(ps);
+              setPage(1);
+            } else {
+              setPage(p);
+            }
+          },
+        }}
       />
 
       <Modal

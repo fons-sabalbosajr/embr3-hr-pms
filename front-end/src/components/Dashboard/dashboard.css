@@ -3,6 +3,13 @@
   padding: 5px;
   border-radius: 8px;
 }
+/* Constrain width on tablet and up to avoid overly wide lines */
+@media (min-width: 768px) and (max-width: 1080px) {
+  .dashboard-container { max-width: 1080px; margin: 0 auto; }
+}
+@media (min-width: 1081px) {
+  .dashboard-container { max-width: 1400px; margin: 0 auto; }
+}
 
 .dashboard-title {
   font-size: 24px;
@@ -88,6 +95,13 @@
   margin-left: 15px;
   opacity: 0.7;
 }
+
+/* EmployeeStatsCards icon classes */
+.stats-icon { font-size: 40px; }
+.stats-icon-total { color: #1890ff; }
+.stats-icon-regular { color: #52c41a; }
+.stats-icon-cos { color: #faad14; }
+.stats-icon-present { color: #eb2f96; }
 
 .dashboard-card-total-employees .ant-statistic-content-value {
   color: #1890ff;
@@ -175,6 +189,39 @@
   }
 }
 
+/* Tablet specific refinement (768-1080px): reduce gaps for denser layout */
+@media (min-width: 768px) and (max-width: 1080px) {
+  .emp-tiles { flex-wrap: wrap; gap: 10px; }
+  .emp-tile { padding: 14px; }
+  .dashboard-card .ant-statistic-icon { font-size: 30px; }
+  /* Tablet font size reductions for a denser layout */
+  .dashboard-title { font-size: 20px; transition: font-size .2s ease; }
+  .ant-card-head-title { font-size: 16px; transition: font-size .2s ease; }
+  .ant-statistic-content-value { font-size: 24px !important; }
+  .ant-statistic-content-prefix, .ant-statistic-content-suffix { font-size: 14px; }
+  .dashboard-card .ant-card-body { padding: 16px; }
+  .dashboard-card .ant-statistic-icon { font-size: 34px; }
+  /* Tablet-specific reductions for EmployeeStatsCards */
+  .stats-icon { font-size: 24px; }
+  .dashboard-card-total-employees .ant-statistic-content-value,
+  .dashboard-card-regular-employees .ant-statistic-content-value,
+  .dashboard-card-cos-employees .ant-statistic-content-value,
+  .dashboard-card-present-employees .ant-statistic-content-value { font-size: 22px !important; }
+  .dashboard-card-total-employees .ant-statistic-title,
+  .dashboard-card-regular-employees .ant-statistic-title,
+  .dashboard-card-cos-employees .ant-statistic-title,
+  .dashboard-card-present-employees .ant-statistic-title { font-size: 12px; }
+  .ant-table-thead > tr > th { font-size: 11px; }
+  .ant-table-tbody > tr > td { font-size: 12px; }
+  .emp-tile .emp-tile-icon { font-size: 22px; }
+  .emp-tile .emp-tile-label { font-size: 13px; }
+  /* EmployeesPerSection cards & list tighter */
+  .employees-card { font-size: 0.7rem; }
+  .employees-card .ant-card-head-title { font-size: 14px; }
+  .section-badge { font-size: 10px; padding: 2px 5px; }
+  .section-count { font-size: 10px; }
+}
+
 /* EmployeesPerSectionTable styling */
 .employees-card {
   min-height: 200px;
@@ -258,6 +305,13 @@
 .emp-tile .emp-tile-label {
   margin-top: 8px;
   font-weight: 600;
+}
+
+/* Tablet/max-width 1080px: further reduce font sizes inside EmployeesPerSection modal table */
+@media (max-width: 1080px) {
+  .section-employees-table .ant-table-thead > tr > th { font-size: 10px; padding: 6px 8px; }
+  .section-employees-table .ant-table-tbody > tr > td { font-size: 11px; padding: 6px 8px; }
+  .section-employees-table .ant-table { font-size: 11px; }
 }
 
 /* Color variants */

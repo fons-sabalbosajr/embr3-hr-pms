@@ -1,10 +1,11 @@
 // controllers/dtrWorkCalendarController.js
 import DTRLog from "../models/DTRLog.js";
 import Employee from "../models/Employee.js";
+import dayjs from "dayjs";
 
 export const getWorkCalendar = async (req, res) => {
   try {
-    const { employeeId } = req.query; // only need employeeId now
+    const { employeeId, startDate, endDate } = req.query; // accept optional date range
 
     if (!employeeId) {
       return res.status(400).json({
@@ -15,18 +16,39 @@ export const getWorkCalendar = async (req, res) => {
 
     //console.log("Incoming request for employeeId:", employeeId);
 
-    // Find employee
-    const employee = await Employee.findOne({ empId: employeeId });
-    if (!employee) {
-      console.warn(`No employee found for empId: ${employeeId}`);
-    } else {
-      //console.log("Employee found:", employee.empId, employee.name);
+    // Resolve employee by empId first, fallback to _id if provided
+    const normalizeDigits = (v) => (v ? String(v).replace(/\D/g, "").replace(/^0+/, "") : "");
+    let employee = await Employee.findOne({ empId: employeeId }).lean();
+    if (!employee && /^[a-fA-F0-9]{24}$/.test(String(employeeId))) {
+      const byId = await Employee.findById(employeeId).lean();
+      if (byId) employee = byId;
     }
 
-    // Normalize to pure digits and match via normalizedAcNo to be robust across formats
-    const normalizeDigits = (v) => (v ? String(v).replace(/\D/g, "").replace(/^0+/, "") : "");
-    const mappedACNo = normalizeDigits(employeeId);
-    const logs = await DTRLog.find({ normalizedAcNo: mappedACNo }).sort({ Time: 1 });
+    // Build robust AC-No candidates
+    const allowedDigits = new Set();
+    const pushed = (v) => { const d = normalizeDigits(v); if (d) allowedDigits.add(d); };
+    pushed(employeeId);
+    if (employee) {
+      pushed(employee.empId);
+      pushed(employee.empNo);
+      (employee.alternateEmpIds || []).forEach(pushed);
+    }
+
+    const orConds = [];
+    if (allowedDigits.size) {
+      const list = Array.from(allowedDigits);
+      orConds.push({ normalizedAcNo: { $in: list } });
+      orConds.push({ "AC-No": { $in: list } }); // fallback for legacy logs
+    }
+
+    const filter = orConds.length ? { $or: orConds } : {};
+    if (startDate || endDate) {
+      filter.Time = {};
+      if (startDate) filter.Time.$gte = dayjs(startDate).startOf("day").toDate();
+      if (endDate) filter.Time.$lte = dayjs(endDate).endOf("day").toDate();
+    }
+
+    const logs = await DTRLog.find(filter).sort({ Time: 1 });
 
     //console.log(`Found ${logs.length} logs for AC-No ${mappedACNo}`);
 

@@ -9,7 +9,13 @@ const userSchema = new mongoose.Schema(
     position: { type: String },
     email: { type: String, required: true, unique: true },
     password: { type: String, required: true },
+  // Profile avatar URL (public URL). Points to latest uploaded file.
+  avatarUrl: { type: String },
     isVerified: { type: Boolean, default: false },
+  // Per-user Demo Mode flag (used to apply demo restrictions to selected accounts)
+  // When true and global demo settings are active, this user is treated as a demo user
+  // Front-end toggles this via PUT /users/:userId/access with { isDemo: true/false }
+  isDemo: { type: Boolean, default: false },
 
     // Email Verification
     verificationToken: { type: String, maxlength: 128 },
@@ -18,6 +24,10 @@ const userSchema = new mongoose.Schema(
     // Password Reset
     resetPasswordToken: { type: String, maxlength: 128 },
     resetPasswordExpires: { type: Date },
+
+  // Change Password (2-step verification)
+  changePasswordToken: { type: String, maxlength: 128 },
+  changePasswordExpires: { type: Date },
 
     // Preferences
     showSalaryAmounts: { type: Boolean, default: true },
@@ -72,6 +82,7 @@ const userSchema = new mongoose.Schema(
 // email and username already have unique indexes via schema; avoid duplicate definitions
 userSchema.index({ verificationToken: 1 }, { sparse: true });
 userSchema.index({ resetPasswordToken: 1 }, { sparse: true });
+userSchema.index({ changePasswordToken: 1 }, { sparse: true });
 userSchema.index({ userType: 1 });
 userSchema.index({ isOnline: 1, updatedAt: -1 });
 userSchema.index({ createdAt: -1 });

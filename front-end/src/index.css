@@ -1,8 +1,86 @@
 /* Global background and typography tied to theme variables */
+/* modern-normalize is now imported in main.jsx to avoid PostCSS path issues */
 html, body, #root {
 	min-height: 100%;
 	background: var(--app-content-bg, #f5f5f5);
 	color: var(--app-text-color, #141414);
+}
+
+/* Pages opting out of light/dark theme (public/auth/request portals) */
+.theme-exempt {
+	--app-content-bg: transparent;
+	--app-surface-bg: rgba(255,255,255,0.92);
+	--app-text-color: #141414;
+	--app-text-muted: #595959;
+}
+.theme-exempt .ant-card {
+	background: rgba(255,255,255,0.92) !important;
+	color: #141414 !important;
+}
+.theme-exempt .ant-typography,
+.theme-exempt .ant-form-item-label > label,
+.theme-exempt .ant-input,
+.theme-exempt .ant-input-affix-wrapper,
+.theme-exempt .ant-input-password,
+.theme-exempt .ant-input-password input,
+.theme-exempt .ant-select,
+.theme-exempt .ant-select-selector,
+.theme-exempt .ant-picker,
+.theme-exempt .ant-btn,
+.theme-exempt .ant-alert-message,
+.theme-exempt .ant-tag {
+	color: #141414;
+}
+
+/* Inputs, selects, pickers: force light backgrounds/borders */
+.theme-exempt .ant-input,
+.theme-exempt .ant-input-affix-wrapper,
+.theme-exempt .ant-input-password,
+.theme-exempt .ant-input-password input,
+.theme-exempt .ant-input-textarea,
+.theme-exempt .ant-select-selector,
+.theme-exempt .ant-picker {
+	background: #ffffff !important;
+	border-color: #d9d9d9 !important;
+	color: #141414 !important;
+}
+
+.theme-exempt input::placeholder,
+.theme-exempt .ant-input::placeholder {
+	color: #8c8c8c;
+	opacity: 1;
+}
+
+/* Focus states (light theme) */
+.theme-exempt .ant-input:focus,
+.theme-exempt .ant-input-affix-wrapper-focused,
+.theme-exempt .ant-picker-focused,
+.theme-exempt .ant-select-focused .ant-select-selector {
+	border-color: #1677ff !important;
+	box-shadow: 0 0 0 2px rgba(22,119,255,0.2) !important;
+}
+
+/* Dropdown/popup surfaces */
+.theme-exempt .ant-select-dropdown,
+.theme-exempt .ant-picker-dropdown,
+.theme-exempt .ant-picker-panel-container {
+	background: #ffffff !important;
+	color: #141414 !important;
+}
+
+.theme-exempt .ant-select-item-option-selected,
+.theme-exempt .ant-select-item-option-active {
+	background: rgba(22,119,255,0.08) !important;
+}
+
+.theme-exempt .ant-picker-cell-in-view .ant-picker-cell-inner {
+	color: #141414;
+}
+.theme-exempt .ant-picker-cell-selected .ant-picker-cell-inner,
+.theme-exempt .ant-picker-cell-range-start .ant-picker-cell-inner,
+.theme-exempt .ant-picker-cell-range-end .ant-picker-cell-inner {
+	background: #1677ff !important;
+	color: #ffffff !important;
 }
 
 body {
@@ -32,4 +110,51 @@ body {
 	min-width: 28px;
 	height: 24px;
 	line-height: 22px;
+}
+
+/* Corporate panel aesthetic */
+.corp-panel .ant-card-head-title {
+	font-size: 16px;
+}
+.corp-panel .ant-card-extra .ant-btn {
+	font-size: 12px;
+}
+.corp-panel .ant-typography {
+	margin-bottom: 0;
+}
+.corp-panel .ant-form-item-label > label {
+	font-size: 12px;
+}
+.corp-panel .ant-input,
+.corp-panel .ant-select-selector,
+.corp-panel .ant-input-number,
+.corp-panel .ant-radio-wrapper,
+.corp-panel .ant-input-textarea {
+	font-size: 12px;
+}
+.corp-panel .ant-table-thead > tr > th,
+.corp-panel .ant-table-tbody > tr > td {
+	font-size: 12px;
+}
+.corp-panel {
+	border: 1px solid var(--app-border-color, rgba(0,0,0,0.12));
+	border-radius: 6px;
+	box-shadow: 0 1px 3px rgba(0,0,0,.08);
+	background: var(--app-surface-bg, #ffffff);
+}
+.corp-panel .ant-card-head,
+.corp-panel .ant-card-body {
+	background: var(--app-surface-bg, #ffffff);
+}
+
+/* Corporate toolbar layout */
+.corp-toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+	margin-bottom: 12px;
+}
+.corp-toolbar .ant-tag {
+	margin-inline-end: 0;
 }

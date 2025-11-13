@@ -1,15 +1,17 @@
 import mongoose from "mongoose";
 import path from "path";
 import dotenv from "dotenv";
+import nodemailer from 'nodemailer';
+import { driveList } from '../utils/googleDriveStorage.js';
+import fs from 'fs';
 
 import AuditLog from '../models/AuditLog.js';
 import Notification from '../models/Notification.js';
 import BackupJob from '../models/BackupJob.js';
 import User from '../models/User.js';
-import fs from 'fs';
 import backupWorker from '../utils/backupWorker.js';
 import { storageGetStream } from '../utils/storageProvider.js';
-import { buildDriveClient } from '../utils/googleAuth.js';
+import Settings from '../models/Settings.js';
 
 dotenv.config();
 
@@ -41,14 +43,11 @@ export const getDevConfig = async (req, res) => {
     };
 
     const googleKeyPath = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
-    const googleJson = process.env.GOOGLE_SERVICE_ACCOUNT_JSON ? '[inline JSON]' : null;
-    const googleJsonB64 = process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 ? '[base64 JSON]' : null;
     const google = {
-      serviceAccountKey: googleKeyPath ? path.basename(googleKeyPath) : null,
-      json: googleJson,
-      jsonB64: googleJsonB64,
-      configured: Boolean(googleKeyPath || googleJson || googleJsonB64),
-      impersonate: process.env.GOOGLE_IMPERSONATE_EMAIL || null,
+      serviceAccountKey: googleKeyPath
+        ? path.basename(googleKeyPath)
+        : null,
+      configured: Boolean(googleKeyPath),
     };
 
     // Reflect socket config used in server/socket.js
@@ -62,17 +61,6 @@ export const getDevConfig = async (req, res) => {
     res.status(200).json({ app, db, email, google, socket });
   } catch (err) {
     res.status(500).json({ message: "Failed to load dev config", error: err.message });
-  }
-};
-
-// Simple Drive self-test: list one file to verify credentials and scope
-export const driveSelfTest = async (req, res) => {
-  try {
-    const drive = buildDriveClient(["https://www.googleapis.com/auth/drive.readonly"]);
-    const r = await drive.files.list({ q: "trashed = false", pageSize: 1, fields: "files(id,name)" });
-    res.json({ success: true, sample: r.data.files || [] });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
   }
 };
 
@@ -152,13 +140,202 @@ export const backupCollection = async (req, res) => {
 // — Audit log listing (paginated)
 export const listAuditLogs = async (req, res) => {
   try {
-    const { page = 1, limit = 50 } = req.query;
+    const {
+      page = 1,
+      limit = 50,
+      action,
+      actions, // can be array or comma-separated string
+      user,
+      dateFrom,
+      dateTo,
+      sortBy,
+      sortOrder,
+      detailsFragment, // fuzzy search fragment against details values
+    } = req.query;
+
     const skip = (Number(page) - 1) * Number(limit);
-    const [items, total] = await Promise.all([
-      AuditLog.find().sort({ createdAt: -1 }).skip(skip).limit(Number(limit)),
-      AuditLog.countDocuments(),
-    ]);
+
+    // Build filter
+    const filter = {};
+    // Back-compat: single action parameter
+    if (action && String(action).toLowerCase() !== 'all') {
+      filter.action = action;
+    }
+    // New: multi-action filter via actions[]=a&actions[]=b or actions=a,b
+    let actionList = [];
+    if (actions) {
+      if (Array.isArray(actions)) actionList = actions;
+      else if (typeof actions === 'string') actionList = actions.split(',').map((s) => s.trim()).filter(Boolean);
+    }
+    if (actionList.length > 0) {
+      filter.action = { $in: actionList };
+    }
+    if (user && String(user).toLowerCase() !== 'all') {
+      filter.performedByName = user;
+    }
+    if (dateFrom || dateTo) {
+      filter.createdAt = {};
+      if (dateFrom) filter.createdAt.$gte = new Date(dateFrom);
+      if (dateTo) filter.createdAt.$lte = new Date(dateTo);
+    }
+
+    // Fuzzy "fragment" search in details: build an $expr with $objectToArray to concatenate values
+    // This scans values of top-level keys inside details and does a case-insensitive regex match.
+    // Note: Deeply nested objects will stringify as "[object Object]"; this is a pragmatic compromise without an index.
+    let expr = null;
+    if (detailsFragment && String(detailsFragment).trim().length > 0) {
+      const fragment = String(detailsFragment).trim();
+      expr = {
+        $regexMatch: {
+          input: {
+            $reduce: {
+              input: { $objectToArray: { $ifNull: ['$details', {}] } },
+              initialValue: '',
+              in: { $concat: ['$$value', ' ', { $toString: '$$this.v' }] },
+            },
+          },
+          regex: fragment,
+          options: 'i',
+        },
+      };
+    }
+
+    // Sorting: whitelist fields
+    const sort = {};
+    const allowedSort = new Set(['createdAt', 'action', 'performedByName']);
+    const sortKey = allowedSort.has(String(sortBy)) ? String(sortBy) : 'createdAt';
+    const order = String(sortOrder).toLowerCase() === 'ascend' || String(sortOrder).toLowerCase() === 'asc' ? 1 : -1;
+    sort[sortKey] = order;
+
+    // If details fragment is present, use aggregation to apply $expr; else simple find
+    let itemsPromise, totalPromise;
+    if (expr) {
+      const baseMatch = Object.keys(filter).length ? [{ $match: filter }] : [];
+      const pipeline = [
+        ...baseMatch,
+        { $match: { $expr: expr } },
+        { $sort: sort },
+        { $skip: skip },
+        { $limit: Number(limit) },
+      ];
+      itemsPromise = AuditLog.aggregate(pipeline);
+
+      const countPipeline = [
+        ...baseMatch,
+        { $match: { $expr: expr } },
+        { $count: 'cnt' },
+      ];
+      totalPromise = AuditLog.aggregate(countPipeline).then((r) => (r?.[0]?.cnt || 0));
+    } else {
+      itemsPromise = AuditLog.find(filter).sort(sort).skip(skip).limit(Number(limit));
+      totalPromise = AuditLog.countDocuments(filter);
+    }
+
+    const [items, total] = await Promise.all([itemsPromise, totalPromise]);
     res.json({ success: true, data: items, total });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// Stream export for audit logs (CSV) with filters, suitable for very large datasets
+export const exportAuditLogs = async (req, res) => {
+  try {
+    const {
+      action,
+      actions, // array or comma-separated
+      user,
+      dateFrom,
+      dateTo,
+      sortBy,
+      sortOrder,
+      detailsFragment,
+    } = req.query;
+
+    // Build same filter as listAuditLogs
+    const filter = {};
+    if (action && String(action).toLowerCase() !== 'all') {
+      filter.action = action;
+    }
+    let actionList = [];
+    if (actions) {
+      if (Array.isArray(actions)) actionList = actions;
+      else if (typeof actions === 'string') actionList = actions.split(',').map((s) => s.trim()).filter(Boolean);
+    }
+    if (actionList.length > 0) {
+      filter.action = { $in: actionList };
+    }
+    if (user && String(user).toLowerCase() !== 'all') {
+      filter.performedByName = user;
+    }
+    if (dateFrom || dateTo) {
+      filter.createdAt = {};
+      if (dateFrom) filter.createdAt.$gte = new Date(dateFrom);
+      if (dateTo) filter.createdAt.$lte = new Date(dateTo);
+    }
+
+    // Sorting
+    const sort = {};
+    const allowedSort = new Set(['createdAt', 'action', 'performedByName']);
+    const sortKey = allowedSort.has(String(sortBy)) ? String(sortBy) : 'createdAt';
+    const order = String(sortOrder).toLowerCase() === 'ascend' || String(sortOrder).toLowerCase() === 'asc' ? 1 : -1;
+    sort[sortKey] = order;
+
+    // Prepare response headers
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="audit-logs-${new Date().toISOString().replace(/[:.]/g, '-')}.csv"`);
+
+    const writeCsvLine = (row) => {
+      const esc = (s) => '"' + String(s ?? '').replace(/"/g, '""') + '"';
+      const cols = [
+        esc(row.action),
+        esc(row.performedByName),
+        esc(row.createdAt ? new Date(row.createdAt).toISOString() : ''),
+        esc(JSON.stringify(row.details || {})),
+      ];
+      res.write(cols.join(',') + '\n');
+    };
+
+    // Header
+    res.write(['"Action"', '"By"', '"CreatedAt"', '"Details"'].join(',') + '\n');
+
+    // Stream using aggregation when detailsFragment provided; else use query cursor
+    if (detailsFragment && String(detailsFragment).trim().length > 0) {
+      const fragment = String(detailsFragment).trim();
+      const baseMatch = Object.keys(filter).length ? [{ $match: filter }] : [];
+      const pipeline = [
+        ...baseMatch,
+        { $match: { $expr: {
+          $regexMatch: {
+            input: {
+              $reduce: {
+                input: { $objectToArray: { $ifNull: ['$details', {}] } },
+                initialValue: '',
+                in: { $concat: ['$$value', ' ', { $toString: '$$this.v' }] },
+              },
+            },
+            regex: fragment,
+            options: 'i',
+          }
+        } } },
+        { $sort: sort },
+        { $project: { action: 1, performedByName: 1, createdAt: 1, details: 1 } },
+      ];
+
+      const cursor = AuditLog.aggregate(pipeline).cursor({ batchSize: 1000 }).exec();
+      cursor.on('data', (doc) => writeCsvLine(doc));
+      cursor.on('end', () => res.end());
+      cursor.on('error', (e) => {
+        try { res.status(500).end(e.message); } catch(_) { /* ignore */ }
+      });
+    } else {
+      const cursor = AuditLog.find(filter).sort(sort).cursor();
+      cursor.on('data', (doc) => writeCsvLine(doc));
+      cursor.on('end', () => res.end());
+      cursor.on('error', (e) => {
+        try { res.status(500).end(e.message); } catch(_) { /* ignore */ }
+      });
+    }
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -416,5 +593,119 @@ export const createAuditLog = async (req, res) => {
   } catch (err) {
     console.error('createAuditLog error', err);
     res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+export const testSmtp = async (req, res) => {
+  try {
+    // Prefer provided payload; fall back to stored settings
+    const body = req.body || {};
+    const s = await Settings.getSingleton();
+    const smtp = { ...(s?.smtp || {}), ...body };
+
+    // Accept both SMTP_* and EMAIL_* env fallbacks
+    const envHost = process.env.SMTP_HOST || process.env.EMAIL_HOST;
+    const envPort = process.env.SMTP_PORT || process.env.EMAIL_PORT;
+    const envSecure = process.env.SMTP_SECURE || process.env.EMAIL_SECURE;
+
+    const host = smtp.host || envHost;
+    let port = Number(smtp.port != null ? smtp.port : (envPort || 0));
+    let secure = smtp.secure != null ? Boolean(smtp.secure) : (String(envSecure || '').toLowerCase() === 'true');
+
+    // Auto-detect secure based on conventional ports if not explicitly set correctly
+    if (!Number.isFinite(port) || port <= 0) port = 587; // default to 587 STARTTLS
+    if (smtp.secure == null) {
+      if (port === 465) secure = true; // implicit TLS
+      if (port === 587 || port === 25) secure = false; // STARTTLS/plain, upgrade when available
+    } else {
+      // If user-specified but mismatched, coerce to sane defaults to avoid OpenSSL wrong version errors
+      if (port === 465 && secure === false) secure = true;
+      if ((port === 587 || port === 25) && secure === true) secure = false;
+    }
+    const user = smtp.user || process.env.EMAIL_USER;
+    const pass = process.env.EMAIL_PASS; // password stays in env for safety
+
+    if (!user || !pass) {
+      return res.status(400).json({ success: false, message: 'EMAIL_USER and EMAIL_PASS must be set on server to test SMTP.' });
+    }
+    if (!host || !port) {
+      return res.status(400).json({ success: false, message: 'SMTP host and port are required.' });
+    }
+
+    const transporter = nodemailer.createTransport({
+      host,
+      port,
+      secure, // true for 465 (implicit TLS), false for 587/25 (STARTTLS)
+      auth: { user, pass },
+      tls: {
+        // Ensure SNI is set; helps some providers when behind proxies
+        servername: host,
+        // Enforce modern TLS; most providers require >= TLSv1.2
+        minVersion: 'TLSv1.2',
+      },
+    });
+
+    // Validate SMTP connection first
+    await transporter.verify();
+
+    // Send a test message to the caller's email if available; else to SMTP user
+    const to = req.user?.email || user;
+    const fromName = smtp.fromName || (s?.general?.appName || 'EMBR3 System');
+    const fromEmail = smtp.fromEmail || user;
+    const from = `${fromName} <${fromEmail}>`;
+
+    const info = await transporter.sendMail({
+      from,
+      to,
+      subject: 'SMTP Test • EMBR3 System',
+      text: 'This is a test email to verify SMTP configuration.',
+    });
+
+    res.json({ success: true, messageId: info.messageId || null, envelope: info.envelope || null, to });
+  } catch (err) {
+    const msg = err?.message || 'SMTP test failed';
+    let hint;
+    const lower = String(msg).toLowerCase();
+    if (lower.includes('wrong version number') || lower.includes('epreto') || lower.includes('ssl3_get_record')) {
+      hint = 'This usually means the Secure (TLS) setting does not match the port. Use port 465 with Secure ON, or port 587 with Secure OFF.';
+    } else if (lower.includes('self signed certificate') || lower.includes('unable to verify the first certificate')) {
+      hint = 'Certificate validation failed. If using a self-signed cert, configure your SMTP server with a valid certificate.';
+    }
+    res.status(500).json({ success: false, message: msg, hint });
+  }
+};
+
+export const testDrive = async (req, res) => {
+  try {
+    // Attempt to list up to 10 files in configured folder
+    const files = await driveList({ pageSize: 10 });
+    res.json({ success: true, count: files.length, sample: files });
+  } catch (err) {
+    res.status(err.status || 500).json({ success: false, message: err.message || 'Drive test failed' });
+  }
+};
+
+export const getDeploymentNotes = async (_req, res) => {
+  try {
+    // Try multiple candidate paths so this works whether server starts in repo root or server folder
+    const explicit = process.env.DEPLOYMENT_NOTES_PATH;
+    const candidates = [
+      explicit,
+      path.join(process.cwd(), 'DEPLOYMENT-UAT.md'),
+      path.join(process.cwd(), '..', 'DEPLOYMENT-UAT.md'),
+      path.join(process.cwd(), '..', '..', 'DEPLOYMENT-UAT.md'),
+    ].filter(Boolean);
+
+    let foundPath = null;
+    for (const p of candidates) {
+      try { if (fs.existsSync(p)) { foundPath = p; break; } } catch(_) {}
+    }
+    if (!foundPath) {
+      return res.status(404).json({ success: false, message: 'DEPLOYMENT-UAT.md not found. Set DEPLOYMENT_NOTES_PATH to override.' });
+    }
+    const content = fs.readFileSync(foundPath, 'utf8');
+    res.json({ success: true, content });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message || 'Failed to load deployment notes' });
   }
 };

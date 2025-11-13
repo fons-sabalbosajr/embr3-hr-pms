@@ -1,6 +1,7 @@
 import axios from "axios";
 import { message } from "antd";
 import { secureRetrieve, secureRemove, secureStore, secureGet } from "../../utils/secureStorage";
+import demoActions from "../utils/demoActionsRegistry";
 
 // Prefer explicit API base via VITE_API_URL; fall back to Vite dev proxy path '/api' for local dev
 const axiosInstance = axios.create({
@@ -15,7 +16,7 @@ axiosInstance.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
-    // Client-side read-only enforcement for demo users unless explicitly allowed
+    // Client-side demo enforcement: deny-list (disabled actions) + optional global read-only
     try {
       const user = secureGet('user');
       const app = secureGet('appSettings');
@@ -25,10 +26,39 @@ axiosInstance.interceptors.request.use(
         const demo = app?.demo || {};
         const now = new Date();
         const inRange = demo?.startDate && demo?.endDate ? (now >= new Date(demo.startDate) && now <= new Date(demo.endDate)) : true;
-        if (demo?.enabled && inRange && !demo?.allowSubmissions) {
-          const err = new Error('Demo mode is read-only. Submissions are disabled.');
-          err.isDemoBlocked = true;
-          return Promise.reject(err);
+        // Privileged users (developer/admin/dev-access) are exempt from client-side demo blocking
+        const isPrivileged = Boolean(
+          user?.userType === 'developer' ||
+          user?.isAdmin ||
+          user?.canAccessDeveloper ||
+          user?.canSeeDev ||
+          user?.canManageUsers
+        );
+        if (demo?.enabled && inRange && !isPrivileged) {
+          const disabled = new Set(demo?.allowedActions || []); // treated as disabled actions in demo
+          // Normalize request path to include base '/api'
+          const rawUrl = String(config.url || '');
+          const base = String(config.baseURL || '').replace(/\/$/, '');
+          const path = rawUrl.startsWith('/api') ? rawUrl : `${base}${rawUrl.startsWith('/') ? '' : '/'}${rawUrl}`;
+          // If a write matches any disabled action, block immediately
+          const matchesDisabled = demoActions.some(a =>
+            disabled.has(a.key) &&
+            a.methods?.includes(method) &&
+            (a.urlPatterns || []).some((re) => {
+              try { return re.test(path); } catch { return false; }
+            })
+          );
+          if (matchesDisabled) {
+            const err = new Error('This action is disabled in demo mode.');
+            err.isDemoBlocked = true;
+            return Promise.reject(err);
+          }
+          // If global submissions are OFF, block all remaining writes (read-only)
+          if (!demo?.allowSubmissions) {
+            const err = new Error('Demo mode is read-only. Submissions are disabled.');
+            err.isDemoBlocked = true;
+            return Promise.reject(err);
+          }
         }
       }
     } catch(_) { /* ignore */ }

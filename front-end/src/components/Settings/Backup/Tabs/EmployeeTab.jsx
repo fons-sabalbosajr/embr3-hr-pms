@@ -26,6 +26,8 @@ const EmployeeTab = () => {
   const [filtered, setFiltered] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchText, setSearchText] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form] = Form.useForm();
@@ -121,14 +123,14 @@ const EmployeeTab = () => {
       title: "Actions",
       render: (_, record) => (
         <Space>
-          <Button icon={<EditOutlined />} onClick={() => openEdit(record)}>
+          <Button icon={<EditOutlined />} size="small" onClick={() => openEdit(record)}>
             Edit
           </Button>
           <Popconfirm
             title="Delete this employee?"
             onConfirm={() => handleDelete(record._id)}
           >
-            <Button danger icon={<DeleteOutlined />}>
+            <Button danger icon={<DeleteOutlined />} size="small">
               Delete
             </Button>
           </Popconfirm>
@@ -137,11 +139,15 @@ const EmployeeTab = () => {
     },
   ];
 
+  // Client-side pagination of filtered results
+  const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
+
   return (
-    <Card>
+    <Card className="compact-table">
       <Row justify="space-between" style={{ marginBottom: 12 }}>
         <Col>
           <Input
+            size="small"
             placeholder="Search employees..."
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
@@ -150,7 +156,7 @@ const EmployeeTab = () => {
           />
         </Col>
         <Col>
-          <Button icon={<DownloadOutlined />} onClick={exportCsv}>
+          <Button size="small" icon={<DownloadOutlined />} onClick={exportCsv}>
             Export CSV
           </Button>
         </Col>
@@ -158,10 +164,27 @@ const EmployeeTab = () => {
 
       <Table
         columns={columns}
-        dataSource={filtered}
+        dataSource={paginated}
         rowKey={(r) => r._id}
         loading={loading}
         size="small"
+        className="compact-table"
+        pagination={{
+          current: page,
+          pageSize,
+          total: filtered.length,
+          showSizeChanger: true,
+          pageSizeOptions: [5, 10, 20, 50, 100],
+          showTotal: (t, range) => `${range[0]}-${range[1]} of ${t}`,
+          onChange: (p, ps) => {
+            if (ps !== pageSize) {
+              setPageSize(ps);
+              setPage(1);
+            } else {
+              setPage(p);
+            }
+          },
+        }}
       />
 
       <Modal

@@ -51,7 +51,7 @@ const ViewDTR = ({
   onPreviewForm48,
   onSaveToTray,
 }) => {
-  const { readOnly, isDemoActive, isDemoUser } = useDemoMode();
+  const { readOnly, isDemoActive, isDemoUser, shouldHideInDemo } = useDemoMode();
   if (!employee || !selectedRecord) return null;
 
   const startDate = dayjs(selectedRecord.DTR_Cut_Off.start);
@@ -434,7 +434,7 @@ const ViewDTR = ({
         const noTimeRecord = !record.isWeekend && !record.isHoliday && !record.isTraining && !record.timeIn && !record.breakOut && !record.breakIn && !record.timeOut;
         const disabled = !hasEmail || !noTimeRecord;
         const reason = !hasEmail ? "Employee has no email on record" : (!noTimeRecord ? "Reminder available only for days with no time record" : "");
-        const btn = (
+        const btn = shouldHideInDemo('ui.notifications.quickSend') ? null : (
           <Button
             size="small"
             type="default"
@@ -622,18 +622,20 @@ const ViewDTR = ({
 
       <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
         <div>
-          {Array.isArray(employee.emails) && employee.emails.length > 0 ? (
-            <Tooltip title="Send one email listing all days in this cut-off with no time records">
-              <Button onClick={handleSendAllMissing} disabled={readOnly && isDemoActive && isDemoUser}>
-                Send All Missing
-              </Button>
-            </Tooltip>
-          ) : (
-            <Tooltip title="Employee has no email on record">
-              <span>
-                <Button disabled>Send All Missing</Button>
-              </span>
-            </Tooltip>
+          {!shouldHideInDemo('ui.notifications.quickSend') && (
+            Array.isArray(employee.emails) && employee.emails.length > 0 ? (
+              <Tooltip title="Send one email listing all days in this cut-off with no time records">
+                <Button onClick={handleSendAllMissing} disabled={readOnly && isDemoActive && isDemoUser}>
+                  Send All Missing
+                </Button>
+              </Tooltip>
+            ) : (
+              <Tooltip title="Employee has no email on record">
+                <span>
+                  <Button disabled>Send All Missing</Button>
+                </span>
+              </Tooltip>
+            )
           )}
         </div>
         <div>
