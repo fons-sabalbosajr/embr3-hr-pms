@@ -19,3 +19,6 @@ yarn-debug.log*
 /config/hr-service-account.json
 /config/service-account.json
 /config/oauth-client.json
+
+# .json.b64 files containing base64-encoded credentials
+*.json.b64

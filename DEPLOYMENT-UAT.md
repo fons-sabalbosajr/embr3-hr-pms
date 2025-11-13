@@ -44,6 +44,13 @@ This repo includes a Render blueprint (`render.yaml`) to deploy both the API and
 - If your API doesn’t expose `/api/dev/health`, either create it or change `healthCheckPath` in `render.yaml`.
 - Socket.IO defaults to long-polling; no sticky sessions needed. If enabling WebSocket upgrades later, ensure sticky sessions on Render and configure a Redis adapter for multi-instance setups.
 
+### SMTP on Render
+- Many cloud platforms restrict or rate-limit outbound SMTP, and Gmail may block or require static IPs/OAuth. Recommended: use a transactional provider (SendGrid, Mailgun, Brevo) via SMTP or HTTP API.
+- If you must use SMTP and see timeouts during boot verify, set `EMAIL_VERIFY_ON_BOOT=false` to skip the startup verification (sending still uses your configuration and will log errors if it fails at runtime).
+- Set email via either:
+  - `SMTP_URL` (e.g., `smtps://user:pass@smtp.example.com:465` or `smtp+starttls://user:pass@smtp.example.com:587`), or
+  - granular `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_SECURE`, `EMAIL_USER`, `EMAIL_PASS`.
+
 ## Quick checks
 
 After deploy, verify:

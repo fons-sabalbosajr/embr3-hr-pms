@@ -76,8 +76,18 @@ const transporter = buildTransport();
 
 // Optional: verify transport at startup for clearer diagnostics
 export const verifyEmailTransport = async () => {
+  // Allow disabling verify on platforms where outbound SMTP may be blocked
+  if ((process.env.EMAIL_VERIFY_ON_BOOT || "").toLowerCase() === "false") {
+    console.log("[Email] Skipping SMTP verify at boot (EMAIL_VERIFY_ON_BOOT=false)");
+    return;
+  }
   if ((process.env.DISABLE_EMAIL || "").toLowerCase() === "true") {
     console.log("[Email] Email disabled via DISABLE_EMAIL env; skipping verify.");
+    return;
+  }
+  // If no SMTP URL, host, or user is configured, avoid attempting a network verify
+  if (!process.env.SMTP_URL && !process.env.EMAIL_HOST && !process.env.EMAIL_USER) {
+    console.log("[Email] No SMTP configuration detected; skipping verify.");
     return;
   }
   const maxAttempts = 3;
