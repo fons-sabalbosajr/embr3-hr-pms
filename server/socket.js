@@ -10,7 +10,7 @@ export const initSocket = (server) => {
   const parseAllowedOrigins = (value) =>
     String(value || "")
       .split(",")
-      .map((s) => s.trim())
+      .map((s) => s.trim().replace(/\/$/, ""))
       .filter(Boolean);
 
   const allowedOrigins = parseAllowedOrigins(
@@ -27,14 +27,14 @@ export const initSocket = (server) => {
     pingTimeout: 10000, // default 20000
     cors: {
       origin: (origin, callback) => {
-        // Allow server-side or same-origin (no Origin header)
-        if (!origin) return callback(null, true);
+        const reqOrigin = (origin || "").replace(/\/$/, "");
+        if (!reqOrigin) return callback(null, true);
         if (allowedOrigins.length === 0) return callback(null, true);
-        if (allowedOrigins.includes(origin)) return callback(null, true);
-        return callback(new Error(`Socket.IO CORS: ${origin} not allowed`));
+        if (allowedOrigins.includes(reqOrigin)) return callback(null, true);
+        return callback(new Error(`Socket.IO CORS: ${reqOrigin} not allowed`));
       },
       methods: ["GET", "POST"],
-      credentials: true,
+      credentials: false,
     },
   });
 

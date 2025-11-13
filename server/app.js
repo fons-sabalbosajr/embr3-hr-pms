@@ -38,7 +38,7 @@ const app = express();
 const originEnv = process.env.CLIENT_ORIGIN || process.env.FRONTEND_URL || "";
 const allowedOrigins = originEnv
   .split(",")
-  .map((s) => s && s.trim())
+  .map((s) => (s && s.trim().replace(/\/$/, "")))
   .filter(Boolean);
 app.use(
   cors({
