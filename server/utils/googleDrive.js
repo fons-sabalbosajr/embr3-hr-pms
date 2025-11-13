@@ -1,35 +1,8 @@
-import { google } from 'googleapis';
-import path from 'path';
-import fs from 'fs';
 import { Readable } from 'stream';
-import { fileURLToPath } from 'url';
+import { buildDriveClient } from './googleAuth.js';
 
-// Initialize Google Drive client using a service account JSON in config/service-account.json
-// Ensure the service account has access to the target Drive folder (shared with it by email)
-export const getDriveClient = () => {
-  const __filename = fileURLToPath(import.meta.url);
-  const __dirname = path.dirname(__filename);
-  // Prefer environment-configured key file paths
-  const envKey = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE || process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
-  const defaultKey = path.resolve(__dirname, '..', 'config', 'service-account.json');
-  const candidate = envKey ? envKey : defaultKey;
-  // Resolve relative paths relative to server/utils folder root
-  const keyPath = path.isAbsolute(candidate)
-    ? candidate
-    : path.resolve(__dirname, '..', candidate.replace(/^\.\//, ''));
-
-  if (!fs.existsSync(keyPath)) {
-    throw new Error(`Missing Google service account JSON at ${keyPath}. Set GOOGLE_SERVICE_ACCOUNT_KEY_FILE or place default at server/config/service-account.json`);
-  }
-  const subject = process.env.GOOGLE_IMPERSONATE_USER; // optional: domain-wide delegation to act as a user
-  const auth = new google.auth.GoogleAuth({
-    keyFile: keyPath,
-    scopes: ['https://www.googleapis.com/auth/drive'],
-    clientOptions: subject ? { subject } : undefined,
-  });
-  const drive = google.drive({ version: 'v3', auth });
-  return drive;
-};
+// Initialize Google Drive client using env-based builder (supports BASE64/inline JSON or key file path)
+export const getDriveClient = () => buildDriveClient(['https://www.googleapis.com/auth/drive']);
 
 export const uploadToDrive = async ({ buffer, mimeType, filename, folderId }) => {
   const drive = getDriveClient();
