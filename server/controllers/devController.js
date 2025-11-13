@@ -341,6 +341,45 @@ export const exportAuditLogs = async (req, res) => {
   }
 };
 
+// One-time maintenance: normalize avatarUrl hosts to the current API public URL
+// Useful after moving from local dev (http://localhost or LAN IP) to Render.
+export const normalizeAvatarUrls = async (req, res) => {
+  try {
+    const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'https');
+    const host = (req.headers['x-forwarded-host'] || req.get('host'));
+    const base = (process.env.SERVER_PUBLIC_URL || `${proto}://${host}`).replace(/\/$/, '');
+    const localHostRx = new RegExp(
+      '^https?:\\/\\/(?:(?:localhost)|(?:127\\.0\\.0\\.1)|(?:10\\.)|(?:192\\.168\\.)|(?:172\\.(?:1[6-9]|2[0-9]|3[0-1])\\.))',
+      'i'
+    );
+
+    const users = await User.find({ avatarUrl: { $exists: true, $ne: null } }, { _id: 1, avatarUrl: 1 });
+    let updated = 0;
+    for (const u of users) {
+      const url = String(u.avatarUrl || '');
+      if (!url) continue;
+      // Skip Drive links or already-correct https links to onrender
+      if (/drive\.google\.com\//i.test(url)) continue;
+      let pathname = '';
+      try { pathname = new URL(url).pathname; } catch {
+        // If stored as path-only like /uploads/..., keep as-is
+        pathname = url.startsWith('/') ? url : '';
+      }
+      if (localHostRx.test(url) || pathname.startsWith('/uploads/')) {
+        if (!pathname) continue;
+        const newUrl = `${base}${pathname}`;
+        if (newUrl !== url) {
+          await User.updateOne({ _id: u._id }, { $set: { avatarUrl: newUrl } }, { runValidators: false });
+          updated++;
+        }
+      }
+    }
+    res.json({ success: true, updated, base });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 // — Notifications CRUD for developer UI
 export const listNotifications = async (req, res) => {
   try {

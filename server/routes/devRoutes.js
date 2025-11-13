@@ -19,6 +19,7 @@ import {
     testSmtp,
 	testDrive,
 	getDeploymentNotes,
+	normalizeAvatarUrls,
 } from "../controllers/devController.js";
 
 const router = express.Router();
@@ -59,5 +60,7 @@ router.post('/test-smtp', testSmtp);
 router.get('/test-drive', testDrive);
 // Deployment notes
 router.get('/deployment-notes', getDeploymentNotes);
+// One-time maintenance utility
+router.post('/normalize-avatars', normalizeAvatarUrls);
 
 export default router;

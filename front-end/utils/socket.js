@@ -16,7 +16,8 @@ const SOCKET_BASE_URL = deriveSocketUrl();
 const socket = io(SOCKET_BASE_URL, {
   path: "/socket.io",
   autoConnect: false, // Connect manually after auth
-  withCredentials: true,
+  // No cookies are used for Socket.IO; disable credentials for simpler CORS
+  withCredentials: false,
   reconnection: true,
   reconnectionAttempts: Infinity,
   reconnectionDelay: 1000,
