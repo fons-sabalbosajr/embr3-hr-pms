@@ -1,9 +1,11 @@
-import React, { useState, useEffect, useMemo } from "react";
-import { Table, Input, Select, DatePicker, Space, Button, Tag } from "antd";
+import React, { useState, useEffect, useMemo, useRef } from "react";
+import { Table, Input, Select, DatePicker, Space, Button, Tag, Modal, Form, message, Popconfirm } from "antd";
 import useDemoMode from "../../../../hooks/useDemoMode";
 import dayjs from "dayjs";
-import { getEmployeeDocs } from "../../../../api/employeeAPI"; // Adjust path as needed
+import { getEmployeeDocs, updateEmployeeDoc, deleteEmployeeDoc } from "../../../../api/employeeAPI"; // Adjust path as needed
 import { getAllUsers } from "../../../../api/authAPI"; // Import getAllUsers
+import socket from "../../../../../utils/socket";
+import useAuth from "../../../../hooks/useAuth";
 
 const { RangePicker } = DatePicker;
 const { Option } = Select;
@@ -13,6 +15,8 @@ const SystemReport = () => {
   const [users, setUsers] = useState([]); // State to store users
   const [loading, setLoading] = useState(false);
   const { shouldHideInDemo } = useDemoMode();
+  const { user } = useAuth();
+  const isDevUser = Boolean(user?.userType === 'developer' || user?.canAccessDeveloper || user?.canSeeDev);
   const [filters, setFilters] = useState({
     docType: "",
     createdBy: "",
@@ -20,9 +24,23 @@ const SystemReport = () => {
     empId: "",
     employeeName: "",
   });
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editingRecord, setEditingRecord] = useState(null);
+  const [form] = Form.useForm();
 
   useEffect(() => {
     fetchInitialData();
+  }, []);
+
+  // Cleanup socket listeners on unmount
+  useEffect(() => {
+    return () => {
+      try {
+        socket.off('employeeDoc:created');
+        socket.off('employeeDoc:deleted');
+        socket.off('employeeDoc:updated');
+      } catch (_) {}
+    };
   }, []);
 
   useEffect(() => {
@@ -34,8 +52,119 @@ const SystemReport = () => {
     try {
       const usersResponse = await getAllUsers();
       setUsers(usersResponse.data.data);
+      // Ensure socket connection
+      try {
+        if (!socket.connected) socket.connect();
+      } catch (_) {}
+      // Subscribe to new employee doc events to auto-refresh
+      socket.off('employeeDoc:created');
+      socket.on('employeeDoc:created', (doc) => {
+        // Only react to relevant types if desired
+        if (!doc || !doc.docType) return;
+        // If filters exclude this doc, skip; else refetch
+        const typeOk = !filters.docType || filters.docType === doc.docType;
+        if (typeOk) {
+          // Small debounce to allow backend to finalize relations
+          setTimeout(() => fetchReports(), 200);
+        }
+      });
+      socket.off('employeeDoc:deleted');
+      socket.on('employeeDoc:deleted', () => {
+        setTimeout(() => fetchReports(), 200);
+      });
+      socket.off('employeeDoc:updated');
+      socket.on('employeeDoc:updated', () => {
+        setTimeout(() => fetchReports(), 200);
+      });
     } catch (error) {
       console.error("Failed to fetch initial data:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const parsePeriodToRange = (period) => {
+    try {
+      if (!period) return [];
+      const parts = String(period).split(' - ');
+      if (parts.length === 2) {
+        const start = dayjs(parts[0].trim());
+        const end = dayjs(parts[1].trim());
+        if (start.isValid() && end.isValid()) return [start, end];
+      }
+      // Try generic single date
+      const d = dayjs(period);
+      if (d.isValid()) return [d, d];
+      return [];
+    } catch {
+      return [];
+    }
+  };
+
+  const openEdit = (record) => {
+    setEditingRecord(record);
+    setEditModalOpen(true);
+  };
+
+  const setFormFromRecord = (rec) => {
+    if (!rec) return;
+    const values = {
+      description: rec.description || '',
+      dateIssued: rec.dateIssued ? dayjs(rec.dateIssued) : null,
+      periodRange: parsePeriodToRange(rec.period),
+      docNo: rec.docNo,
+    };
+    try {
+      form.setFieldsValue(values);
+    } catch (_) {}
+  };
+
+  useEffect(() => {
+    if (editModalOpen && editingRecord) {
+      // Defer set to ensure form is mounted
+      const t = setTimeout(() => setFormFromRecord(editingRecord), 0);
+      return () => clearTimeout(t);
+    } else {
+      form.resetFields();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editModalOpen, editingRecord]);
+
+  const handleUpdate = async () => {
+    try {
+      const values = await form.validateFields();
+      const payload = {};
+      if (values.description !== undefined) payload.description = values.description;
+      if (values.dateIssued) payload.dateIssued = values.dateIssued.toDate();
+      if (values.periodRange && values.periodRange.length === 2) {
+        const [s, e] = values.periodRange;
+        payload.period = `${s.format('YYYY-MM-DD')} - ${e.format('YYYY-MM-DD')}`;
+      }
+      if (values.docNo !== undefined && values.docNo !== editingRecord.docNo) payload.docNo = values.docNo;
+      setLoading(true);
+      await updateEmployeeDoc(editingRecord._id, payload);
+      message.success('Report updated');
+      setEditModalOpen(false);
+      setEditingRecord(null);
+      await fetchReports();
+    } catch (e) {
+      if (e?.errorFields) return; // form validation errors
+      console.error(e);
+      message.error(e?.response?.data?.message || 'Failed to update');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDelete = async (record) => {
+    try {
+      setLoading(true);
+      await deleteEmployeeDoc(record._id);
+      message.success('Report deleted');
+      await fetchReports();
+    } catch (e) {
+      console.error(e);
+      message.error(e?.response?.data?.message || 'Failed to delete');
     } finally {
       setLoading(false);
     }
@@ -83,6 +212,11 @@ const SystemReport = () => {
           );
         });
       }
+
+      // Always sort newest to oldest by dateIssued
+      filteredReports = (filteredReports || []).sort(
+        (a, b) => dayjs(b.dateIssued).valueOf() - dayjs(a.dateIssued).valueOf()
+      );
 
       setReports(filteredReports);
     } catch (error) {
@@ -178,8 +312,23 @@ const SystemReport = () => {
           </small>
         </>
       ),
-      sorter: (a, b) => dayjs(a.dateIssued).unix() - dayjs(b.dateIssued).unix(),
+      sorter: (a, b) => dayjs(a.dateIssued).valueOf() - dayjs(b.dateIssued).valueOf(),
+      defaultSortOrder: 'descend',
+      sortDirections: ['descend', 'ascend'],
     },
+    ...(isDevUser ? [{
+      title: 'Actions',
+      key: 'actions',
+      fixed: 'right',
+      render: (_, record) => (
+        <Space>
+          <Button size="small" onClick={() => openEdit(record)}>Update</Button>
+          <Popconfirm title="Delete this report?" okText="Delete" okButtonProps={{ danger: true }} onConfirm={() => handleDelete(record)}>
+            <Button size="small" danger>Delete</Button>
+          </Popconfirm>
+        </Space>
+      ),
+    }] : []),
   ];
 
   const uniqueDocTypes = [...new Set(reports.map((report) => report.docType))];
@@ -249,6 +398,32 @@ const SystemReport = () => {
         scroll={{ x: "max-content" }}
         size="small"
       />
+
+      <Modal
+        title="Update Report"
+        open={editModalOpen}
+        onCancel={() => { setEditModalOpen(false); setEditingRecord(null); }}
+        onOk={handleUpdate}
+        okText="Save"
+        confirmLoading={loading}
+        destroyOnClose
+        afterOpenChange={(open) => { if (open && editingRecord) setFormFromRecord(editingRecord); }}
+      >
+        <Form layout="vertical" form={form} preserve={false}>
+          <Form.Item label="Description" name="description">
+            <Input.TextArea rows={3} placeholder="Enter description" />
+          </Form.Item>
+          <Form.Item label="Period" name="periodRange">
+            <DatePicker.RangePicker />
+          </Form.Item>
+          <Form.Item label="Date Issued" name="dateIssued">
+            <DatePicker showTime />
+          </Form.Item>
+          <Form.Item label="Payslip No." name="docNo">
+            <Input type="number" />
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   );
 };

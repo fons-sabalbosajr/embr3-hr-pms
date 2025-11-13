@@ -73,6 +73,19 @@ html, body, #root {
 	background: rgba(22,119,255,0.08) !important;
 }
 
+.theme-exempt .ant-tabs-nav,
+.theme-exempt .ant-tabs-tab,
+.theme-exempt .ant-tabs-tab-btn {
+	color: #141414 !important;
+}
+.theme-exempt .ant-tabs-ink-bar {
+	background: #1677ff !important;
+}
+.theme-exempt a,
+.theme-exempt .ant-btn-link {
+	color: #1677ff !important;
+}
+
 .theme-exempt .ant-picker-cell-in-view .ant-picker-cell-inner {
 	color: #141414;
 }

@@ -4,6 +4,9 @@ import {
   secureGet,
   secureStore,
   secureRemove,
+  secureSessionGet,
+  secureSessionStore,
+  secureSessionRemove,
 } from "../../utils/secureStorage";
 import axiosInstance from "../api/axiosInstance";
 import socket from "../../utils/socket";
@@ -12,8 +15,27 @@ const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
   const navigate = useNavigate();
-  const [user, setUser] = useState(() => secureGet("user"));
-  const [token, setToken] = useState(() => secureGet("token"));
+  // Initialize from sessionStorage first; migrate from localStorage if present
+  const [user, setUser] = useState(() => {
+    const sess = secureSessionGet("user");
+    if (sess) return sess;
+    const legacy = secureGet("user");
+    if (legacy) {
+      try { secureSessionStore("user", legacy); } catch {}
+      try { secureRemove("user"); } catch {}
+    }
+    return legacy || null;
+  });
+  const [token, setToken] = useState(() => {
+    const sess = secureSessionGet("token");
+    if (sess) return sess;
+    const legacy = secureGet("token");
+    if (legacy) {
+      try { secureSessionStore("token", legacy); } catch {}
+      try { secureRemove("token"); } catch {}
+    }
+    return legacy || null;
+  });
 
   useEffect(() => {
     if (token) {
@@ -62,8 +84,9 @@ export const AuthProvider = ({ children }) => {
     const res = await axiosInstance.post("/users/login", credentials);
     const { token, user } = res.data;
 
-    secureStore("token", token);
-    secureStore("user", user);
+    // Persist to per-tab session storage for isolation
+    secureSessionStore("token", token);
+    secureSessionStore("user", user);
     setToken(token);
     setUser(user);
 
@@ -91,8 +114,12 @@ export const AuthProvider = ({ children }) => {
       socket.disconnect();
     }
 
-    secureRemove("token");
-    secureRemove("user");
+    // Clear session storage (per-tab)
+    secureSessionRemove("token");
+    secureSessionRemove("user");
+    // Also clear any legacy local values just in case
+    try { secureRemove("token"); } catch {}
+    try { secureRemove("user"); } catch {}
     setToken(null);
     setUser(null);
     delete axiosInstance.defaults.headers.common["Authorization"];
@@ -104,7 +131,7 @@ export const AuthProvider = ({ children }) => {
 
   const updateCurrentUser = (updatedUser) => {
     setUser(updatedUser);
-    secureStore("user", updatedUser);
+    secureSessionStore("user", updatedUser);
   };
 
   const hasPermission = (permissions) => {

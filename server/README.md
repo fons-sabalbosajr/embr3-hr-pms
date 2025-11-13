@@ -225,3 +225,12 @@ Dates are parsed with `dayjs(val)`. Use ISO `YYYY-MM-DD` format to avoid locale 
 
 ---
 Updated: 2025-11-11
+
+## Email Branding and Logo
+- Email From Name: Set `EMAIL_FROM_NAME` to override the sender display. Recommended: `EMAIL_FROM_NAME=EMBR3 DTRMS Personnel`.
+- Embed Logo Inline: Set `EMAIL_EMBED_LOGO=true` to embed the logo as CID for intranet reliability. When disabled or CID not supported, code falls back to a public URL.
+- Logo Path: If embedding, set `EMAIL_LOGO_PATH=./public/emblogo.svg`. The file `server/public/emblogo.svg` is included for convenience.
+- Subject/Branding: Templates updated to use “EMB Region III • DTRMS”. No visible logo attachment will appear with the payslip.
+- Resend Policy: Payslip emails allow up to 5 resends; idempotent responses avoid 409 conflicts.
+
+After changing `.env`, restart the server and send a test payslip to verify inline logo rendering and branding.

@@ -10,6 +10,9 @@ const employeeDocSchema = new mongoose.Schema(
     description: { type: String },
     createdBy: { type: String }, // optional, HR username
     docNo: { type: Number }, // yearly sequence for Payslip
+    // Optional structured payload (e.g., payslip data used for PDF regeneration)
+    payload: { type: mongoose.Schema.Types.Mixed },
+    isFullMonthRange: { type: Boolean },
     // --- Storage metadata (optional) ---
     storageProvider: { type: String, enum: ["local", "drive"], default: "local" }, // where the binary lives
     fileId: { type: String }, // Drive file id when storageProvider === 'drive'

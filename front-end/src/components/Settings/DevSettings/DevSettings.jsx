@@ -32,7 +32,8 @@ import { NotificationsContext } from "../../../context/NotificationsContext";
 import SecureStorageDiagnostics from "./SecureStorageDiagnostics";
 import axiosInstance from "../../../api/axiosInstance";
 import DemoModeSettings from "./DemoModeSettings";
-import { secureStore } from "../../../../utils/secureStorage";
+import { secureStore, secureSessionGet, secureRetrieve } from "../../../../utils/secureStorage";
+import socket from "../../../utils/socket";
 
 const { Title, Text } = Typography;
 
@@ -1085,6 +1086,58 @@ const DevSettings = () => {
   const runtimeCardStyle = { height: "100%" };
   const cardBodySmall = { padding: 12 };
 
+  // Client session/runtime monitoring
+  const [clientRuntime, setClientRuntime] = useState(() => {
+    const tokenSess = secureSessionGet("token");
+    const tokenLocal = secureRetrieve("token");
+    // Generate per-tab id once and keep in sessionStorage
+    let tabId = null;
+    try {
+      tabId = window.sessionStorage.getItem("__tab_id");
+      if (!tabId) {
+        tabId = `tab-${Math.random().toString(36).slice(2, 10)}`;
+        window.sessionStorage.setItem("__tab_id", tabId);
+      }
+    } catch {}
+    return {
+      storage: tokenSess ? "sessionStorage" : tokenLocal ? "localStorage (legacy)" : "none",
+      tokenPresent: Boolean(tokenSess || tokenLocal),
+      tabId,
+      socketConnected: socket?.connected || false,
+      socketTransport: (() => {
+        try { return socket?.io?.engine?.transport?.name || "n/a"; } catch { return "n/a"; }
+      })(),
+    };
+  });
+
+  useEffect(() => {
+    const update = () => {
+      const tokenSess = secureSessionGet("token");
+      const tokenLocal = secureRetrieve("token");
+      setClientRuntime((prev) => ({
+        ...prev,
+        storage: tokenSess ? "sessionStorage" : tokenLocal ? "localStorage (legacy)" : "none",
+        tokenPresent: Boolean(tokenSess || tokenLocal),
+        socketConnected: socket?.connected || false,
+        socketTransport: (() => {
+          try { return socket?.io?.engine?.transport?.name || "n/a"; } catch { return "n/a"; }
+        })(),
+      }));
+    };
+    const onConnect = () => update();
+    const onDisconnect = () => update();
+    try {
+      socket?.on?.("connect", onConnect);
+      socket?.on?.("disconnect", onDisconnect);
+    } catch {}
+    const id = window.setInterval(update, 2000);
+    return () => {
+      try { socket?.off?.("connect", onConnect); } catch {}
+      try { socket?.off?.("disconnect", onDisconnect); } catch {}
+      window.clearInterval(id);
+    };
+  }, []);
+
   const runtimeTab = (
     <Space direction="vertical" style={{ width: "100%" }}>
       <Row gutter={[12, 12]}>
@@ -1162,6 +1215,37 @@ const DevSettings = () => {
                 </Descriptions.Item>
               </Descriptions>
             )}
+          </Card>
+        </Col>
+        <Col xs={24} md={12}>
+          <Card
+            size="small"
+            title="Client Session"
+            style={runtimeCardStyle}
+            bodyStyle={cardBodySmall}
+          >
+            <Descriptions
+              size="small"
+              column={1}
+              labelStyle={{ fontSize: 12 }}
+              contentStyle={{ fontSize: 12 }}
+            >
+              <Descriptions.Item label="Auth Storage">
+                {clientRuntime.storage}
+              </Descriptions.Item>
+              <Descriptions.Item label="Token Present">
+                {clientRuntime.tokenPresent ? <Tag color="green">yes</Tag> : <Tag color="red">no</Tag>}
+              </Descriptions.Item>
+              <Descriptions.Item label="Tab ID">
+                {clientRuntime.tabId || <Tag>n/a</Tag>}
+              </Descriptions.Item>
+              <Descriptions.Item label="Socket Connected">
+                {clientRuntime.socketConnected ? <Tag color="green">yes</Tag> : <Tag color="red">no</Tag>}
+              </Descriptions.Item>
+              <Descriptions.Item label="Socket Transport">
+                {clientRuntime.socketTransport}
+              </Descriptions.Item>
+            </Descriptions>
           </Card>
         </Col>
       </Row>

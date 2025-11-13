@@ -106,7 +106,7 @@ const AuthPage = () => {
           <Alert
             type="info"
             showIcon
-            style={{ marginBottom: 12 }}
+            className="demo-mode-alert"
             message={
               <Space direction="vertical" size={2}>
                 <span><strong>Demo Mode Active</strong> — UAT/QA exploration prior to deployment.</span>

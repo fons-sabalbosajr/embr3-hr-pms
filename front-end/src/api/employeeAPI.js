@@ -41,3 +41,11 @@ export const getUniqueSectionOrUnits = async () => {
 export const getEmployeeDocs = async () => {
   return await axiosInstance.get('/employee-docs');
 };
+
+export const updateEmployeeDoc = async (id, payload) => {
+  return await axiosInstance.patch(`/employee-docs/${id}`, payload);
+};
+
+export const deleteEmployeeDoc = async (id) => {
+  return await axiosInstance.delete(`/employee-docs/${id}`);
+};

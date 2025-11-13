@@ -574,7 +574,7 @@ const GeneratePayslipModal = ({
     // Prefer first employee email if available
     const initialEmail = (selectedEmployee?.emails || [])[0] || selectedEmployee?.email || "";
     setSendEmail(initialEmail);
-    const defaultBody = `Dear ${selectedEmployee?.name || "Employee"},\n\nAttached is your payslip for the period ${periodDisplay}.\n\n${includeWetSignatureInstruction ? "Instruction: This payslip is system-generated. A wet signature is NOT required for its validity." : ""}\n\nRegards,\nHR Personnel`;
+    const defaultBody = `Dear ${selectedEmployee?.name || "Employee"},\n\nAttached is your payslip for the period ${periodDisplay}.\n\n${includeWetSignatureInstruction ? "Important: This payslip is for reference only and is NOT valid without a wet signature. Please proceed to the Head of Personnel Unit to obtain the required wet signature." : ""}\n\nRegards,\nHR Personnel`;
     setCustomBody(defaultBody);
     setIsSendModalOpen(true);
     // Fallback: find last payslip request email if employee email missing
@@ -640,13 +640,31 @@ const GeneratePayslipModal = ({
       });
 
       if (sendRes.data?.success) {
-        notification.success({ message: "Payslip email sent", description: `Email dispatched to ${sendEmail}` });
+        const isSimulated = !!sendRes.data?.simulated;
+        const wasAlreadySent = !!sendRes.data?.alreadySent; // backward compatibility
+        const resendCount = sendRes.data?.resendCount ?? 0;
+        notification.success({
+          message: isSimulated ? "Payslip email simulated" : wasAlreadySent ? "Already emailed" : (resendCount > 0 ? `Payslip re-sent (${resendCount}/5)` : "Payslip email sent"),
+          description: isSimulated
+            ? `Email capture logged server-side. SMTP not configured; no email delivered.`
+            : wasAlreadySent
+            ? `This payslip was already emailed earlier. No duplicate email was sent.`
+            : `Email dispatched to ${sendEmail}`,
+        });
         setIsSendModalOpen(false);
       } else {
         throw new Error(sendRes.data?.message || "Unknown send error");
       }
     } catch (e) {
-      notification.error({ message: "Failed to send", description: e.message });
+      const code = e?.response?.data?.code;
+      if (code === 'RESEND_LIMIT_REACHED') {
+        notification.warning({
+          message: 'Resend limit reached',
+          description: e?.response?.data?.message || 'You have reached the maximum number of resends for this payslip.',
+        });
+      } else {
+        notification.error({ message: "Failed to send", description: e.message });
+      }
     } finally {
       setIsSendingEmail(false);
     }
@@ -1538,7 +1556,7 @@ const GeneratePayslipModal = ({
                 placeholder="Enter custom email body"
               />
             </Form.Item>
-            <Form.Item label="Wet Signature Instruction" tooltip="Include instruction that wet signature not required for validity.">
+            <Form.Item label="Wet Signature Instruction" tooltip="Include instruction that a wet signature is required for validity.">
               <Space>
                 <Switch
                   checked={includeWetSignatureInstruction}
@@ -1546,7 +1564,7 @@ const GeneratePayslipModal = ({
                     setIncludeWetSignatureInstruction(checked);
                     // Regenerate body preserving other edits only if untouched beyond default
                     if (!customBody || customBody.includes("Attached is your payslip") ) {
-                      const updated = `Dear ${selectedEmployee?.name || "Employee"},\n\nAttached is your payslip for the period ${periodDisplay}.\n\n${checked ? "Instruction: This payslip is system-generated. A wet signature is NOT required for its validity." : ""}\n\nRegards,\nHR Personnel`;
+                      const updated = `Dear ${selectedEmployee?.name || "Employee"},\n\nAttached is your payslip for the period ${periodDisplay}.\n\n${checked ? "Important: This payslip is for reference only and is NOT valid without a wet signature. Please proceed to the Head of Personnel Unit to obtain the required wet signature." : ""}\n\nRegards,\nHR Personnel`;
                       setCustomBody(updated);
                     }
                   }}
@@ -1558,8 +1576,8 @@ const GeneratePayslipModal = ({
               </Space>
             </Form.Item>
             <Alert
-              type="info"
-              message="The PDF attachment is system-generated. A wet signature instruction can be toggled above."
+              type="warning"
+              message="Reminder: The attached payslip is not valid without a wet signature. Instruct the employee to visit the Head of Personnel Unit for signing."
               showIcon
             />
           </Form>

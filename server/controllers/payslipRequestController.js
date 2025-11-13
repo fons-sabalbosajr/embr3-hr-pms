@@ -1,9 +1,12 @@
 import PayslipRequest from "../models/PayslipRequest.js";
+import EmployeeDoc from "../models/employeeDocModel.js";
 import { getSocketInstance } from "../socket.js";
 import User from "../models/User.js";
 import AuditLog from "../models/AuditLog.js";
 import Employee from "../models/Employee.js";
 import nodemailer from "nodemailer";
+import fs from 'fs';
+import path from 'path';
 import { buildPayslipEmail } from "../utils/emailTemplates.js";
 
 export const createPayslipRequest = async (req, res) => {
@@ -14,14 +17,27 @@ export const createPayslipRequest = async (req, res) => {
       return res.status(400).json({ success: false, message: "employeeId, period, and email are required" });
     }
 
-    // 🔒 Rate limit: max 3 pending requests per employee until HR verification
+    // Idempotency: if there's already a request for the same employee and period, return the latest one
     try {
-      const pendingCount = await PayslipRequest.countDocuments({ employeeId, status: 'pending' });
+      // Prefer a pending request to continue the flow
+      let existing = await PayslipRequest.findOne({ employeeId, period, status: 'pending' });
+      // If no pending request, reuse the latest non-rejected request for this period
+      if (!existing) {
+        existing = await PayslipRequest.findOne({ employeeId, period, status: { $ne: 'rejected' } }).sort({ createdAt: -1 });
+      }
+      if (existing) return res.status(200).json({ success: true, data: existing, reused: true });
+    } catch (findErr) {
+      console.warn('Failed to check existing payslip request', { employeeId, period, err: findErr });
+    }
+
+    // 🔒 Rate limit: max 3 pending requests per employee+period group to prevent spam
+    try {
+      const pendingCount = await PayslipRequest.countDocuments({ employeeId, period, status: 'pending' });
       if (pendingCount >= 3) {
         return res.status(429).json({
           success: false,
           code: 'REQUEST_LIMIT_REACHED',
-          message: 'You already have 3 pending payslip requests. Please wait for HR to verify before submitting another.',
+          message: 'You already have 3 pending payslip requests for this period. Please wait for HR to verify before submitting another.',
           pendingCount
         });
       }
@@ -155,22 +171,58 @@ export const sendPayslipEmail = async (req, res) => {
   const row = await PayslipRequest.findById(id);
     if (!row) return res.status(404).json({ success: false, message: 'Payslip request not found' });
 
-    if (row.sentAt) {
-      return res.status(409).json({ success: false, message: 'Payslip already emailed', alreadySent: true, sentAt: row.sentAt });
+    // Allow up to 5 resends after the initial send
+    const maxResends = 5;
+    const currentResends = Number(row.resendCount || 0);
+    const alreadySentOnce = !!row.sentAt;
+    if (alreadySentOnce && currentResends >= maxResends) {
+      return res.status(429).json({
+        success: false,
+        code: 'RESEND_LIMIT_REACHED',
+        message: `Resend limit reached. You can resend up to ${maxResends} times for this payslip request.`,
+        resendCount: currentResends,
+        maxResends,
+      });
     }
 
-    // Validate env configuration
-    const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_SECURE } = process.env;
-    if (!SMTP_HOST || !SMTP_PORT || !SMTP_USER || !SMTP_PASS) {
-      return res.status(500).json({ success: false, message: 'SMTP configuration missing. Please set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS.' });
-    }
+    // Validate env configuration with non-production fallback
+    const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_SECURE, ALLOW_FAKE_EMAILS, NODE_ENV, DISABLE_EMAIL } = process.env;
+    const EMAIL_HOST = process.env.EMAIL_HOST;
+    const EMAIL_PORT = process.env.EMAIL_PORT;
+    const EMAIL_USER = process.env.EMAIL_USER;
+    const EMAIL_PASS = process.env.EMAIL_PASS;
+    const EMAIL_SECURE = (process.env.EMAIL_SECURE || '').toLowerCase();
 
-    const transporter = nodemailer.createTransport({
-      host: SMTP_HOST,
-      port: Number(SMTP_PORT),
-      secure: SMTP_SECURE === 'true',
-      auth: { user: SMTP_USER, pass: SMTP_PASS },
-    });
+    // Prefer SMTP_* if set, else fall back to EMAIL_* variables
+    const host = SMTP_HOST || EMAIL_HOST;
+    const port = Number(SMTP_PORT || EMAIL_PORT);
+    const secure = (String(SMTP_SECURE).toLowerCase() === 'true') || (EMAIL_SECURE === 'true');
+    const user = SMTP_USER || EMAIL_USER;
+    const pass = SMTP_PASS || EMAIL_PASS;
+
+    const allowFake = (ALLOW_FAKE_EMAILS === 'true')
+      || (NODE_ENV && NODE_ENV !== 'production')
+      || (DISABLE_EMAIL && DISABLE_EMAIL.toLowerCase() === 'true')
+      || (!host || !port || !user || !pass);
+    let transporter;
+    if (!host || !port || !user || !pass) {
+      if (!allowFake) {
+        return res.status(500).json({ success: false, message: 'SMTP configuration missing. Please set SMTP_* or EMAIL_* variables.' });
+      }
+      // Fallback: capture email to server logs (non-production / ALLOW_FAKE_EMAILS)
+      transporter = nodemailer.createTransport({
+        streamTransport: true,
+        buffer: true,
+        newline: 'unix',
+      });
+    } else {
+      transporter = nodemailer.createTransport({
+        host,
+        port,
+        secure,
+        auth: { user, pass },
+      });
+    }
 
     // Retrieve employee document early for template enrichment
     let employeeDoc = null;
@@ -180,31 +232,61 @@ export const sendPayslipEmail = async (req, res) => {
       }
     } catch (_) {}
 
-    // Use shared template builder (allows future branding tweaks in one place)
-    const html = bodyHtml || buildPayslipEmail({ period: row.period, employee: employeeDoc });
+    // Use shared corporate template (text-only branding; no logo inline/attachment)
+    const html = buildPayslipEmail({ period: row.period, employee: employeeDoc, customMessage: bodyHtml });
 
     let info;
+    let simulated = false;
+    const fromAddress = user || 'no-reply@example.local';
     try {
-      info = await transporter.sendMail({
-        from: `HR Payroll <${SMTP_USER}>`,
+      const fromName = process.env.EMAIL_FROM_NAME || 'EMBR3 DTRMS Personnel';
+      // Normalize pdf payload to raw base64
+      const extractBase64 = (s) => {
+        try {
+          const str = String(s || '');
+          const noHash = str.split('#')[0];
+          const m = noHash.match(/^data:application\/pdf[^,]*,(.*)$/i);
+          const b64 = m ? m[1] : noHash;
+          return b64.replace(/\s+/g, '');
+        } catch {
+          return String(s || '');
+        }
+      };
+      const rawBase64 = extractBase64(pdfBase64);
+      const pdfBuffer = Buffer.from(rawBase64, 'base64');
+
+      const mailOptions = {
+        from: `${fromName} <${fromAddress}>`,
         to: row.email,
         subject: subject || `Payslip ${row.period}`,
         html,
         attachments: [
           {
             filename,
-            content: pdfBase64.split(',').pop(), // support data:application/pdf;base64,<data>
-            encoding: 'base64',
+            content: pdfBuffer,
             contentType: 'application/pdf',
+            contentDisposition: 'attachment',
           },
         ],
-      });
+      };
+      info = await transporter.sendMail(mailOptions);
+      if (allowFake && info && info.message) {
+        console.log('FAKE EMAIL (captured):\n', info.message.toString());
+        simulated = true;
+      }
     } catch (mailErr) {
       console.error('Failed to send payslip email', mailErr);
       return res.status(502).json({ success: false, message: 'Failed to send email', error: mailErr.message });
     }
 
-    row.sentAt = new Date();
+    const now = new Date();
+    if (!row.sentAt) {
+      row.sentAt = now; // first send
+    } else {
+      // subsequent resend
+      row.resendCount = currentResends + 1;
+      row.lastSentAt = now;
+    }
     row.sentBy = caller._id?.toString() || caller.id || 'unknown';
     row.status = 'sent';
     row.emailMessageId = info?.messageId;
@@ -237,7 +319,67 @@ export const sendPayslipEmail = async (req, res) => {
       io.emit('payslipSent', { id: row._id, employeeId: row.employeeId, period: row.period, sentAt: row.sentAt });
     }
 
-    res.json({ success: true, data: row });
+    // Ensure a System Reports entry exists/updated for this payslip
+    try {
+      const empId = row.employeeId;
+      const period = row.period;
+      const docType = 'Payslip';
+      const description = `Payslip emailed to ${row.email} for ${period}`;
+      const createdBy = caller?.username || caller?.email || caller?._id?.toString() || 'system';
+
+      let existingDoc = await EmployeeDoc.findOne({ empId, docType, period });
+      if (existingDoc) {
+        // Update description to reflect email action; keep original dateIssued/docNo
+        existingDoc.description = description;
+        // Preserve any payload/isFullMonthRange fields already present
+        await existingDoc.save();
+        try { if (io) io.emit('employeeDoc:created', { ...existingDoc.toObject(), isNew: false }); } catch (_) {}
+      } else {
+        // Create a new doc with docNo computed by the period's year (preferred)
+        let year;
+        if (typeof period === 'string') {
+          const parts = period.split(' - ');
+          const start = parts && parts.length > 0 ? new Date(parts[0]) : null;
+          year = start && !isNaN(start.getTime()) ? start.getFullYear() : undefined;
+        }
+        const basis = new Date();
+        if (!year) year = basis.getFullYear();
+        let yearlyCount = 0;
+        try {
+          const periodRegex = new RegExp(`^${year}-`);
+          yearlyCount = await EmployeeDoc.countDocuments({ docType: 'Payslip', period: { $regex: periodRegex } });
+        } catch (_) {
+          yearlyCount = 0;
+        }
+        if (!yearlyCount) {
+          const yearStart = new Date(year, 0, 1);
+          const nextYearStart = new Date(year + 1, 0, 1);
+          yearlyCount = await EmployeeDoc.countDocuments({
+            docType: 'Payslip',
+            $or: [
+              { dateIssued: { $gte: yearStart, $lt: nextYearStart } },
+              { dateIssued: { $exists: false }, createdAt: { $gte: yearStart, $lt: nextYearStart } },
+            ],
+          });
+        }
+        const docNo = yearlyCount + 1;
+        const newDoc = await EmployeeDoc.create({
+          empId,
+          docType,
+          period,
+          dateIssued: basis.toISOString(),
+          description,
+          createdBy,
+          docNo,
+        });
+        try { if (io) io.emit('employeeDoc:created', { ...newDoc.toObject(), isNew: true }); } catch (_) {}
+      }
+    } catch (docErr) {
+      console.warn('Failed to upsert System Reports entry for emailed payslip', docErr);
+      // non-fatal
+    }
+
+    res.json({ success: true, data: row, simulated, resendCount: Number(row.resendCount || 0), maxResends });
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, message: 'Unexpected error sending payslip email' });

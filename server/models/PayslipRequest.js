@@ -11,6 +11,8 @@ const payslipRequestSchema = new mongoose.Schema(
     sentAt: { type: Date }, // when payslip email was sent
     sentBy: { type: String }, // userId or username of HR who sent
     emailMessageId: { type: String }, // provider message id tracking
+    resendCount: { type: Number, default: 0 }, // number of resends after initial send
+    lastSentAt: { type: Date }, // timestamp of last (re)send
   },
   { timestamps: true }
 );

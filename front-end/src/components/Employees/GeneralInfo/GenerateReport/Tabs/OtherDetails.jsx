@@ -39,6 +39,8 @@ const docColors = {
 /**
  * Transforms a flat array of DTR logs into the nested object structure
  * required by the generateDTRPdf utility.
+ * Maps raw states (e.g., 'C/In', 'Out', 'Out Back', 'C/Out') to
+ * the expected keys: 'Time In', 'Break Out', 'Break In', 'Time Out'.
  * @param {Array} logs - The flat array of log objects.
  * @param {Object} employee - The employee object.
  * @returns {Object} - The transformed logs.
@@ -48,15 +50,23 @@ const transformLogsForDTR = (logs, employee) => {
   const empId = employee.empId;
   dtrLogs[empId] = {};
 
+  const STATE_MAP = {
+    "C/In": "Time In",
+    "Out": "Break Out",
+    "Out Back": "Break In",
+    "C/Out": "Time Out",
+  };
+
   logs.forEach((log) => {
     const dateKey = dayjs(log.time).format("YYYY-MM-DD");
     if (!dtrLogs[empId][dateKey]) {
       dtrLogs[empId][dateKey] = {};
     }
-    // Use human-readable state from getWorkCalendarLogs and format time
-    // Only set the first log of a given type for the day
-    if (!dtrLogs[empId][dateKey][log.state]) {
-  dtrLogs[empId][dateKey][log.state] = dayjs(log.time).format("h:mm");
+    const mappedKey = STATE_MAP[log.state];
+    if (!mappedKey) return; // ignore unrecognized states
+    // Only set the first occurrence per type for the day; include AM/PM
+    if (!dtrLogs[empId][dateKey][mappedKey]) {
+      dtrLogs[empId][dateKey][mappedKey] = dayjs(log.time).format("h:mm A");
     }
   });
   return dtrLogs;
@@ -156,16 +166,26 @@ const OtherDetails = ({ employee }) => {
             throw new Error("Invalid DTR cut-off period.");
           }
 
+          // Normalize to Manila date-only to avoid timezone drift (e.g., Aug 31 vs Sep 1)
+          const startLocal = dayjs(start).tz("Asia/Manila").format("YYYY-MM-DD");
+          const endLocal = dayjs(end).tz("Asia/Manila").format("YYYY-MM-DD");
+
           const logsRes = await axiosInstance.get('/dtrlogs/work-calendar', {
-            params: { employeeId: employee._id, startDate: start, endDate: end }
+            params: { employeeId: employee._id, startDate: startLocal, endDate: endLocal }
           });
 
           const dtrLogs = transformLogsForDTR(logsRes.data.data, employee);
 
+          // Pass sanitized cut-off to the PDF generator
+          const sanitizedRecord = {
+            ...selectedRecord,
+            DTR_Cut_Off: { start: startLocal, end: endLocal },
+          };
+
           await generateDTRPdf({
             employee,
             dtrLogs,
-            selectedRecord,
+            selectedRecord: sanitizedRecord,
             download: false, // Opens in new tab
           });
           message.success({ content: "DTR generated successfully!", key: "pdf" });
@@ -173,11 +193,15 @@ const OtherDetails = ({ employee }) => {
         }
 
         case "Payslip": {
-          message.loading({ content: "Generating Payslip...", key: "pdf" });
-          // NOTE: Assumes an endpoint exists to fetch all necessary payslip data
-          // using the reference ID stored in the employee document.
-          const payslipRes = await axiosInstance.get(`/payslips/by-reference/${record.reference}`);
-          const { payslipData, payslipNumber, isFullMonthRange } = payslipRes.data;
+          message.loading({ content: "Opening payslip...", key: "pdf" });
+          // Prefer embedded payload saved at generation time
+          const payslipData = record.payload;
+          const payslipNumber = record.docNo || 0;
+          const isFullMonthRange = record.isFullMonthRange ?? false;
+
+          if (!payslipData) {
+            throw new Error("Payslip details are not available for this record.");
+          }
 
           if (employee.empType === 'Regular') {
             openPayslipInNewTabRegular(payslipData, payslipNumber, isFullMonthRange);

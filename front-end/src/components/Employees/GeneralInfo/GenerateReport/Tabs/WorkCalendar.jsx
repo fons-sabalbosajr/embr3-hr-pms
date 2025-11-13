@@ -248,7 +248,6 @@ const WorkCalendar = ({ employee }) => {
     });
   });
 
-  
   // Render each cell with icons
   const RenderEventContent = ({ arg, onClick }) => {
     const summary = arg.event.extendedProps?.dailySummary;
@@ -377,7 +376,6 @@ const WorkCalendar = ({ employee }) => {
             padding: "2px",
             pointerEvents: "none",
             background: "#ad6800",
-            
           }}
         >
           {arg.event.title}
@@ -406,7 +404,6 @@ const WorkCalendar = ({ employee }) => {
             padding: "2px",
             pointerEvents: "none",
             background: "#a8071a",
-           
           }}
         >
           {arg.event.title}
@@ -444,18 +441,6 @@ const WorkCalendar = ({ employee }) => {
           events={events}
           eventClick={handleEventClick}
           height="auto"
-          dayCellDidMount={(info) => {
-            const dow = dayjs(info.date).day();
-            if (dow === 0 || dow === 6) {
-              const isDark =
-                typeof window !== "undefined" &&
-                window.matchMedia &&
-                window.matchMedia("(prefers-color-scheme: dark)").matches;
-              // Use subtle tinted backgrounds depending on theme
-              info.el.style.backgroundColor = isDark ? "#1f1f1f" : "#fafafa";
-              info.el.style.color = isDark ? "#e8e8e8" : "#000";
-            }
-          }}
           eventContent={(arg) => (
             <RenderEventContent
               arg={arg}

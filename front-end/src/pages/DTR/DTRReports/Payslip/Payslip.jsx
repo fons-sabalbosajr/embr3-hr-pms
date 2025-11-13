@@ -211,6 +211,9 @@ const Payslip = () => {
         dateIssued: dayjs().toISOString(),
         description: `Payslip for ${payslipData.cutOffStartDate} to ${payslipData.cutOffEndDate}`,
         createdBy: currentUser?.username || "Admin",
+        // Store exact data used for generation so HR can re-open later
+        payload: payslipData,
+        isFullMonthRange,
       };
 
       const response = await axiosInstance.post("/employee-docs", payload);

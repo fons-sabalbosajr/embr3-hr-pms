@@ -7,7 +7,7 @@ import customParseFormat from "dayjs/plugin/customParseFormat";
 import { fetchPhilippineHolidays } from "../src/api/holidayPH";
 import axios from "axios";
 import axiosInstance from "../src/api/axiosInstance";
-import { secureRetrieve } from "./secureStorage";
+import { secureRetrieve, secureSessionGet } from "./secureStorage";
 import { getSignatoryEmployees } from "../src/api/employeeAPI.js";
 
 dayjs.extend(utc);
@@ -212,7 +212,7 @@ export async function generateDTRPdf({
   let localHolidays = [];
   let suspensions = [];
   try {
-    const hasToken = !!secureRetrieve("token");
+    const hasToken = !!(secureSessionGet("token") || secureRetrieve("token"));
     if (hasToken && selectedRecord && selectedRecord.DTR_Cut_Off) {
       const start = dayjs(selectedRecord.DTR_Cut_Off.start).format("YYYY-MM-DD");
       const end = dayjs(selectedRecord.DTR_Cut_Off.end).format("YYYY-MM-DD");

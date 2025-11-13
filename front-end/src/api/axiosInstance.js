@@ -1,6 +1,6 @@
 import axios from "axios";
 import { message } from "antd";
-import { secureRetrieve, secureRemove, secureStore, secureGet } from "../../utils/secureStorage";
+import { secureRetrieve, secureRemove, secureStore, secureGet, secureSessionGet } from "../../utils/secureStorage";
 import demoActions from "../utils/demoActionsRegistry";
 
 // Prefer explicit API base via VITE_API_URL; fall back to Vite dev proxy path '/api' for local dev
@@ -12,14 +12,15 @@ const axiosInstance = axios.create({
 // Attach token automatically
 axiosInstance.interceptors.request.use(
   (config) => {
-    const token = secureRetrieve("token");
+    // Prefer per-tab session token; fall back to legacy local if present
+    const token = secureSessionGet("token") || secureRetrieve("token");
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
     // Client-side demo enforcement: deny-list (disabled actions) + optional global read-only
     try {
-      const user = secureGet('user');
-      const app = secureGet('appSettings');
+      const user = secureSessionGet('user') || secureGet('user');
+      const app = secureSessionGet('appSettings') || secureGet('appSettings');
       const method = String(config.method || 'get').toUpperCase();
       const isWrite = ['POST','PUT','PATCH','DELETE'].includes(method);
       if (isWrite && user?.isDemo) {
@@ -72,8 +73,11 @@ axiosInstance.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response && error.response.status === 401) {
-      // Clear token on any 401
-  secureRemove("token");
+      // Clear token on any 401 (session first, then legacy local)
+  try { secureRemove("token"); } catch {}
+  try { secureRemove("user"); } catch {}
+  try { window.sessionStorage && window.sessionStorage.removeItem("token"); } catch {}
+  try { window.sessionStorage && window.sessionStorage.removeItem("user"); } catch {}
   // Proactively harden any lingering plaintext values migrated mid-session
   try { secureStore('__last401', Date.now()); } catch(_){}
 
