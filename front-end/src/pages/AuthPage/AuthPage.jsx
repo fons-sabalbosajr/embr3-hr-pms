@@ -21,9 +21,9 @@ const AuthPage = () => {
     let mounted = true;
     (async () => {
       try {
-        const res = await fetch('/api/public/demo-info');
-        const data = await res.json();
-        if (mounted) setDemoInfo(data);
+        // Use axios instance so baseURL (VITE_API_URL) is respected in static hosting
+        const res = await axios.get('/public/demo-info');
+        if (mounted) setDemoInfo(res.data);
       } catch (_) {
         if (mounted) setDemoInfo(null);
       }

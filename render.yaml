@@ -40,7 +40,25 @@ services:
         sync: false
       # Storage provider: local or drive
       - key: STORAGE_PROVIDER
-        value: local
+        value: drive
+      # Optional when using local storage (requires paid plan disk). Not used on Free plan.
+      - key: AVATAR_UPLOAD_DIR
+        sync: false
+      # Public base URL (used only for local storage avatar URLs)
+      - key: SERVER_PUBLIC_URL
+        # e.g. https://embr3-hr-pms.onrender.com
+        sync: false
+      # Google Drive credentials & destination (Free plan friendly)
+      - key: GOOGLE_SERVICE_ACCOUNT_KEY
+        # e.g. server/config/hr-service-account.json (path inside repo) or leave empty if using JSON/BASE64 envs
+        sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT_JSON
+        sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT_JSON_BASE64
+        sync: false
+      - key: GOOGLE_DRIVE_FOLDER_ID_IMAGE
+        # Target folder (prefer a Shared Drive folder ID shared with the service account)
+        sync: false
       # Email configuration (choose SMTP_URL or granular settings)
       - key: SMTP_URL
         sync: false

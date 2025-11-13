@@ -9,6 +9,13 @@ This repo includes a Render blueprint (`render.yaml`) to deploy both the API and
   - Start: `node server.js`
   - Exposes PORT assigned by Render
   - Health check: `/api/dev/health` (ensure the route exists or adjust)
+  - Avatars (Free Plan): use Google Drive storage (no disk required)
+    - Set `STORAGE_PROVIDER=drive`
+    - Provide credentials via one of:
+      - `GOOGLE_SERVICE_ACCOUNT_KEY=server/config/hr-service-account.json` (if the JSON is in the repo), or
+      - `GOOGLE_SERVICE_ACCOUNT_JSON` (raw JSON) or `GOOGLE_SERVICE_ACCOUNT_JSON_BASE64` (base64-encoded JSON)
+    - Set `GOOGLE_DRIVE_FOLDER_ID_IMAGE=<your-folder-id>` (prefer a Shared Drive folder and share it to the service account)
+  - Avatars (Paid Plan alternative): attach a disk and set `STORAGE_PROVIDER=local` with `AVATAR_UPLOAD_DIR=/data/uploads` and `SERVER_PUBLIC_URL`
   - Required env vars (set in Render):
     - `MONGO_URI`
     - `JWT_SECRET`
@@ -34,8 +41,11 @@ This repo includes a Render blueprint (`render.yaml`) to deploy both the API and
 3. After initial deploy of the API, copy its public URL and set `VITE_API_URL` on the Static Site service (must end with `/api`).
 4. Set `CLIENT_ORIGIN` on the API service to the Static Site public URL (e.g., `https://embr3-hr-pms-uat-web.onrender.com`).
 5. Set `VITE_ENCRYPT_SECRET` (and optional `VITE_KEY_SALT`) on the Static Site service.
-6. Configure email env vars on the API service if sending payslips.
-7. Redeploy the Static Site (to pick up `VITE_API_URL`) and the API if you changed API env vars.
+6. Configure avatars (choose ONE):
+  - Free Plan (recommended): set `STORAGE_PROVIDER=drive`, `GOOGLE_*` creds, and `GOOGLE_DRIVE_FOLDER_ID_IMAGE`.
+  - Paid Plan: add a Disk, set `STORAGE_PROVIDER=local`, `AVATAR_UPLOAD_DIR=/data/uploads`, `SERVER_PUBLIC_URL=https://<api>.onrender.com`.
+7. Configure email env vars on the API service if sending payslips.
+8. Redeploy API and Static Site to pick up env changes.
 
 ## Notes
 
@@ -59,6 +69,14 @@ After deploy, verify:
 # API health
 curl -sSf https://<api-service>.onrender.com/api/dev/health
 
+# Demo banner from static Auth page (via axios base URL)
+curl -sSf https://<web-service>.onrender.com/auth | head -n 5
+
 # Frontend fetch
 curl -sSf https://<web-service>.onrender.com/
+
+# Avatar
+# If using Drive (Free): the avatarUrl will be https://drive.google.com/uc?export=view&id=<fileId>
+# If using Local (Paid): test the static file URL served by API
+# curl -I https://<api-service>.onrender.com/uploads/avatars/<userId>/<file>
 ```

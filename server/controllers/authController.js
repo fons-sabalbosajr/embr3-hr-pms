@@ -901,18 +901,22 @@ export const uploadAvatar = async (req, res) => {
       } catch (_) {}
       return res.status(200).json({ message: 'Avatar updated', avatarUrl });
     } else {
-      // Google Drive storage
+      // Google Drive storage (best for Render Free: no persistent disk)
       const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID_IMAGE || process.env.GOOGLE_DRIVE_FOLDER_ID;
       if (!folderId) {
-        // Safety: if Drive not configured, fallback to local logic
-        // Re-enter local branch by throwing a sentinel error the outer catch won't treat as failure
-        return res.status(503).json({ message: 'Drive storage not configured. Set STORAGE_PROVIDER=local (default) or configure GOOGLE_DRIVE_FOLDER_ID_IMAGE.' });
+        return res.status(503).json({ message: 'Drive storage not configured. Set GOOGLE_DRIVE_FOLDER_ID_IMAGE or GOOGLE_DRIVE_FOLDER_ID, and provide Service Account credentials.' });
       }
       const safeName = `${userId}_${Date.now()}_${(file.originalname || 'avatar').replace(/[^a-zA-Z0-9._-]/g, '_')}`;
       const uploaded = await uploadToDrive({ buffer: file.buffer, mimeType: file.mimetype, filename: safeName, folderId });
-      const avatarUrl = uploaded.webViewLink || uploaded.webContentLink || `https://drive.google.com/file/d/${uploaded.id}/view`;
-  await User.updateOne({ _id: user._id }, { $set: { avatarUrl } }, { runValidators: false });
-  return res.status(200).json({ message: 'Avatar updated', avatarUrl });
+      // Prefer a direct-view URL that works in <img src="...">
+      const directView = uploaded?.id ? `https://drive.google.com/uc?export=view&id=${uploaded.id}` : null;
+      const avatarUrl = directView || uploaded.webContentLink || uploaded.webViewLink || (uploaded?.id ? `https://drive.google.com/file/d/${uploaded.id}/view` : '');
+      await User.updateOne({ _id: user._id }, { $set: { avatarUrl } }, { runValidators: false });
+      try {
+        const io = getSocketInstance?.();
+        if (io) io.emit('user-avatar-updated', { userId: String(user._id), avatarUrl });
+      } catch (_) {}
+      return res.status(200).json({ message: 'Avatar updated', avatarUrl });
     }
   } catch (error) {
     console.error("[uploadAvatar]", error);
