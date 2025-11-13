@@ -12,7 +12,14 @@ export const ThemeProvider = ({ children }) => {
   const [currentTheme, setCurrentTheme] = useState(secureGet('theme') || 'light');
   // User-selected primary color preset (default uses app setting)
   const [userPrimaryPreset, setUserPrimaryPreset] = useState(secureGet('userPrimaryPreset') || 'default');
-  const [appSettings, setAppSettings] = useState(null);
+  // Persist settings across sessions so demo state remains visible after logout
+  const [appSettings, setAppSettings] = useState(() => {
+    try {
+      return secureGet('appSettings') || null;
+    } catch (_) {
+      return null;
+    }
+  });
   // Option: apply user preset to header/sider (chrome)
   const [applyPresetToChrome, setApplyPresetToChrome] = useState(() => {
     const stored = secureGet('applyPresetToChrome');
@@ -121,6 +128,36 @@ export const ThemeProvider = ({ children }) => {
       window.removeEventListener('app-settings-updated', onUpdated);
     };
   }, [applyCssVars, isAuthenticated]);
+
+  // When logged out, refresh only public demo info so demo banner stays accurate
+  useEffect(() => {
+    let mounted = true;
+    const refreshDemo = async () => {
+      try {
+        if (isAuthenticated) return; // handled by private settings fetch
+        const res = await axiosInstance.get('/public/demo-info');
+        if (!mounted) return;
+        const demoInfo = res?.data || {};
+        const next = {
+          ...(appSettings || {}),
+          demo: {
+            ...(appSettings?.demo || {}),
+            enabled: Boolean(demoInfo.enabled),
+            startDate: demoInfo.startDate || null,
+            endDate: demoInfo.endDate || null,
+            allowSubmissions: Boolean(demoInfo.allowSubmissions),
+            maskSensitiveData: demoInfo.maskSensitiveData !== false,
+          },
+        };
+        setAppSettings(next);
+        try { secureStore('appSettings', next); } catch(_) {}
+      } catch (_) {
+        // ignore if public endpoint not reachable
+      }
+    };
+    refreshDemo();
+    return () => { mounted = false; };
+  }, [isAuthenticated]);
 
   // Update content variables when mode changes
   useEffect(() => {
