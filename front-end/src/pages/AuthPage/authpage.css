@@ -26,6 +26,7 @@
   backdrop-filter: blur(4px);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
   animation: slideUp 0.6s ease-in-out;
+  border: none;
 }
 
 /* Title styling */
@@ -53,6 +54,32 @@
   color: white;
   border: none;
   margin-top: 10px;
+}
+
+/* Unified fixed primary button styling (theme-independent) */
+.auth-card .fixed-primary-btn.ant-btn-primary {
+  background: linear-gradient(135deg, #005b99, #1677ff) !important;
+  border-color: #0a6dd8 !important;
+  color: #fff !important;
+  font-weight: 600;
+  box-shadow: 0 2px 6px rgba(0, 91, 153, 0.35);
+  transition: background 0.25s, box-shadow 0.25s;
+}
+.auth-card .fixed-primary-btn.ant-btn-primary:hover,
+.auth-card .fixed-primary-btn.ant-btn-primary:focus {
+  background: linear-gradient(135deg, #1677ff, #4098ff) !important;
+  border-color: #1677ff !important;
+  box-shadow: 0 3px 8px rgba(0, 91, 153, 0.45);
+}
+.auth-card .fixed-primary-btn.ant-btn-primary:active {
+  background: linear-gradient(135deg, #004b80, #0a6dd8) !important;
+  border-color: #004b80 !important;
+}
+.auth-card .fixed-primary-btn.ant-btn-primary[disabled] {
+  background: #b3d4f8 !important;
+  border-color: #b3d4f8 !important;
+  color: #ffffff !important;
+  box-shadow: none !important;
 }
 
 @media (max-width: 500px) {
@@ -86,4 +113,32 @@
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* Force Demo Mode alert to light theme regardless of global theme */
+.demo-mode-alert.ant-alert {
+  background: #e6f7ff !important;
+  border-color: #91d5ff !important;
+  color: #000 !important;
+}
+.demo-mode-alert .ant-alert-message,
+.demo-mode-alert .ant-alert-description {
+  color: #000 !important;
+}
+/* Ensure the info icon uses the brand blue, not black */
+.demo-mode-alert .ant-alert-icon,
+.demo-mode-alert .ant-alert-icon .anticon {
+  color: #1677ff !important;
+}
+
+/* Fix Tag colors inside Demo Mode alert (theme-exempt) */
+.demo-mode-alert .ant-tag {
+  background: #fafafa !important; /* light default */
+  border-color: #d9d9d9 !important;
+  color: #000 !important;
+}
+.demo-mode-alert .ant-tag-blue {
+  background: #e6f4ff !important; /* light blue */
+  border-color: #91caff !important;
+  color: #0958d9 !important;
 }

@@ -70,5 +70,8 @@ dtrLogSchema.index({ DTR_ID: 1 });
 dtrLogSchema.index({ Name: 1 });
 dtrLogSchema.index({ Time: 1 });
 dtrLogSchema.index({ DTR_ID: 1, Name: 1, Time: 1 });
+// Compound indexes to speed up findLatest by acNo/name within time ranges
+dtrLogSchema.index({ normalizedAcNo: 1, Time: -1 });
+dtrLogSchema.index({ normalizedName: 1, Time: -1 });
 
 export default mongoose.model("DTRLog", dtrLogSchema);

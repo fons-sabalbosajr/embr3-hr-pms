@@ -14,3 +14,11 @@ yarn-debug.log*
 .DS_Store
 .vscode/
 .idea/
+
+# Sensitive Google credential files (keep local only)
+/config/hr-service-account.json
+/config/service-account.json
+/config/oauth-client.json
+
+# .json.b64 files containing base64-encoded credentials
+*.json.b64
