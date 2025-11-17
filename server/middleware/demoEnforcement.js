@@ -41,6 +41,12 @@ export default async function demoEnforcement(req, res, next) {
     // Only consider write requests; GET always allowed
     if (!isWriteMethod(req.method)) return next();
 
+    // Always allow bug report submissions, even in demo read-only
+    try {
+      const p = normalizePath(req);
+      if (p.startsWith('/api/bug-report')) return next();
+    } catch {}
+
     // req.user is attached by verifyToken on protected routes; for unprotected, nothing to enforce
     const user = req.user || {};
 

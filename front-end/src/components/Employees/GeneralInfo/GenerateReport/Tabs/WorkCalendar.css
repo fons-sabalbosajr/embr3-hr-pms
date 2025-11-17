@@ -50,8 +50,11 @@
   color: #fff;
 }
 
-/* Weekend cells: subtle light tint for Saturday/Sunday (not overriding 'today') */
+/* Weekend cells: theme-aware subtle tint for Saturday/Sunday (not overriding 'today') */
 .work-calendar .fc .fc-daygrid-day.fc-day-sat:not(.fc-day-today) .fc-daygrid-day-frame,
 .work-calendar .fc .fc-daygrid-day.fc-day-sun:not(.fc-day-today) .fc-daygrid-day-frame {
-  background: #fff7e6; /* Ant Design orange-1 for gentle weekend tint */
+  background: var(
+    --ant-color-warning-bg,
+    color-mix(in srgb, var(--ant-color-warning, #faad14) 12%, transparent)
+  );
 }

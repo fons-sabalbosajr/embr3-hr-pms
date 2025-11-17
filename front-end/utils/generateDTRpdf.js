@@ -23,6 +23,23 @@ function stripAmPm(timeStr) {
 
 function formatTimeForPdf(val, dateKey) {
   try {
+    // If multiple punches provided, prefer the earliest
+    if (Array.isArray(val)) {
+      if (val.length === 0) return "";
+      // Assume values are time strings; sort ascending by time when possible
+      const sorted = val
+        .slice()
+        .sort((a, b) => {
+          try {
+            const da = dayjs(a, ["h:mm A", "HH:mm"], true);
+            const db = dayjs(b, ["h:mm A", "HH:mm"], true);
+            if (da.isValid() && db.isValid()) return da.isBefore(db) ? -1 : 1;
+          } catch {}
+          return String(a).localeCompare(String(b));
+        });
+      return formatTimeForPdf(sorted[0], dateKey);
+    }
+
     if (val === null || val === undefined || val === "") return "";
 
     // If already a Date
@@ -341,6 +358,22 @@ export async function generateDTRPdf({
     currentDate = currentDate.add(1, "day");
   }
 
+  // Compute consecutive training day blocks for vertical merging (rowSpan)
+  const trainingBlocks = [];
+  {
+    let i = 0;
+    while (i < rows.length) {
+      if (rows[i] && rows[i].isTraining) {
+        let j = i;
+        while (j + 1 < rows.length && rows[j + 1] && rows[j + 1].isTraining) j++;
+        trainingBlocks.push({ start: i, end: j, length: j - i + 1, text: rows[i].status });
+        i = j + 1;
+      } else {
+        i++;
+      }
+    }
+  }
+
   autoTable(doc, {
     startY: 45,
     head: [columns.map((col) => col.header)],
@@ -378,6 +411,35 @@ export async function generateDTRPdf({
         if (data.column.index === statusColIndex) {
           data.cell.styles.fontSize = 7;
         }
+
+        // Vertical merge for training blocks: keep Day unmerged, merge time/status
+        const block = trainingBlocks.find(
+          (b) => data.row.index >= b.start && data.row.index <= b.end
+        );
+        if (block) {
+          if (data.column.index === 1) {
+            if (data.row.index === block.start) {
+              data.cell.rowSpan = block.length;
+              data.cell.colSpan = columns.length - 1;
+              data.cell.styles.halign = "center";
+              data.cell.styles.valign = "middle";
+              data.cell.styles.fontSize = 7;
+              data.cell.styles.cellPadding = 1;
+              data.cell.styles.overflow = "linebreak";
+              data.cell.styles.minCellHeight = 7;
+              data.cell.text = [block.text.replace(/\s+/g, " ")];
+              data.cell.styles.fillColor = [230, 230, 230];
+            } else {
+              data.cell.text = "";
+            }
+          } else if (data.column.index > 1) {
+            data.cell.text = "";
+          }
+          if (data.column.index === 0) {
+            data.cell.styles.fillColor = [230, 230, 230];
+          }
+          return;
+        }
         const mergeRowText = (text, fontSize = 7) => {
           const normalizedText = text.replace(/\s+/g, " "); // remove extra spaces
           if (data.column.index === 1) {
@@ -395,14 +457,21 @@ export async function generateDTRPdf({
           data.cell.styles.fillColor = [230, 230, 230];
         };
 
-        // Merge training rows
-        if (row.isTraining && !row.hasLogs) {
-          mergeRowText(row.status, 7); // keep training at regular merged size
-        }
+        // Training rows handled by vertical block merge above
 
         // Merge holiday/weekend rows
         if ((row.isHoliday || row.isWeekend) && !row.hasLogs) {
           mergeRowText(row.status, SPECIAL_FONT_SIZE); // larger for emphasis
+        }
+
+        // Shade special days (weekend/holiday/suspension/training) across the row
+        const isSpecialDay =
+          row.isWeekend ||
+          row.isHoliday ||
+          row.isTraining ||
+          (row.status || "").startsWith("Suspension");
+        if (isSpecialDay) {
+          data.cell.styles.fillColor = [230, 230, 230];
         }
 
         // Non-merged rows: bump font size of status cell for special days
@@ -495,7 +564,6 @@ export async function generateBatchDTRPdf(printerTray) {
   // Determine overall cut-off range for filename
   let earliestStart = dayjs(printerTray[0].selectedRecord.DTR_Cut_Off.start);
   let latestEnd = dayjs(printerTray[0].selectedRecord.DTR_Cut_Off.end);
-
   for (const item of printerTray) {
     const start = dayjs(item.selectedRecord.DTR_Cut_Off.start);
     const end = dayjs(item.selectedRecord.DTR_Cut_Off.end);
@@ -764,11 +832,22 @@ export async function generateBatchDTRPdf(printerTray) {
             data.cell.styles.fillColor = [230, 230, 230];
           };
 
-          if (row.isTraining && !row.hasLogs) {
+          // Merge training rows (always merge time columns on training days)
+          if (row.isTraining) {
             mergeRowText(row.status, 7); // keep training at regular merged size
           }
           if ((row.isHoliday || row.isWeekend) && !row.hasLogs) {
             mergeRowText(row.status, SPECIAL_FONT_SIZE); // larger for emphasis
+          }
+
+          // Shade special days (weekend/holiday/suspension/training) across the row
+          const isSpecialDay =
+            row.isWeekend ||
+            row.isHoliday ||
+            row.isTraining ||
+            (row.status || "").startsWith("Suspension");
+          if (isSpecialDay) {
+            data.cell.styles.fillColor = [230, 230, 230];
           }
 
           // Non-merged rows: bump font size of status cell for special days

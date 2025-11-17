@@ -1,4 +1,5 @@
 import { sendBugReportEmail } from "../utils/email.js";
+import BugReport from "../models/BugReport.js";
 
 // naive in-memory rate limit: max N per IP per window
 const WINDOW_MS = 60 * 60 * 1000; // 1 hour
@@ -47,11 +48,83 @@ export const reportBug = async (req, res) => {
       meta,
       screenshotBase64,
     });
-    return res.json({ success: true, message: "Bug report sent. Thank you!" });
+
+    // Persist report for Dev Settings tab
+    const saved = await BugReport.create({
+      title: safeTitle,
+      description,
+      pageUrl: meta.Page,
+      userAgent: meta.UserAgent,
+      reporterEmail: email || "",
+      reporterName: name || "",
+      employeeId: employeeId || "",
+      ip,
+      status: "open",
+      hasScreenshot: !!screenshotBase64,
+    });
+    return res.json({ success: true, message: "Bug report sent. Thank you!", id: saved?._id });
   } catch (err) {
     console.error("[BugReport] Failed:", err?.message || err);
     return res.status(500).json({ success: false, message: "Failed to send bug report." });
   }
 };
 
-export default { reportBug };
+export const listBugReports = async (req, res) => {
+  try {
+    const page = Math.max(parseInt(req.query.page || '1', 10), 1);
+    const limit = Math.max(parseInt(req.query.limit || '10', 10), 1);
+    const skip = (page - 1) * limit;
+    const { status, q } = req.query || {};
+
+    const filter = {};
+    if (status && (status === 'open' || status === 'resolved')) filter.status = status;
+    if (q && String(q).trim()) {
+      const rx = new RegExp(String(q).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      filter.$or = [
+        { title: rx },
+        { description: rx },
+        { reporterEmail: rx },
+        { reporterName: rx },
+      ];
+    }
+
+    const [rows, total] = await Promise.all([
+      BugReport.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+      BugReport.countDocuments(filter),
+    ]);
+    return res.json({ success: true, data: rows, total, page, limit });
+  } catch (err) {
+    console.error('[BugReport] List failed:', err?.message || err);
+    return res.status(500).json({ success: false, message: 'Failed to fetch bug reports' });
+  }
+};
+
+export const updateBugReport = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body || {};
+    const payload = {};
+    if (status && (status === 'open' || status === 'resolved')) payload.status = status;
+    if (!Object.keys(payload).length) return res.status(400).json({ success: false, message: 'No valid fields to update' });
+    const updated = await BugReport.findByIdAndUpdate(id, payload, { new: true }).lean();
+    if (!updated) return res.status(404).json({ success: false, message: 'Bug report not found' });
+    return res.json({ success: true, data: updated });
+  } catch (err) {
+    console.error('[BugReport] Update failed:', err?.message || err);
+    return res.status(500).json({ success: false, message: 'Failed to update bug report' });
+  }
+};
+
+export const deleteBugReport = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const deleted = await BugReport.findByIdAndDelete(id).lean();
+    if (!deleted) return res.status(404).json({ success: false, message: 'Bug report not found' });
+    return res.json({ success: true, message: 'Deleted' });
+  } catch (err) {
+    console.error('[BugReport] Delete failed:', err?.message || err);
+    return res.status(500).json({ success: false, message: 'Failed to delete bug report' });
+  }
+};
+
+export default { reportBug, listBugReports, updateBugReport, deleteBugReport };

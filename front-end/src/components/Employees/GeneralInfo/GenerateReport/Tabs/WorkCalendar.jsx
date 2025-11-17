@@ -33,8 +33,9 @@ const WorkCalendar = ({ employee }) => {
   const [error, setError] = useState(null);
   const [selectedLog, setSelectedLog] = useState(null);
   const [selectedTraining, setSelectedTraining] = useState(null);
-  const { isDemoActive } = useDemoMode();
-  const demoDisabled = isDemoActive; // disable interactive actions in demo
+  const { isDemoActive, isPrivileged, isDemoUser } = useDemoMode();
+  // Interactive actions disabled only for non-privileged demo users
+  const demoDisabled = isDemoActive && isDemoUser && !isPrivileged;
 
   // Fetch logs
   useEffect(() => {

@@ -3,7 +3,7 @@ import path from 'path';
 import { driveUpload, driveGetStream, driveDelete, driveList } from './googleDriveStorage.js';
 
 const provider = (process.env.STORAGE_PROVIDER || 'local').toLowerCase();
-const LOCAL_ROOT = path.join(process.cwd(), 'uploads');
+const LOCAL_ROOT = path.resolve(path.join(process.cwd(), 'uploads'));
 
 if (provider === 'local') {
   if (!fs.existsSync(LOCAL_ROOT)) fs.mkdirSync(LOCAL_ROOT, { recursive: true });
@@ -16,7 +16,7 @@ export async function storageUpload({ buffer, readableStream, filename, mimeType
     return { provider: 'drive', id: data.id, name: data.name, mimeType: data.mimeType, size: data.size, webViewLink: data.webViewLink };
   }
   // local
-  const dir = subdir ? path.join(LOCAL_ROOT, subdir) : LOCAL_ROOT;
+  const dir = subdir ? safeJoin(LOCAL_ROOT, subdir) : LOCAL_ROOT;
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   const filePath = path.join(dir, filename);
   if (buffer) await fs.promises.writeFile(filePath, buffer);
@@ -35,21 +35,54 @@ export async function storageUpload({ buffer, readableStream, filename, mimeType
 
 export async function storageGetStream(idOrPath) {
   if (provider === 'drive') return await driveGetStream(idOrPath);
-  const full = path.isAbsolute(idOrPath) ? idOrPath : path.join(process.cwd(), idOrPath.startsWith('uploads') ? idOrPath : path.join('uploads', idOrPath));
+  const base = LOCAL_ROOT;
+  const rel = idOrPath.startsWith('uploads') ? idOrPath.replace(/^uploads[\/\\]?/, '') : idOrPath;
+  const full = safeJoin(base, rel);
   if (!fs.existsSync(full)) throw new Error('Not found');
   return fs.createReadStream(full);
 }
 
 export async function storageDelete(idOrPath) {
   if (provider === 'drive') return await driveDelete(idOrPath);
-  const full = path.isAbsolute(idOrPath) ? idOrPath : path.join(process.cwd(), idOrPath.startsWith('uploads') ? idOrPath : path.join('uploads', idOrPath));
+  const base = LOCAL_ROOT;
+  const rel = idOrPath.startsWith('uploads') ? idOrPath.replace(/^uploads[\/\\]?/, '') : idOrPath;
+  const full = safeJoin(base, rel);
   if (fs.existsSync(full)) await fs.promises.unlink(full);
 }
 
-export async function storageList() {
-  if (provider === 'drive') return await driveList({});
-  const files = await fs.promises.readdir(LOCAL_ROOT);
-  return files.map((name) => ({ name, localPath: path.join('uploads', name), size: fs.statSync(path.join(LOCAL_ROOT, name)).size }));
+export async function storageList({ subdir, parentFolderId } = {}) {
+  if (provider === 'drive') {
+    return await driveList({ parentFolderId });
+  }
+  const dir = subdir ? safeJoin(LOCAL_ROOT, subdir) : LOCAL_ROOT;
+  const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+  return entries.map((ent) => {
+    const entryPath = path.join(dir, ent.name);
+    const stat = fs.statSync(entryPath);
+    const relFromUploads = path.relative(LOCAL_ROOT, entryPath).replace(/\\/g, '/');
+    const isDirectory = ent.isDirectory();
+    const ext = path.extname(ent.name).slice(1).toLowerCase();
+    const mimeType = isDirectory ? 'folder' : (ext || 'file');
+    const createdTime = (stat.birthtime || stat.mtime).toISOString();
+    return {
+      name: ent.name,
+      localPath: `uploads/${relFromUploads}`,
+      size: isDirectory ? 0 : stat.size,
+      isDirectory,
+      mimeType,
+      createdTime,
+    };
+  });
+}
+
+function safeJoin(base, target) {
+  const targetPath = path.resolve(base, target || '');
+  const basePath = path.resolve(base);
+  if (targetPath === basePath) return targetPath;
+  if (!targetPath.startsWith(basePath + path.sep)) {
+    throw new Error('Invalid path');
+  }
+  return targetPath;
 }
 
 export default { storageUpload, storageGetStream, storageDelete, storageList };

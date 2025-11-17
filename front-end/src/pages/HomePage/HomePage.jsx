@@ -144,6 +144,12 @@ const HomePage = () => {
       setBugSubmitting(false);
     }
   };
+  const handleOpenDevSettings = () => {
+    navigate("/settings/developer-settings");
+  };
+  const handleOpenBugReports = () => {
+    navigate("/settings/developer-settings?tab=bug-reports");
+  };
   
   // Demo mode state
   const { isDemoActive, isDemoUser, demoSettings } = useDemoMode();
@@ -1371,6 +1377,13 @@ const HomePage = () => {
           <EyeOutlined style={{ marginRight: 8 }} />
           View Profile
         </div>
+        {/* Developer Settings item removed as requested */}
+        {hasPermission(["canAccessDeveloper"]) && (
+          <div className="popover-item" onClick={handleOpenBugReports}>
+            <BugOutlined style={{ marginRight: 8 }} />
+            Bug Reports
+          </div>
+        )}
         <div className="popover-item" onClick={handleSuggestFeature}>
           <BulbOutlined style={{ marginRight: 8 }} />
           Suggest a Feature

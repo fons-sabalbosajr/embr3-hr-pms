@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState, useContext } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   Card,
   Descriptions,
@@ -34,8 +35,25 @@ import axiosInstance from "../../../api/axiosInstance";
 import DemoModeSettings from "./DemoModeSettings";
 import { secureStore, secureSessionGet, secureRetrieve } from "../../../../utils/secureStorage";
 import socket from "../../../../utils/socket";
+import { EyeOutlined, DownloadOutlined, DeleteOutlined, LinkOutlined, CalendarOutlined } from "@ant-design/icons";
 
 const { Title, Text } = Typography;
+
+// Lightweight color mapping for document types (for nicer tags)
+const docTagColor = (t) => {
+  switch (t) {
+    case "Payslip":
+      return "blue";
+    case "Certificate of Employment":
+      return "green";
+    case "Salary Record":
+      return "orange";
+    case "DTR":
+      return "red";
+    default:
+      return "default";
+  }
+};
 
 const Section = ({ title, children, extra }) => (
   <Card title={title} extra={extra} size="small" style={{ marginBottom: 16 }}>
@@ -54,6 +72,8 @@ const DevSettings = () => {
   const [settings, setSettings] = useState(null);
   const [form] = Form.useForm();
   const [activeTab, setActiveTab] = useState("runtime");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [didInitFromUrl, setDidInitFromUrl] = useState(false);
   const { message } = AntApp.useApp();
 
   // Treat explicit developer userType as developer access as well
@@ -141,38 +161,36 @@ const DevSettings = () => {
   const [editingRow, setEditingRow] = useState(null);
   const [editForm] = Form.useForm();
 
+  // Bug Reports management
+  const [bugLoading, setBugLoading] = useState(false);
+  const [bugReports, setBugReports] = useState([]);
+  const [bugPage, setBugPage] = useState(1);
+  const [bugPageSize, setBugPageSize] = useState(10);
+  const [bugTotal, setBugTotal] = useState(0);
+  const [bugStatusFilter, setBugStatusFilter] = useState("open");
+  const [bugQuery, setBugQuery] = useState("");
+  const [bugDetailOpen, setBugDetailOpen] = useState(false);
+  const [bugDetailObj, setBugDetailObj] = useState(null);
+
   // Google Drive quick browser
   const [driveLoading, setDriveLoading] = useState(false);
   const [driveFiles, setDriveFiles] = useState([]);
-  const fetchDriveFiles = async () => {
+  const [drivePath, setDrivePath] = useState(""); // local uploads subdir
+  const fetchDriveFiles = async (nextPath) => {
     try {
       setDriveLoading(true);
-      const res = await axiosInstance.get("/uploads");
+      const pathToUse = typeof nextPath === 'string' ? nextPath : drivePath;
+      const res = await axiosInstance.get("/uploads", { params: pathToUse ? { path: pathToUse } : {} });
       const rows = res?.data?.data || res?.data || [];
       setDriveFiles(Array.isArray(rows) ? rows : []);
+      if (typeof nextPath === 'string') setDrivePath(nextPath);
     } catch (e) {
       message.error(e?.response?.data?.message || "Failed to load Drive files");
     } finally {
       setDriveLoading(false);
     }
   };
-  const testDrive = async () => {
-    try {
-      setDriveLoading(true);
-      const res = await axiosInstance.get("/dev/test-drive");
-      if (res.data?.success) {
-        message.success(`Drive OK • ${res.data.count} file(s)`);
-        // Optionally update table with sample
-        if (Array.isArray(res.data.sample)) setDriveFiles(res.data.sample);
-      } else {
-        message.error(res.data?.message || "Drive test failed");
-      }
-    } catch (e) {
-      message.error(e?.response?.data?.message || "Drive test failed");
-    } finally {
-      setDriveLoading(false);
-    }
-  };
+  // Removed Test Drive helper (no longer needed)
 
   // Employees management
   const [employeesLoading, setEmployeesLoading] = useState(false);
@@ -352,6 +370,56 @@ const DevSettings = () => {
       message.error("Failed to load employee records");
     } finally {
       setEmpRecordsLoading(false);
+    }
+  };
+
+  const refreshEmpRecords = async () => {
+    if (!resignedSelected) return;
+    try {
+      setEmpRecordsLoading(true);
+      const res = await axiosInstance.get(`/employees/${resignedSelected._id}/records`, {
+        params: { page: 1, pageSize: bioPageSize },
+      });
+      const data = res?.data?.data || null;
+      setEmpRecords(data);
+      setBioLogs(data?.biometricLogs || []);
+      setBioMeta(data?.biometricMeta || null);
+      setBioPage(1);
+    } catch (err) {
+      message.error("Failed to refresh employee records");
+    } finally {
+      setEmpRecordsLoading(false);
+    }
+  };
+
+  const handleOpenDoc = (doc) => {
+    const url = doc?.downloadUrl;
+    if (!url) return message.info("No file available for this document");
+    try {
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch (_) {
+      message.error("Failed to open document");
+    }
+  };
+
+  const handleDownloadDoc = (doc) => {
+    const url = doc?.downloadUrl;
+    if (!url) return message.info("No file available for this document");
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = doc?.originalFilename || "document";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
+  const handleDeleteDoc = async (doc) => {
+    try {
+      await axiosInstance.delete(`/employee-docs/${doc._id}`);
+      message.success("Document deleted");
+      await refreshEmpRecords();
+    } catch (e) {
+      message.error(e?.response?.data?.message || "Failed to delete document");
     }
   };
 
@@ -866,6 +934,57 @@ const DevSettings = () => {
     setEditModalVisible(true);
   };
 
+  // Bug Reports helpers
+  const fetchBugReports = async (
+    page = bugPage,
+    limit = bugPageSize,
+    opts = {}
+  ) => {
+    try {
+      setBugLoading(true);
+      const params = { page, limit };
+      const status = opts.status ?? bugStatusFilter;
+      const q = opts.q ?? bugQuery;
+      if (status && status !== "all") params.status = status;
+      if (q && q.trim()) params.q = q.trim();
+      const res = await axiosInstance.get("/bug-report", { params });
+      const rows = Array.isArray(res.data?.data)
+        ? res.data.data
+        : Array.isArray(res.data)
+        ? res.data
+        : [];
+      setBugReports(rows);
+      if (typeof res.data?.total === "number") setBugTotal(res.data.total);
+      setBugPage(page);
+      setBugPageSize(limit);
+    } catch (e) {
+      message.error(e?.response?.data?.message || "Failed to load bug reports");
+    } finally {
+      setBugLoading(false);
+    }
+  };
+
+  const toggleBugResolved = async (row) => {
+    try {
+      const next = row.status === "resolved" ? "open" : "resolved";
+      await axiosInstance.patch(`/bug-report/${row._id}`, { status: next });
+      message.success(next === "resolved" ? "Marked resolved" : "Reopened");
+      fetchBugReports(bugPage, bugPageSize);
+    } catch (e) {
+      message.error(e?.response?.data?.message || "Failed to update status");
+    }
+  };
+
+  const removeBugReport = async (row) => {
+    try {
+      await axiosInstance.delete(`/bug-report/${row._id}`);
+      message.success("Deleted");
+      fetchBugReports(bugPage, bugPageSize);
+    } catch (e) {
+      message.error(e?.response?.data?.message || "Failed to delete bug report");
+    }
+  };
+
   useEffect(() => {
     let mounted = true;
     const load = async () => {
@@ -908,6 +1027,8 @@ const DevSettings = () => {
     } else if (activeTab === "db-maintenance") {
       // Prefetch resigned employees so the table isn't empty on first open
       loadResignedEmployees();
+    } else if (activeTab === "bug-reports") {
+      fetchBugReports();
     }
   }, [activeTab, canSeeDev]);
 
@@ -1023,6 +1144,48 @@ const DevSettings = () => {
       />
     );
   }
+
+  // Allow deep-link to tabs via ?tab=... (supports aliases)
+  useEffect(() => {
+    const t = (searchParams.get("tab") || "").toLowerCase();
+    const normalize = (k) => {
+      switch (k) {
+        case "runtime":
+        case "employees":
+        case "attendance-preview":
+        case "db-maintenance":
+        case "app-settings":
+        case "demo-mode":
+        case "secure-storage":
+        case "audit-logs":
+        case "notifications":
+        case "bug-reports":
+          return k;
+        // Aliases for Bug Reports
+        case "bugs":
+        case "bug":
+        case "report-bugs":
+        case "report-bug":
+          return "bug-reports";
+        default:
+          return null;
+      }
+    };
+    const next = normalize(t);
+    if (next) {
+      setActiveTab(next);
+      if (!didInitFromUrl) setDidInitFromUrl(true);
+    }
+  }, [searchParams]);
+
+  // Keep URL synced with current tab for easy sharing
+  useEffect(() => {
+    if (!didInitFromUrl) return; // avoid overwriting initial URL param on first mount
+    try {
+      const curr = searchParams.get("tab");
+      if (curr !== activeTab) setSearchParams({ tab: activeTab });
+    } catch (_) {}
+  }, [activeTab, didInitFromUrl]);
 
   if (error) {
     return (
@@ -1217,37 +1380,7 @@ const DevSettings = () => {
             )}
           </Card>
         </Col>
-        <Col xs={24} md={12}>
-          <Card
-            size="small"
-            title="Client Session"
-            style={runtimeCardStyle}
-            bodyStyle={cardBodySmall}
-          >
-            <Descriptions
-              size="small"
-              column={1}
-              labelStyle={{ fontSize: 12 }}
-              contentStyle={{ fontSize: 12 }}
-            >
-              <Descriptions.Item label="Auth Storage">
-                {clientRuntime.storage}
-              </Descriptions.Item>
-              <Descriptions.Item label="Token Present">
-                {clientRuntime.tokenPresent ? <Tag color="green">yes</Tag> : <Tag color="red">no</Tag>}
-              </Descriptions.Item>
-              <Descriptions.Item label="Tab ID">
-                {clientRuntime.tabId || <Tag>n/a</Tag>}
-              </Descriptions.Item>
-              <Descriptions.Item label="Socket Connected">
-                {clientRuntime.socketConnected ? <Tag color="green">yes</Tag> : <Tag color="red">no</Tag>}
-              </Descriptions.Item>
-              <Descriptions.Item label="Socket Transport">
-                {clientRuntime.socketTransport}
-              </Descriptions.Item>
-            </Descriptions>
-          </Card>
-        </Col>
+        
       </Row>
 
       <Row gutter={[12, 12]}>
@@ -1419,23 +1552,29 @@ const DevSettings = () => {
                   </Descriptions.Item>
                 </Descriptions>
                 <Divider style={{ margin: "8px 0" }} />
-                <Space style={{ marginBottom: 8 }}>
+                <Space style={{ marginBottom: 8, flexWrap: 'wrap' }}>
                   <Button
                     size="small"
-                    onClick={fetchDriveFiles}
+                    onClick={() => fetchDriveFiles("")}
                     loading={driveLoading}
                   >
                     Load Files
                   </Button>
-                  <Button
-                    size="small"
-                    onClick={testDrive}
-                    loading={driveLoading}
-                  >
-                    Test Drive
-                  </Button>
+                  {/* Test Drive button removed as requested */}
+                  {drivePath && (
+                    <Button
+                      size="small"
+                      onClick={() => {
+                        const parent = drivePath.split('/').slice(0, -1).join('/');
+                        fetchDriveFiles(parent);
+                      }}
+                      disabled={driveLoading}
+                    >
+                      Up
+                    </Button>
+                  )}
                   <Text type="secondary" style={{ fontSize: 11 }}>
-                    Folder: server env GOOGLE_DRIVE_FOLDER_ID
+                    Folder: server env GOOGLE_DRIVE_FOLDER_ID_FILE
                   </Text>
                 </Space>
                 <Table
@@ -1443,7 +1582,7 @@ const DevSettings = () => {
                   size="small"
                   dataSource={driveFiles}
                   loading={driveLoading}
-                  rowKey={(r) => r.id || r._id || r.name}
+                  rowKey={(r) => r.id || r._id || r.localPath || r.name}
                   pagination={{
                     pageSize: 5,
                     showSizeChanger: true,
@@ -1454,40 +1593,43 @@ const DevSettings = () => {
                       title: "Name",
                       dataIndex: "name",
                       key: "name",
-                      render: (v, r) =>
-                        r.webViewLink ? (
-                          <a
-                            href={r.webViewLink}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            {v || r.id}
-                          </a>
-                        ) : (
-                          v || r.id
-                        ),
+                      render: (v, r) => {
+                        // Drive file link
+                        if (r.webViewLink) {
+                          return (
+                            <a href={r.webViewLink} target="_blank" rel="noreferrer">{v || r.id}</a>
+                          );
+                        }
+                        // Local directory navigation
+                        if (r.isDirectory && r.localPath) {
+                          const next = r.localPath.replace(/^uploads\//, '');
+                          return (
+                            <a onClick={() => fetchDriveFiles(next)}>{v}</a>
+                          );
+                        }
+                        return v || r.id;
+                      },
                     },
                     {
                       title: "Type",
                       dataIndex: "mimeType",
                       key: "mimeType",
                       width: 180,
+                      render: (v, r) => r?.isDirectory ? 'folder' : (v || (r?.localPath ? (r.name?.split('.').pop() || 'file') : '')),
                     },
                     {
                       title: "Size",
                       dataIndex: "size",
                       key: "size",
                       width: 100,
-                      render: (s) =>
-                        s ? `${Number(s).toLocaleString()} B` : "",
+                      render: (s, r) => r?.isDirectory ? '-' : (s ? `${Number(s).toLocaleString()} B` : ''),
                     },
                     {
                       title: "Created",
                       dataIndex: "createdTime",
                       key: "createdTime",
                       width: 160,
-                      render: (v) =>
-                        v ? dayjs(v).format("YYYY-MM-DD HH:mm") : "",
+                      render: (v) => v ? dayjs(v).format("YYYY-MM-DD HH:mm") : "",
                     },
                     {
                       title: "Action",
@@ -1510,6 +1652,17 @@ const DevSettings = () => {
                               size="small"
                               onClick={() =>
                                 window.open(`/api/uploads/${r.id}`, "_blank")
+                              }
+                            >
+                              Download
+                            </Button>
+                          )}
+                          {/* Local provider: show download for files (skip likely directories with size 0) */}
+                          {!r.webViewLink && !r.id && r.localPath && (Number(r.size) || 0) > 0 && (
+                            <Button
+                              size="small"
+                              onClick={() =>
+                                window.open(`/uploads/${r.localPath}`, "_blank")
                               }
                             >
                               Download
@@ -1568,6 +1721,40 @@ const DevSettings = () => {
           </Card>
         </Col>
         <Col xs={24} md={12}>
+          <Card
+            size="small"
+            title="Client Session"
+            style={runtimeCardStyle}
+            bodyStyle={cardBodySmall}
+          >
+            <Descriptions
+              size="small"
+              column={1}
+              labelStyle={{ fontSize: 12 }}
+              contentStyle={{ fontSize: 12 }}
+            >
+              <Descriptions.Item label="Auth Storage">
+                {clientRuntime.storage}
+              </Descriptions.Item>
+              <Descriptions.Item label="Token Present">
+                {clientRuntime.tokenPresent ? <Tag color="green">yes</Tag> : <Tag color="red">no</Tag>}
+              </Descriptions.Item>
+              <Descriptions.Item label="Tab ID">
+                {clientRuntime.tabId || <Tag>n/a</Tag>}
+              </Descriptions.Item>
+              <Descriptions.Item label="Socket Connected">
+                {clientRuntime.socketConnected ? <Tag color="green">yes</Tag> : <Tag color="red">no</Tag>}
+              </Descriptions.Item>
+              <Descriptions.Item label="Socket Transport">
+                {clientRuntime.socketTransport}
+              </Descriptions.Item>
+            </Descriptions>
+          </Card>
+        </Col>
+      </Row>
+
+      <Row gutter={[12, 12]}>
+        <Col xs={24} md={24}>
           <Card
             size="small"
             title="Notes"
@@ -2490,25 +2677,82 @@ const DevSettings = () => {
                         title: "Type",
                         dataIndex: "docType",
                         key: "docType",
+                        width: 140,
+                        render: (t) => <Tag color={docTagColor(t)}>{t}</Tag>,
+                      },
+                      {
+                        title: "Reference / Period",
+                        key: "ref-period",
+                        render: (_, r) => {
+                          const isLink = r.reference && /^https?:\/\//i.test(r.reference);
+                          return (
+                            <Space direction="vertical" size={2} style={{ maxWidth: 420 }}>
+                              <span>
+                                {isLink ? (
+                                  <a href={r.reference} target="_blank" rel="noopener noreferrer">
+                                    <Text ellipsis={{ tooltip: r.reference }} style={{ maxWidth: 400, display: "inline-block" }}>
+                                      {r.reference}
+                                    </Text>
+                                    <LinkOutlined style={{ marginLeft: 6, color: "var(--ant-color-text-tertiary)" }} />
+                                  </a>
+                                ) : (
+                                  <Text ellipsis={{ tooltip: r.reference }}>{r.reference || "-"}</Text>
+                                )}
+                              </span>
+                              <Text type="secondary">
+                                <CalendarOutlined style={{ marginRight: 6 }} />
+                                {r.period || "-"}
+                              </Text>
+                            </Space>
+                          );
+                        },
+                      },
+                      {
+                        title: "Created",
+                        dataIndex: "createdAt",
+                        key: "createdAt",
+                        width: 130,
+                        render: (v) => (v ? dayjs(v).format("YYYY-MM-DD HH:mm") : ""),
+                      },
+                      {
+                        title: "Action",
+                        key: "action",
+                        fixed: "right",
                         width: 120,
-                      },
-                      {
-                        title: "Reference",
-                        dataIndex: "reference",
-                        key: "reference",
-                      },
-                      {
-                        title: "Period",
-                        dataIndex: "period",
-                        key: "period",
-                        width: 110,
-                      },
-                      {
-                        title: "Issued",
-                        dataIndex: "dateIssued",
-                        key: "dateIssued",
-                        width: 110,
-                        render: (v) => (v ? dayjs(v).format("YYYY-MM-DD") : ""),
+                        render: (_, row) => (
+                          <Space>
+                            <Button
+                              size="small"
+                              type="primary"
+                              title="View"
+                              icon={<EyeOutlined />}
+                              onClick={() => handleOpenDoc(row)}
+                            />
+                            <Button
+                              size="small"
+                              type="primary"
+                              title="Download"
+                              icon={<DownloadOutlined />}
+                              onClick={() => handleDownloadDoc(row)}
+                              disabled={!row.downloadUrl}
+                            />
+                            <Popconfirm
+                              title="Delete this document?"
+                              okText="Delete"
+                              okButtonProps={{ danger: true }}
+                              cancelText="Cancel"
+                              onConfirm={() => handleDeleteDoc(row)}
+                            >
+                              <Button
+                                size="small"
+                                type="primary"
+                                danger
+                                title="Delete"
+                                icon={<DeleteOutlined />}
+                              />
+                            </Popconfirm>
+                          </Space>
+                        ),
                       },
                     ]}
                   />
@@ -3704,6 +3948,206 @@ const DevSettings = () => {
             ),
             forceRender: true,
           },
+          {
+            key: "bug-reports",
+            label: "Bug Reports",
+            children: (
+              <Section title="Bug Reports">
+                <Space style={{ marginBottom: 12 }} wrap>
+                  <Select
+                    size="small"
+                    value={bugStatusFilter}
+                    style={{ width: 140 }}
+                    onChange={(v) => {
+                      setBugStatusFilter(v);
+                      fetchBugReports(1, bugPageSize, { status: v });
+                    }}
+                    options={[
+                      { label: "Open", value: "open" },
+                      { label: "Resolved", value: "resolved" },
+                      { label: "All", value: "all" },
+                    ]}
+                  />
+                  <Input.Search
+                    size="small"
+                    placeholder="Search title/description"
+                    allowClear
+                    value={bugQuery}
+                    onChange={(e) => setBugQuery(e.target.value)}
+                    onSearch={(val) => {
+                      setBugQuery(val);
+                      fetchBugReports(1, bugPageSize, { q: val });
+                    }}
+                    style={{ width: 220 }}
+                  />
+                  <Button
+                    size="small"
+                    onClick={() => fetchBugReports(bugPage, bugPageSize)}
+                  >
+                    Refresh
+                  </Button>
+                </Space>
+                <Table
+                  className="compact-table"
+                  size="small"
+                  dataSource={bugReports}
+                  loading={bugLoading}
+                  rowKey={(r) => r._id}
+                  pagination={{
+                    current: bugPage,
+                    pageSize: bugPageSize,
+                    total: bugTotal,
+                    showSizeChanger: true,
+                    pageSizeOptions: [5, 10, 20, 50],
+                    onChange: (p, s) => fetchBugReports(p, s),
+                  }}
+                  columns={[
+                    {
+                      title: "Title",
+                      dataIndex: "title",
+                      key: "title",
+                      render: (t) => t || "(no title)",
+                      width: 180,
+                    },
+                    {
+                      title: "Status",
+                      dataIndex: "status",
+                      key: "status",
+                      render: (s) => (
+                        <Tag color={s === "resolved" ? "green" : "volcano"}>
+                          {s || "open"}
+                        </Tag>
+                      ),
+                      width: 90,
+                    },
+                    {
+                      title: "Reporter",
+                      key: "reporter",
+                      render: (_, r) => r.reporterName || r.employeeId || "-",
+                      width: 140,
+                    },
+                    {
+                      title: "Email",
+                      dataIndex: "reporterEmail",
+                      key: "reporterEmail",
+                      render: (e) => e || "-",
+                      width: 160,
+                    },
+                    {
+                      title: "Page URL",
+                      dataIndex: "pageUrl",
+                      key: "pageUrl",
+                      render: (p) => (p && p.length > 40 ? p.slice(0, 40) + "…" : p || "-"),
+                      width: 200,
+                    },
+                    {
+                      title: "Created",
+                      dataIndex: "createdAt",
+                      key: "createdAt",
+                      render: (v) => (v ? dayjs(v).format("MM/DD/YYYY HH:mm") : ""),
+                      width: 150,
+                    },
+                    {
+                      title: "Action",
+                      key: "action",
+                      render: (_, row) => (
+                        <Space>
+                          <Button
+                            size="small"
+                            onClick={() => {
+                              setBugDetailObj(row);
+                              setBugDetailOpen(true);
+                            }}
+                          >
+                            View
+                          </Button>
+                          <Button
+                            size="small"
+                            type={row.status === "resolved" ? "default" : "primary"}
+                            onClick={() => toggleBugResolved(row)}
+                          >
+                            {row.status === "resolved" ? "Reopen" : "Resolve"}
+                          </Button>
+                          <Button
+                            size="small"
+                            danger
+                            onClick={() => removeBugReport(row)}
+                          >
+                            Delete
+                          </Button>
+                        </Space>
+                      ),
+                      width: 200,
+                    },
+                  ]}
+                />
+                <Modal
+                  open={bugDetailOpen}
+                  onCancel={() => setBugDetailOpen(false)}
+                  footer={null}
+                  width={640}
+                  title={bugDetailObj?.title || "Bug Report Detail"}
+                >
+                  {bugDetailObj && (
+                    <Space direction="vertical" style={{ width: "100%" }} size="small">
+                      <Text type="secondary">
+                        Status: {bugDetailObj.status || "open"} • Submitted {bugDetailObj.createdAt ? dayjs(bugDetailObj.createdAt).format("MM/DD/YYYY HH:mm") : ""}
+                      </Text>
+                      {bugDetailObj.reporterName && (
+                        <Text>Reporter: {bugDetailObj.reporterName}</Text>
+                      )}
+                      {bugDetailObj.reporterEmail && (
+                        <Text>Email: {bugDetailObj.reporterEmail}</Text>
+                      )}
+                      {bugDetailObj.pageUrl && (
+                        <Text>Page: {bugDetailObj.pageUrl}</Text>
+                      )}
+                      {bugDetailObj.description && (
+                        <div
+                          style={{
+                            fontSize: 12,
+                            background: "var(--ant-color-bg-container)",
+                            border: "1px solid var(--ant-color-border)",
+                            borderRadius: 6,
+                            padding: 12,
+                            whiteSpace: "pre-wrap",
+                          }}
+                        >
+                          {bugDetailObj.description}
+                        </div>
+                      )}
+                      {bugDetailObj.hasScreenshot && (
+                        <Alert
+                          type="info"
+                          message="Screenshot was included with this report."
+                        />
+                      )}
+                      <Space>
+                        <Button
+                          size="small"
+                          onClick={() => toggleBugResolved(bugDetailObj)}
+                        >
+                          {bugDetailObj.status === "resolved" ? "Reopen" : "Resolve"}
+                        </Button>
+                        <Button
+                          size="small"
+                          danger
+                          onClick={() => {
+                            removeBugReport(bugDetailObj);
+                            setBugDetailOpen(false);
+                          }}
+                        >
+                          Delete
+                        </Button>
+                      </Space>
+                    </Space>
+                  )}
+                </Modal>
+              </Section>
+            ),
+            forceRender: true,
+          },
+          
         ]}
       />
       <Modal

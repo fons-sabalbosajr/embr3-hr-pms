@@ -13,8 +13,9 @@ import {
   message,
   Popconfirm,
   Tooltip,
+  Typography,
 } from "antd";
-import { InfoCircleOutlined } from "@ant-design/icons";
+import { InfoCircleOutlined, EyeOutlined, DownloadOutlined, DeleteOutlined, LinkOutlined, CalendarOutlined } from "@ant-design/icons";
 import useDemoMode from "../../../../../hooks/useDemoMode";
 import dayjs from "dayjs";
 import axiosInstance from "../../../../../api/axiosInstance";
@@ -26,6 +27,7 @@ import { openPayslipInNewTabRegular } from "../../../../../../utils/generatePayS
 
 
 const { Option } = Select;
+const { Text } = Typography;
 
 const docColors = {
   Payslip: "blue",
@@ -82,7 +84,7 @@ const OtherDetails = ({ employee }) => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatingDocId, setGeneratingDocId] = useState(null);
   const [form] = Form.useForm();
-  const { readOnly: demoDisabled } = useDemoMode();
+  const { readOnly: demoDisabled, isPrivileged } = useDemoMode();
 
   useEffect(() => {
     if (!employee?.empId) return;
@@ -229,68 +231,128 @@ const OtherDetails = ({ employee }) => {
   const dtrDocs = docs.filter((d) => d.docType === "DTR");
   const otherDocs = docs.filter((d) => d.docType !== "DTR");
 
+  const formatSize = (s) => {
+    if (!s && s !== 0) return "-";
+    const kb = s / 1024;
+    const mb = kb / 1024;
+    return mb >= 1 ? `${mb.toFixed(2)} MB` : `${kb.toFixed(1)} KB`;
+  };
+
+  const getDownloadUrl = (r) => {
+    if (!r) return null;
+    if (r.reference && /^https?:\/\//i.test(r.reference)) return r.reference;
+    if (r.storageProvider === 'drive' && r.fileId) return `/api/uploads/${r.fileId}`;
+    if (r.reference) return `/api/uploads/${r.reference}`;
+    return null;
+  };
+
+  const handleOpenFile = (r) => {
+    // For DTR/Payslip, keep generator behavior
+    if (r.docType === 'DTR' || r.docType === 'Payslip') return handleViewDoc(r);
+    const url = getDownloadUrl(r);
+    if (url) {
+      try { window.open(url, "_blank", "noopener,noreferrer"); } catch (_) {}
+    } else {
+      setSelectedDoc(r);
+    }
+  };
+
+  const handleDownloadFile = (r) => {
+    const url = getDownloadUrl(r);
+    if (!url) return message.info("No file available for this document");
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = r?.originalFilename || 'document';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
   const columns = [
     {
-      title: "Document Info",
-      key: "info",
-      render: (_, record) => (
-        <div style={{ lineHeight: 1.5, display: "flex", alignItems: "center" }}>
-          <div>
-            <strong>Type:</strong>{" "}
-            <Tag color={docColors[record.docType] || "default"}>
-              {record.docType}
-            </Tag>
-            {record.docType === "DTR" && (
-              <Tooltip title="Auto-logged from DTR print/download">
-                <InfoCircleOutlined
-                  style={{ marginLeft: 4, color: "#fa541c" }}
-                />
-              </Tooltip>
-            )}
-          </div>
-          <div>
-            <strong>Reference:</strong>{" "}
-            {record.reference?.startsWith("http") ? (
-              <a
-                href={record.reference}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                {record.reference}
-              </a>
-            ) : (
-              record.reference
-            )}
-          </div>
-          <div>
-            <strong>Issued/Period:</strong>{" "}
-            {record.period ||
-              (record.dateIssued
-                ? dayjs(record.dateIssued).format("MMM D, YYYY")
-                : "-")}
-          </div>
-          <div>
-            <strong>Created:</strong>{" "}
-            {dayjs(record.createdAt).format("MMM D, YYYY")}
-          </div>
-        </div>
+      title: "Type",
+      dataIndex: "docType",
+      key: "docType",
+      width: 140,
+      render: (t, r) => (
+        <>
+          <Tag color={docColors[t] || "default"}>{t}</Tag>
+          {t === "DTR" && (
+            <Tooltip title="Auto-logged from DTR print/download">
+              <InfoCircleOutlined style={{ marginLeft: 4, color: "#fa541c" }} />
+            </Tooltip>
+          )}
+        </>
       ),
+    },
+    {
+      title: "Reference / Period",
+      key: "ref-period",
+      render: (_, r) => {
+        const isLink = r.reference && /^https?:\/\//i.test(r.reference);
+        return (
+          <div>
+            <span>
+              {isLink ? (
+                <a href={r.reference} target="_blank" rel="noopener noreferrer">
+                  <Text ellipsis={{ tooltip: r.reference }} style={{ maxWidth: 420, display: "inline-block" }}>
+                    {r.reference}
+                  </Text>
+                  <LinkOutlined style={{ marginLeft: 6, color: "var(--ant-color-text-tertiary)" }} />
+                </a>
+              ) : (
+                <Text ellipsis={{ tooltip: r.reference }}>{r.reference || "-"}</Text>
+              )}
+            </span>
+            <div>
+              <Text type="secondary">
+                <CalendarOutlined style={{ marginRight: 6 }} />
+                {r.period || "-"}
+              </Text>
+            </div>
+          </div>
+        );
+      },
+    },
+    // Filename, Storage, Size columns removed per request
+    {
+      title: "Created",
+      dataIndex: "createdAt",
+      key: "createdAt",
+      width: 140,
+      render: (v) => (v ? dayjs(v).format("YYYY-MM-DD HH:mm") : "-"),
     },
     {
       title: "Action",
       key: "action",
-      width: "25%",
+      width: 120,
+      fixed: "right",
       render: (_, record) => (
         <div style={{ display: "flex", gap: 8 }}>
-          <Button
-            type="link"
-            style={{ padding: 0 }}
-            onClick={() => handleViewDoc(record)}
-            loading={generatingDocId === record._id}
-            disabled={isGenerating}
-          >
-            View
-          </Button>
+          <Tooltip title="View">
+            <Button
+              size="small"
+              type="primary"
+              icon={<EyeOutlined />}
+              onClick={() => handleOpenFile(record)}
+              loading={generatingDocId === record._id}
+              disabled={isGenerating}
+            />
+          </Tooltip>
+          <Tooltip title={getDownloadUrl(record) ? "Download" : (isPrivileged ? "Open details (no file)" : "No file available") }>
+            <Button
+              size="small"
+              type="primary"
+              icon={<DownloadOutlined />}
+              onClick={() => {
+                if (getDownloadUrl(record)) return handleDownloadFile(record);
+                if (isPrivileged) {
+                  setSelectedDoc(record);
+                }
+              }}
+              disabled={!getDownloadUrl(record) && !isPrivileged}
+            />
+          </Tooltip>
           {!demoDisabled && record.docType !== "DTR" && (
             <Popconfirm
               title="Are you sure you want to delete this document?"
@@ -298,7 +360,9 @@ const OtherDetails = ({ employee }) => {
               cancelText="No"
               onConfirm={() => handleDeleteDoc(record._id)}
             >
-              <Button type="link" danger style={{ padding: 0 }}>Delete</Button>
+              <Tooltip title="Delete">
+                <Button size="small" type="primary" danger icon={<DeleteOutlined />} />
+              </Tooltip>
             </Popconfirm>
           )}
         </div>
@@ -319,21 +383,6 @@ const OtherDetails = ({ employee }) => {
         >
           Add Document
         </Button>
-      )}
-
-      {/* DTR History */}
-      {dtrDocs.length > 0 && (
-        <>
-          <h3>DTR History</h3>
-          <Table
-            columns={columns}
-            dataSource={dtrDocs}
-            rowKey={(record) => record._id}
-            pagination={{ pageSize: 10 }}
-            bordered
-            size="small"
-          />
-        </>
       )}
 
       {/* Other Documents */}

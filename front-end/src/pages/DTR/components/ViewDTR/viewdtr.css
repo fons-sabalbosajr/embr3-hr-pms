@@ -32,7 +32,7 @@
 
 /* Special rows */
 .weekend-row {
-  background-color: var(--dtr-weekend-row-bg, rgba(255,255,255,0.06)); /* theme-aware weekend */
+  background-color: var(--dtr-weekend-row-bg, rgba(255,230,230,0.30)); /* theme-aware weekend */
 }
 
 .holiday-row {
@@ -44,9 +44,20 @@
   background-color: var(--dtr-training-row-bg, rgba(114,46,209,0.12));
 }
 
+/* Ensure row background colors apply to cells (override base td background) */
+.view-dtr-modal :where(.ant-table-tbody > tr.weekend-row > td) {
+  background-color: var(--dtr-weekend-row-bg, rgba(255,230,230,0.30)) !important;
+}
+.view-dtr-modal :where(.ant-table-tbody > tr.holiday-row > td) {
+  background-color: var(--dtr-holiday-row-bg, rgba(250,173,20,0.18)) !important;
+}
+.view-dtr-modal :where(.ant-table-tbody > tr.training-row > td) {
+  background-color: var(--dtr-training-row-bg, rgba(114,46,209,0.12)) !important;
+}
+
 /* Special cells for merged states */
 .view-dtr-modal :where(.weekend-cell) {
-  background-color: var(--dtr-weekend-row-bg, rgba(255,255,255,0.06)) !important;
+  background-color: var(--dtr-weekend-row-bg, rgba(255,230,230,0.30)) !important;
   color: var(--app-text-color);
   font-weight: 600;
 }

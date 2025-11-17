@@ -6,7 +6,20 @@ import User from "../models/User.js";
 // GET all trainings
 export const getAllTrainings = async (req, res) => {
   try {
-    const trainings = await Training.find().sort({ trainingDate: -1 });
+    const { start, end } = req.query;
+
+    // Optional date overlap filter: trainingDate[0] <= end && trainingDate[1] >= start
+    let filter = {};
+    if (start || end) {
+      const s = start ? new Date(start) : null;
+      const e = end ? new Date(end) : null;
+      filter = {
+        ...(s ? { "trainingDate.1": { $gte: s } } : {}),
+        ...(e ? { "trainingDate.0": { $lte: e } } : {}),
+      };
+    }
+
+    const trainings = await Training.find(filter).sort({ trainingDate: -1 });
     // Role detection
     let isDev = false;
     try {

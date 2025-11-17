@@ -1,6 +1,16 @@
 import React, { useState, useEffect } from "react";
 import useDemoMode from "../../../../../hooks/useDemoMode";
-import { Table, Button, Modal, Form, Input, DatePicker, Select, message } from "antd";
+import {
+  Table,
+  Button,
+  Modal,
+  Form,
+  Input,
+  DatePicker,
+  Select,
+  message,
+  Tag,
+} from "antd";
 import axiosInstance from "../../../../../api/axiosInstance";
 import dayjs from "dayjs";
 
@@ -11,33 +21,69 @@ const BiometricsData = ({ employee }) => {
   const [loading, setLoading] = useState(false);
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [editingLog, setEditingLog] = useState(null);
+  const [identifierUsed, setIdentifierUsed] = useState(null);
   const [form] = Form.useForm();
-  const { readOnly, isDemoActive, isDemoUser, allowSubmissions } = useDemoMode();
-  // In demo mode with submissions disabled, hide all action UI regardless of user type
-  const demoReadOnly = isDemoActive && !allowSubmissions;
+  const { isDemoActive, isDemoUser, allowSubmissions, isPrivileged } =
+    useDemoMode();
+  // Demo read-only only applies to non-privileged demo users
+  const demoReadOnly =
+    isDemoActive && isDemoUser && !allowSubmissions && !isPrivileged;
   const hideActions = demoReadOnly;
-  // Regardless of allowSubmissions, disable actions while in demo mode per request
-  const demoDisabled = isDemoActive;
+  // Disable actions only for non-privileged demo users
+  const demoDisabled = isDemoActive && isDemoUser && !isPrivileged;
 
-  const fetchDtrLogs = async () => {
+  const robustFetchDtrLogs = async () => {
+    if (!employee) return;
     setLoading(true);
     try {
-      const response = await axiosInstance.get(
-        `/dtrlogs/merged?acNo=${employee.normalizedEmpId}`
+      const digitsEmpId = employee.empId
+        ? employee.empId.replace(/\D/g, "").replace(/^0+/, "")
+        : undefined;
+      const attempts = [
+        { label: "normalizedEmpId", value: employee.normalizedEmpId },
+        { label: "digitsEmpId", value: digitsEmpId },
+        { label: "empNo", value: employee.empNo },
+        { label: "empIdRaw", value: employee.empId },
+      ].filter(
+        (a, idx, arr) =>
+          a.value && arr.findIndex((b) => b.value === a.value) === idx
       );
-      setDtrLogs(response.data.data);
+
+      let found = false;
+      let lastLogs = [];
+      for (const attempt of attempts) {
+        try {
+          const resp = await axiosInstance.get(
+            `/dtrlogs/merged?acNo=${attempt.value}`
+          );
+          const logs = resp?.data?.data || [];
+          if (logs.length > 0) {
+            setDtrLogs(logs);
+            setIdentifierUsed(attempt.label);
+            found = true;
+            break;
+          }
+          lastLogs = logs; // may be empty
+        } catch (err) {
+          // continue to next attempt
+          console.warn(`Attempt ${attempt.label} failed`, err);
+        }
+      }
+      if (!found) {
+        setDtrLogs(lastLogs);
+        setIdentifierUsed(attempts.length ? "none-found" : "no-attempts");
+      }
     } catch (error) {
       message.error("Failed to fetch DTR logs.");
       console.error("Error fetching DTR logs:", error);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   useEffect(() => {
-    if (employee?.normalizedEmpId) {
-      fetchDtrLogs();
-    }
-  }, [employee?.normalizedEmpId]);
+    robustFetchDtrLogs();
+  }, [employee]);
 
   const columns = [
     {
@@ -71,10 +117,24 @@ const BiometricsData = ({ employee }) => {
       key: "action",
       render: (_, record) => (
         <>
-          <Button type="primary" size="small" disabled={demoDisabled} onClick={() => handleEdit(record)}>
+          <Button
+            type="primary"
+            size="small"
+            className="compact-btn"
+            disabled={demoDisabled}
+            onClick={() => handleEdit(record)}
+          >
             Edit
           </Button>
-          <Button type="primary" size="small" style={{marginLeft: "5px"}} danger disabled={demoDisabled} onClick={() => handleDelete(record._id)}>
+          <Button
+            type="primary"
+            size="small"
+            className="compact-btn"
+            style={{ marginLeft: 5 }}
+            danger
+            disabled={demoDisabled}
+            onClick={() => handleDelete(record._id)}
+          >
             Delete
           </Button>
         </>
@@ -131,7 +191,7 @@ const BiometricsData = ({ employee }) => {
       const payload = {
         ...values,
         Time: values.Time.toISOString(),
-        "AC-No": employee.empId.replace(/\D/g, "").replace(/^0+/, ''), // Use employee's AC-No
+        "AC-No": employee.empId.replace(/\D/g, "").replace(/^0+/, ""), // Use employee's AC-No
         Name: employee.name, // Use employee's name
       };
 
@@ -157,18 +217,42 @@ const BiometricsData = ({ employee }) => {
   };
 
   return (
-    <div>
-      {!hideActions && (
-        <Button type="primary" onClick={handleAdd} style={{ marginBottom: 16 }} disabled={demoDisabled}>
-          Add Biometrics Record
-        </Button>
-      )}
+    <div className="biometrics-table-wrapper">
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          marginBottom: 12,
+          gap: 8,
+        }}
+      >
+        {!hideActions && (
+          <Button
+            type="primary"
+            size="small"
+            className="compact-btn"
+            onClick={handleAdd}
+            disabled={demoDisabled}
+          >
+            Add Biometrics Record
+          </Button>
+        )}
+        {identifierUsed && (
+          <Tag
+            color={identifierUsed === "none-found" ? "red" : "blue"}
+            style={{ fontSize: 11, lineHeight: "18px", height: 20 }}
+          >
+            Source: {identifierUsed}
+          </Tag>
+        )}
+      </div>
       <Table
         columns={filteredColumns}
         dataSource={dtrLogs}
         loading={loading}
         rowKey={(record) => `${record.acNo}-${record.time}`}
         pagination={{ pageSize: 10 }}
+        size="small"
       />
 
       <Modal
@@ -184,7 +268,12 @@ const BiometricsData = ({ employee }) => {
             label="Time"
             rules={[{ required: true, message: "Please select time!" }]}
           >
-            <DatePicker showTime format="YYYY-MM-DD HH:mm:ss" style={{ width: "100%" }} disabled={demoDisabled} />
+            <DatePicker
+              showTime
+              format="YYYY-MM-DD HH:mm:ss"
+              style={{ width: "100%" }}
+              disabled={demoDisabled}
+            />
           </Form.Item>
           <Form.Item
             name="State"
@@ -200,10 +289,7 @@ const BiometricsData = ({ employee }) => {
               <Option value="Overtime Out">Overtime Out</Option>
             </Select>
           </Form.Item>
-          <Form.Item
-            name="New State"
-            label="New State"
-          >
+          <Form.Item name="New State" label="New State">
             <Input disabled={demoDisabled} />
           </Form.Item>
         </Form>
@@ -213,3 +299,28 @@ const BiometricsData = ({ employee }) => {
 };
 
 export default BiometricsData;
+
+// Local style overrides for smaller font
+// Using a style tag appended to document head via React fragment pattern is another option;
+// here we inject a scoped style block for simplicity without touching global CSS.
+if (typeof document !== "undefined") {
+  const styleId = "biometrics-table-font-reduction";
+  const existing = document.getElementById(styleId);
+  const css = `
+    .biometrics-table-wrapper .ant-table { font-size:12px; }
+    .biometrics-table-wrapper .ant-table-cell { font-size:11px; }
+    .biometrics-table-wrapper .ant-table-thead > tr > th { font-size:11px; padding:4px 6px; }
+    .biometrics-table-wrapper .ant-table-tbody > tr > td { padding:2px 6px; }
+    .biometrics-table-wrapper .ant-btn { font-size:11px; height:26px; line-height:24px; padding:0 10px; }
+    .biometrics-table-wrapper .ant-btn.compact-btn { font-size:10px; height:22px; line-height:20px; padding:0 8px; }
+    .biometrics-table-wrapper .ant-tag { display:flex; align-items:center; }
+  `;
+  if (existing) {
+    existing.textContent = css;
+  } else {
+    const styleEl = document.createElement("style");
+    styleEl.id = styleId;
+    styleEl.textContent = css;
+    document.head.appendChild(styleEl);
+  }
+}

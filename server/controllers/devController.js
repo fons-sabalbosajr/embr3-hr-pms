@@ -716,11 +716,18 @@ export const testSmtp = async (req, res) => {
 
 export const testDrive = async (req, res) => {
   try {
-    // Attempt to list up to 10 files in configured folder
-    const files = await driveList({ pageSize: 10 });
-    res.json({ success: true, count: files.length, sample: files });
+    // Attempt to list up to 10 files in the FILES folder first, then fallbacks
+    const folderId =
+      process.env.GOOGLE_DRIVE_FOLDER_ID_FILE ||
+      process.env.GOOGLE_DRIVE_FOLDER_ID ||
+      process.env.GOOGLE_DRIVE_FOLDER_ID_IMAGE ||
+      undefined;
+    const files = await driveList({ parentFolderId: folderId, pageSize: 10 });
+    res.json({ success: true, count: files.length, sample: files, folderIdUsed: folderId || null });
   } catch (err) {
-    res.status(err.status || 500).json({ success: false, message: err.message || 'Drive test failed' });
+    res
+      .status(err.status || 500)
+      .json({ success: false, message: err.message || "Drive test failed" });
   }
 };
 

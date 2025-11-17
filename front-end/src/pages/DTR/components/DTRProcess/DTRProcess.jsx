@@ -32,10 +32,21 @@ const LOCAL_TZ = "Asia/Manila";
 
 // States mapping for tooltip labels
 const STATE_LABELS = {
+  // Common biometric states → normalized labels
   "C/In": "Time In",
+  "Check In": "Time In",
+  "IN": "Time In",
+  In: "Time In",
+  "C/Out": "Time Out",
+  "Check Out": "Time Out",
+  "OUT": "Time Out",
   Out: "Break Out",
   "Out Back": "Break In",
-  "C/Out": "Time Out",
+  "Break Out": "Break Out",
+  "Break In": "Break In",
+  // Overtime variants (kept separate so they don't overwrite main punches)
+  "Overtime In": "OT In",
+  "Overtime Out": "OT Out",
 };
 
 // (divisionAcronyms will be loaded from env below)
@@ -136,6 +147,7 @@ const DTRProcess = ({ currentUser }) => {
   const [localHolidays, setLocalHolidays] = useState([]);
   const [suspensions, setSuspensions] = useState([]);
   const [employeeTrainings, setEmployeeTrainings] = useState({});
+  const [trainingLoading, setTrainingLoading] = useState(false);
   const [selectedRowKeys, setSelectedRowKeys] = useState([]);
   const location = useLocation();
 
@@ -240,14 +252,32 @@ const DTRProcess = ({ currentUser }) => {
   const employeeNames = employees.map((emp) => emp.name).filter(Boolean);
   const employeeEmpIds = employees.map((emp) => emp.empId).filter(Boolean);
 
-      const res = await axiosInstance.get(`/dtrlogs/merged`, {
-        params: {
-          recordName: selectedRecord.DTR_Record_Name,
-          names: employeeNames.join(","),
-          empIds: employeeEmpIds.join(","),
-        },
-      });
-      const logsPayload = Array.isArray(res.data) ? res.data : res.data?.data;
+      // Fetch all pages to avoid pagination truncation on server (max 500 per page)
+      const limit = 500;
+      let page = 1;
+      let total = 0;
+      let allLogs = [];
+      while (true) {
+        const res = await axiosInstance.get(`/dtrlogs/merged`, {
+          params: {
+            recordName: selectedRecord.DTR_Record_Name,
+            names: employeeNames.join(","),
+            empIds: employeeEmpIds.join(","),
+            page,
+            limit,
+          },
+        });
+        const payload = Array.isArray(res.data) ? res.data : res.data?.data;
+        const metaTotal = res.data?.total || 0;
+        total = Math.max(total, metaTotal);
+        const batch = Array.isArray(payload) ? payload : [];
+        allLogs = allLogs.concat(batch);
+        if (batch.length < limit) break;
+        if (allLogs.length >= total && total > 0) break;
+        page += 1;
+        if (page > 100) break; // safety guard
+      }
+      const logsPayload = allLogs;
       if (!logsPayload) {
         appMessage.error("Failed to load DTR logs");
         setDtrLogs({});
@@ -255,28 +285,85 @@ const DTRProcess = ({ currentUser }) => {
       }
       const logsByEmpDay = {};
 
-      logsPayload.forEach((log) => {
-        if (!log.empId) return;
+      // Build robust client-side mapping from AC-No/name → empId
+      const normalizeDigits = (v) => (v ? String(v).replace(/\D/g, "").replace(/^0+/, "") : "");
+      const normalizeText = (s) => {
+        if (!s) return "";
+        let t = String(s).toLowerCase().trim();
+        if (t.includes(",")) {
+          const parts = t.split(",");
+          const left = parts.shift().trim();
+          const right = parts.join(" ").trim();
+          t = (right + " " + left).trim();
+        }
+        t = t.replace(/\b(jr|sr|ii|iii|iv|jr\.|sr\.)\b/g, " ");
+        t = t.replace(/[^a-z0-9\s]/g, " ");
+        return t.replace(/\s+/g, " ").trim();
+      };
 
-        const empKey = log.empId;
+      const empIdByCandidate = new Map();
+      const empIdByNameNorm = new Map();
+      employees.forEach((emp) => {
+        if (!emp) return;
+        const primaryEmpId = emp.empId;
+        const candidates = [
+          emp.empId,
+          emp.empNo,
+          emp.acNo,
+          ...(emp.alternateEmpIds || []),
+        ]
+          .filter(Boolean)
+          .map(String);
+        candidates.forEach((c) => {
+          // raw form
+          empIdByCandidate.set(c, primaryEmpId);
+          // digits-only form
+          const d = normalizeDigits(c);
+          if (d) empIdByCandidate.set(d, primaryEmpId);
+        });
+        const nameNorm = emp.normalizedName || normalizeText(emp.name);
+        if (nameNorm) empIdByNameNorm.set(nameNorm, primaryEmpId);
+      });
+
+      logsPayload.forEach((log) => {
+        // Prefer server-resolved empId
+        let empKey = log.empId || null;
+
+        // Fallback 1: match by AC-No variants
+        if (!empKey && (log.acNo || log["AC-No"])) {
+          const acRaw = log.acNo || log["AC-No"]; 
+          const acDigits = normalizeDigits(acRaw);
+          if (empIdByCandidate.has(acRaw)) empKey = empIdByCandidate.get(acRaw);
+          else if (acDigits && empIdByCandidate.has(acDigits)) empKey = empIdByCandidate.get(acDigits);
+        }
+
+        // Fallback 2: match by normalized name (approx)
+        if (!empKey && log.name) {
+          const ln = normalizeText(log.name);
+          if (empIdByNameNorm.has(ln)) empKey = empIdByNameNorm.get(ln);
+        }
+
+        if (!empKey) return; // still unknown, skip
 
         const dateKey = dayjs(log.time).tz(LOCAL_TZ).format("YYYY-MM-DD");
 
         if (!logsByEmpDay[empKey]) logsByEmpDay[empKey] = {};
         if (!logsByEmpDay[empKey][dateKey]) {
           logsByEmpDay[empKey][dateKey] = {
-            "Time In": null,
-            "Break Out": null,
-            "Break In": null,
-            "Time Out": null,
+            "Time In": [],
+            "Break Out": [],
+            "Break In": [],
+            "Time Out": [],
           };
         }
 
         const stateLabel = STATE_LABELS[log.state];
         if (stateLabel) {
-          logsByEmpDay[empKey][dateKey][stateLabel] = dayjs(log.time)
-            .tz(LOCAL_TZ)
-            .format("hh:mm A");
+          const t = dayjs(log.time).tz(LOCAL_TZ).format("hh:mm A");
+          const arr = logsByEmpDay[empKey][dateKey][stateLabel];
+          if (Array.isArray(arr)) arr.push(t);
+          else if (!arr) logsByEmpDay[empKey][dateKey][stateLabel] = [t];
+          else logsByEmpDay[empKey][dateKey][stateLabel] = [arr, t];
         }
       });
 
@@ -472,37 +559,56 @@ const DTRProcess = ({ currentUser }) => {
   }, [selectedRecord]);
 
   useEffect(() => {
-    async function fetchTrainingsForEmployees() {
+    async function fetchTrainingsBulk() {
       if (!employees.length || !selectedRecord) {
         setEmployeeTrainings({});
         return;
       }
+      try {
+        setTrainingLoading(true);
+        const start = dayjs(selectedRecord.DTR_Cut_Off.start).format("YYYY-MM-DD");
+        const end = dayjs(selectedRecord.DTR_Cut_Off.end).format("YYYY-MM-DD");
+        const res = await axiosInstance.get(`/trainings`, { params: { start, end } });
+        const list = Array.isArray(res?.data?.data)
+          ? res.data.data
+          : Array.isArray(res?.data)
+          ? res.data
+          : [];
 
-      // Concurrency-limited parallel fetch to avoid request floods
-      const limit = 10;
-      const list = employees.slice();
-      const trainingsByEmp = {};
-      let index = 0;
+        // Filter to trainings overlapping the selected cut-off
+        const startD = dayjs(selectedRecord.DTR_Cut_Off.start);
+        const endD = dayjs(selectedRecord.DTR_Cut_Off.end);
 
-      async function worker() {
-        while (index < list.length) {
-          const current = list[index++];
-          if (!current?.empId) continue;
-          try {
-            const res = await axiosInstance.get(
-              `/trainings/by-employee/${current.empId}`
-            );
-            trainingsByEmp[current.empId] = res.data?.data || [];
-          } catch {
-            trainingsByEmp[current.empId] = [];
-          }
-        }
+        const inRange = list.filter((t) => {
+          const s = dayjs(t?.trainingDate?.[0]);
+          const e = dayjs(t?.trainingDate?.[1]);
+          if (!s.isValid() || !e.isValid()) return false;
+          return (
+            s.isSameOrBefore(endD, "day") && e.isSameOrAfter(startD, "day")
+          );
+        });
+
+        // Map per employee
+        const empSet = new Set(employees.map((e) => e.empId).filter(Boolean));
+        const map = {};
+        inRange.forEach((t) => {
+          const parts = Array.isArray(t.participants) ? t.participants : [];
+          parts.forEach((p) => {
+            if (!p?.empId) return;
+            if (!empSet.has(p.empId)) return;
+            if (!map[p.empId]) map[p.empId] = [];
+            map[p.empId].push(t);
+          });
+        });
+
+        setEmployeeTrainings(map);
+      } catch (_) {
+        setEmployeeTrainings({});
+      } finally {
+        setTrainingLoading(false);
       }
-
-      await Promise.all(Array.from({ length: limit }, () => worker()));
-      setEmployeeTrainings(trainingsByEmp);
     }
-    fetchTrainingsForEmployees();
+    fetchTrainingsBulk();
   }, [employees, selectedRecord]);
 
   const hasAnyDTRLogs = (emp, dtrDays, dtrLogs, selectedRecord) => {
@@ -514,7 +620,10 @@ const DTRProcess = ({ currentUser }) => {
         .date(dayNum)
         .format("YYYY-MM-DD");
       const dayLogs = dtrLogs[empKey][dateKey];
-      return dayLogs && Object.values(dayLogs).some((v) => v);
+      if (!dayLogs) return false;
+      return Object.values(dayLogs).some((v) =>
+        Array.isArray(v) ? v.length > 0 : Boolean(v)
+      );
     });
   };
 
@@ -823,6 +932,7 @@ const DTRProcess = ({ currentUser }) => {
             divisionColors={divisionColors}
             divisionAcronyms={divisionAcronyms}
             holidaysPH={[...holidaysPH, ...localHolidays, ...suspensions]}
+            trainingLoading={trainingLoading}
             getEmployeeDayLogs={(emp, dateKey) => {
               const empKey = emp.empId;
               return dtrLogs[empKey]?.[dateKey] || null;
@@ -1016,6 +1126,8 @@ const DTRProcess = ({ currentUser }) => {
           dtrLogs={dtrLogs}
           selectedRecord={selectedRecord}
           holidaysPH={[...holidaysPH, ...localHolidays, ...suspensions]}
+          trainings={employeeTrainings[selectedEmployee.empId] || []}
+          trainingLoading={trainingLoading}
           onSaveToTray={handleAddToPrinterTray}
           onPreviewForm48={handlePrintSelected}
         />

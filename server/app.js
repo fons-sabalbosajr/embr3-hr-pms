@@ -29,6 +29,7 @@ import notificationRoutes from "./routes/notificationRoutes.js";
 import uploadRoutes from "./routes/uploadRoutes.js";
 import publicRoutes from "./routes/publicRoutes.js";
 import featureRoutes from "./routes/features.js";
+import bugReportRoutes from "./routes/bugReportRoutes.js";
 import demoEnforcement from "./middleware/demoEnforcement.js";
 
 dotenv.config();
@@ -105,6 +106,7 @@ app.use("/api/suspensions", suspensionRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/uploads", uploadRoutes);
 app.use("/api/features", featureRoutes);
+app.use("/api/bug-report", bugReportRoutes);
 
 // Basic health endpoint for platform probes
 app.get("/healthz", (req, res) => {

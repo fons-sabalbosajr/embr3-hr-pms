@@ -26,10 +26,11 @@ router.post('/', upload.single('file'), async (req, res) => {
   }
 });
 
-// List stored files (basic)
-router.get('/', async (_req, res) => {
+// List stored files (basic) with optional folder navigation
+router.get('/', async (req, res) => {
   try {
-    const files = await storageList();
+    const { path: subdir, folderId } = req.query;
+    const files = await storageList({ subdir, parentFolderId: folderId });
     res.json({ success: true, data: files });
   } catch (e) {
     res.status(500).json({ success: false, message: e.message });

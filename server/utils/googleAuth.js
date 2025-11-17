@@ -39,7 +39,18 @@ export function buildGoogleAuth(customScopes) {
   const options = { scopes };
 
   if (rawJson) {
-    options.credentials = parseInlineJson(rawJson);
+    try {
+      options.credentials = parseInlineJson(rawJson);
+    } catch (err) {
+      // Fallback gracefully if inline JSON is malformed; prefer BASE64, then key file
+      if (b64Json) {
+        options.credentials = decodeBase64Json(b64Json);
+      } else if (keyPath) {
+        options.keyFile = path.resolve(keyPath);
+      } else {
+        throw err;
+      }
+    }
   } else if (b64Json) {
     options.credentials = decodeBase64Json(b64Json);
   } else if (keyPath) {

@@ -1,6 +1,6 @@
 import React from "react";
-import { Popover, Tag } from "antd";
-import { CalendarFilled, BookFilled } from "@ant-design/icons";
+import { Popover, Tag, Spin } from "antd";
+import { CalendarFilled, BookFilled, LoadingOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import isSameOrBefore from "dayjs/plugin/isSameOrBefore";
 import isSameOrAfter from "dayjs/plugin/isSameOrAfter";
@@ -17,7 +17,11 @@ const DTRDayTiles = ({
   getTrainingDetailsOnDay,
   divisionColors,
   divisionAcronyms,
+  trainingLoading,
 }) => {
+  const loadingIndicator = (
+    <LoadingOutlined style={{ fontSize: 10, color: "#8c8c8c" }} spin />
+  );
   return (
     <div style={{ display: "flex", gap: 2, marginBottom: 4 }}>
       {days.map((dayNum) => {
@@ -329,7 +333,12 @@ const DTRDayTiles = ({
                     {holiday.type === "Suspension" ? "No work" : "Holiday"}
                   </span>
                 )}
-                {isTrainingDay && (
+                {trainingLoading && (
+                  <span style={{ display: "block", marginTop: 2 }}>
+                    <Spin indicator={loadingIndicator} size="small" />
+                  </span>
+                )}
+                {!trainingLoading && isTrainingDay && (
                   <span
                     style={{
                       fontSize: 8,

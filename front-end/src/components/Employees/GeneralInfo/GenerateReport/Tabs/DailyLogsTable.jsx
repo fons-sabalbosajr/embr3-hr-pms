@@ -4,8 +4,8 @@ import { Table, Button, message } from "antd";
 import dayjs from "dayjs";
 
 const DailyLogsTable = ({ dailySummary, onSendReminder }) => {
-  const { readOnly, isDemoActive, isDemoUser, allowSubmissions } = useDemoMode();
-  const demoReadOnly = isDemoActive && !allowSubmissions;
+  const { isDemoActive, isDemoUser, allowSubmissions, isPrivileged } = useDemoMode();
+  const demoReadOnly = isDemoActive && isDemoUser && !allowSubmissions && !isPrivileged;
   if (!dailySummary) return null;
 
   const { rawLogs, timeIn, breakOut, breakIn, timeOut } = dailySummary;
