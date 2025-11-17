@@ -1,10 +1,11 @@
-import { Modal, Avatar, Typography, Divider, Space, Button } from "antd";
+import { Modal, Typography, Divider, Space, Button } from "antd";
 import {
   UserOutlined,
   IdcardOutlined,
   ClockCircleOutlined,
   MailOutlined,
 } from "@ant-design/icons";
+import UserAvatar from "../../../components/common/UserAvatar";
 
 const ProfileModal = ({ open, onClose, user }) => {
   return (
@@ -17,17 +18,12 @@ const ProfileModal = ({ open, onClose, user }) => {
       width={500}
     >
       <div style={{ textAlign: "center", padding: "20px" }}>
-        <Avatar
+        <UserAvatar
           size={100}
-          src={user?.avatarUrl || undefined}
+          src={user?.avatarUrl}
+          name={user?.name}
           style={{ backgroundColor: "#1677ff", marginBottom: 15 }}
-          onError={(e) => {
-            try { e.currentTarget.src = ''; } catch(_) {}
-            return false;
-          }}
-        >
-          {!user?.avatarUrl && (user?.name?.charAt(0).toUpperCase() || <UserOutlined />)}
-        </Avatar>
+        />
         <Typography.Title level={4} style={{ marginBottom: 0 }}>
           {user?.name || "Unknown User"}
         </Typography.Title>

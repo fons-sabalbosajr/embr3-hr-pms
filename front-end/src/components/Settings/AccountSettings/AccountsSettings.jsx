@@ -13,7 +13,6 @@ import {
   Typography,
   Modal,
   Upload,
-  Avatar,
   Slider,
 } from "antd";
 import axiosInstance from "../../../api/axiosInstance";
@@ -22,6 +21,7 @@ import "./accountsettings.css";
 import useAuth from "../../../hooks/useAuth";
 import useDemoMode from "../../../hooks/useDemoMode";
 import { UploadOutlined, UserOutlined, ZoomInOutlined, ZoomOutOutlined } from "@ant-design/icons";
+import UserAvatar from "../../common/UserAvatar";
 import Cropper from 'react-easy-crop';
 import useNotify from '../../../hooks/useNotify';
 
@@ -220,14 +220,13 @@ const AccountsSettings = () => {
         <Col xs={24} md={isDemoActive && isDemoUser ? 24 : 12}>
           <Card title="Profile Information" className="account-settings-panel corp-panel compact-table">
             <Space align="start" size={16} style={{ width: '100%', marginBottom: 8 }}>
-              <Avatar
+              <UserAvatar
                 size={64}
                 src={user?.avatarUrl}
-                icon={<UserOutlined />}
+                name={user?.name}
                 style={{ cursor: 'pointer' }}
                 onClick={() => {
                   if (user?.avatarUrl) {
-                    // Force reload if browser cached aggressively
                     updateCurrentUser({ ...user, avatarUrl: `${user.avatarUrl.split('?')[0]}?v=${Date.now()}` });
                   }
                 }}

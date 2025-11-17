@@ -62,6 +62,18 @@ const filters = secureSessionGet('tempFilters');
 ### Auditing
 ## UI Conventions
 
+### User Avatar
+
+- Use `src/components/common/UserAvatar.jsx` instead of AntD `Avatar` directly for user photos.
+- Behavior: shows the image when available; automatically falls back to user initials (or a user icon) if the image fails to load or no URL is provided.
+- Example:
+
+```jsx
+import UserAvatar from "./src/components/common/UserAvatar";
+
+<UserAvatar src={user.avatarUrl} name={user.name} size={40} />
+```
+
 ### Compact Tables
 
 - Add `className="compact-table"` to Ant Design `Table` components (and optionally to parent containers) to reduce row padding and font size for dense data views.
