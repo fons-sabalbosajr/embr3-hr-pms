@@ -1,11 +1,12 @@
 import express from "express";
 import DTRData from "../models/DTRData.js";
 import DTRLog from "../models/DTRLog.js";
-import { getRecentAttendance, logDTRGeneration } from "../controllers/dtrController.js";
+import { getRecentAttendance, getLogsByAcNo, logDTRGeneration } from "../controllers/dtrController.js";
 
 const router = express.Router();
 
 router.get("/recent-daily-attendance", getRecentAttendance);
+router.get("/logs-by-acno", getLogsByAcNo);
 router.post("/log-generation", logDTRGeneration);
 
 router.post("/upload", async (req, res) => {

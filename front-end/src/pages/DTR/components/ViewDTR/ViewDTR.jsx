@@ -2,6 +2,7 @@ import React from "react";
 import useDemoMode from "../../../../hooks/useDemoMode";
 import { Modal, Table, Typography, Divider, Button, message, Spin, Tooltip } from "antd";
 import dayjs from "dayjs";
+import customParseFormat from "dayjs/plugin/customParseFormat";
 import "./viewdtr.css";
 import axios from "axios";
 import axiosInstance from "../../../../api/axiosInstance";
@@ -74,30 +75,224 @@ const ViewDTR = ({
       const isHoliday = !!holidayLabel;
 
       const dayData = dtrLogs?.[employee.empId]?.[dateKey] || null;
-      const pickEarliest = (v) => Array.isArray(v) ? v.slice().sort((a,b)=>{
-        const da = dayjs(a, ["h:mm A","HH:mm"], true);
-        const db = dayjs(b, ["h:mm A","HH:mm"], true);
-        if (da.isValid() && db.isValid()) return da.isBefore(db)?-1:1;
-        return String(a).localeCompare(String(b));
-      })[0] : (v || "");
-      const pickLatest = (v) => Array.isArray(v) ? v.slice().sort((a,b)=>{
-        const da = dayjs(a, ["h:mm A","HH:mm"], true);
-        const db = dayjs(b, ["h:mm A","HH:mm"], true);
-        if (da.isValid() && db.isValid()) return da.isAfter(db)?-1:1;
-        return String(b).localeCompare(String(a));
-      })[0] : (v || "");
+      dayjs.extend(customParseFormat);
 
-      let timeIn = dayData ? pickEarliest(dayData["Time In"]) : "";
-      let breakOut = dayData ? pickEarliest(dayData["Break Out"]) : "";
-      let breakIn = dayData ? pickEarliest(dayData["Break In"]) : "";
-      let timeOut = dayData ? pickLatest(dayData["Time Out"]) : "";
+      const pickEarliest = (v) =>
+        Array.isArray(v)
+          ? v
+              .slice()
+              .sort((a, b) => {
+                const da = dayjs(a, ["h:mm A", "HH:mm", "H:mm", "h:mm"], true);
+                const db = dayjs(b, ["h:mm A", "HH:mm", "H:mm", "h:mm"], true);
+                if (da.isValid() && db.isValid()) return da.isBefore(db) ? -1 : 1;
+                return String(a).localeCompare(String(b));
+              })[0]
+          : v || "";
+      const pickLatest = (v) =>
+        Array.isArray(v)
+          ? v
+              .slice()
+              .sort((a, b) => {
+                const da = dayjs(a, ["h:mm A", "HH:mm", "H:mm", "h:mm"], true);
+                const db = dayjs(b, ["h:mm A", "HH:mm", "H:mm", "h:mm"], true);
+                if (da.isValid() && db.isValid()) return da.isAfter(db) ? -1 : 1;
+                return String(b).localeCompare(String(a));
+              })[0]
+          : v || "";
+
+      // Helper: robustly parse and format a time string with AM/PM
+      const normalizeTimeWithAmPm = (raw, preferred = "AUTO") => {
+        if (!raw && raw !== 0) return "";
+        const s = String(raw).trim();
+        if (!s) return "";
+
+        const hasAmPm = /[ap]\.?m\.?/i.test(s);
+
+        const tryParse = (str) => {
+          const fmts = ["h:mm A", "hh:mm A", "h:mma", "h:mmA", "H:mm", "HH:mm", "Hmm", "hmm", "h mm", "h.mm A", "h.mm"];
+          for (const f of fmts) {
+            const d = dayjs(str, f, true);
+            if (d.isValid()) return d;
+          }
+          const d2 = dayjs(str);
+          return d2.isValid() ? d2 : null;
+        };
+
+        if (hasAmPm) {
+          const parsed = tryParse(s);
+          return parsed ? parsed.format("h:mm A") : s;
+        }
+
+        let parsed = tryParse(s);
+        if (!parsed) {
+          const digits = s.replace(/[^0-9]/g, "");
+          if (digits.length === 3) {
+            parsed = tryParse(digits.replace(/(\d)(\d{2})/, "$1:$2"));
+          } else if (digits.length === 4) {
+            parsed = tryParse(digits.replace(/(\d{2})(\d{2})/, "$1:$2"));
+          }
+        }
+        if (!parsed) return s;
+
+        const hour = parsed.hour();
+        if (preferred === "AM") {
+          if (hour >= 12) parsed = parsed.hour(hour % 12);
+        } else if (preferred === "PM") {
+          if (hour < 12) parsed = parsed.hour(hour + 12);
+        }
+
+        return parsed.format("h:mm A");
+      };
+
+      // Collect raw candidate punches from all labels and attempt to resolve AM/PM
+      const rawCandidates = {
+        "Time In": dayData ? (Array.isArray(dayData["Time In"]) ? dayData["Time In"] : [dayData["Time In"]]).filter(Boolean) : [],
+        "Break Out": dayData ? (Array.isArray(dayData["Break Out"]) ? dayData["Break Out"] : [dayData["Break Out"]]).filter(Boolean) : [],
+        "Break In": dayData ? (Array.isArray(dayData["Break In"]) ? dayData["Break In"] : [dayData["Break In"]]).filter(Boolean) : [],
+        "Time Out": dayData ? (Array.isArray(dayData["Time Out"]) ? dayData["Time Out"] : [dayData["Time Out"]]).filter(Boolean) : [],
+      };
+
+      // Helper: produce parse variants for a raw time string (try AM/PM and 24h variants)
+      const parseVariants = (s) => {
+        if (!s && s !== 0) return [];
+        const str = String(s).trim();
+        if (!str) return [];
+        const variants = [];
+        const hasAmPm = /[ap]\.?m\.?/i.test(str);
+
+        const tryFmt = (v) => {
+          const fmts = ["h:mm A", "hh:mm A", "h:mma", "h:mmA", "H:mm", "HH:mm", "Hmm", "hmm", "h mm", "h.mm A", "h.mm"];
+          for (const f of fmts) {
+            const d = dayjs(v, f, true);
+            if (d.isValid()) return d;
+          }
+          const d2 = dayjs(v);
+          return d2.isValid() ? d2 : null;
+        };
+
+        if (hasAmPm) {
+          const p = tryFmt(str);
+          if (p) variants.push(p);
+          return variants;
+        }
+
+        // Try as-is (may parse as 24h)
+        const p0 = tryFmt(str);
+        if (p0) variants.push(p0);
+
+        // Try forcing AM/PM by appending markers
+        const am = tryFmt(str + " AM");
+        const pm = tryFmt(str + " PM");
+        if (am) variants.push(am);
+        if (pm) variants.push(pm);
+
+        // normalize unique by hour/min
+        const seen = new Set();
+        const out = [];
+        variants.forEach((d) => {
+          const key = `${d.hour()}:${d.minute()}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            out.push(d);
+          }
+        });
+        return out;
+      };
+
+      // Attempt to find an assignment of variants that yields increasing times: In <= BreakOut <= BreakIn <= Out
+      const resolveSequence = (candidates) => {
+        const labels = ["Time In", "Break Out", "Break In", "Time Out"];
+        const choices = labels.map((lbl) => {
+          const arr = candidates[lbl] || [];
+          // Pick earliest/unique raw per label as fallback if none parsed
+          if (!arr.length) return [null];
+          // expand variants for each candidate
+          const expanded = arr.map((s) => parseVariants(s)).flat().filter(Boolean);
+          // if no parsed variants, keep original string parsed loosely
+          if (!expanded.length) return arr.map((s) => {
+            const p = dayjs(s);
+            return p.isValid() ? p : null;
+          }).filter(Boolean);
+          return expanded;
+        });
+
+        // Cartesian product recursion
+        const results = [];
+        const backtrack = (idx, acc) => {
+          if (idx === choices.length) {
+            results.push(acc.slice());
+            return;
+          }
+          const opts = choices[idx] || [null];
+          for (const o of opts) {
+            acc.push(o);
+            backtrack(idx + 1, acc);
+            acc.pop();
+          }
+        };
+        backtrack(0, []);
+
+        // Evaluate candidates: prefer those where times are increasing and non-null
+        for (const cand of results) {
+          // cand is array of dayjs or null
+          const [inT, out1, in2, outT] = cand;
+          if (!inT && !out1 && !in2 && !outT) continue;
+          let ok = true;
+          const times = [inT, out1, in2, outT].map((d) => (d && d.isValid() ? d : null));
+          // if any non-null appear, ensure order
+          for (let i = 0; i < times.length - 1; i++) {
+            if (times[i] && times[i + 1]) {
+              if (!times[i].isSameOrBefore(times[i + 1])) {
+                ok = false;
+                break;
+              }
+            }
+          }
+          if (ok) {
+            // return formatted strings
+            return labels.reduce((acc, lbl, i) => {
+              acc[lbl] = times[i] ? times[i].format("h:mm A") : "";
+              return acc;
+            }, {});
+          }
+        }
+
+        // fallback: use previous pickEarliest/pickLatest with normalization
+        return {
+          "Time In": (candidates["Time In"] && candidates["Time In"][0]) ? normalizeTimeWithAmPm(pickEarliest(candidates["Time In"]), "AM") : "",
+          "Break Out": (candidates["Break Out"] && candidates["Break Out"][0]) ? normalizeTimeWithAmPm(pickEarliest(candidates["Break Out"]), "PM") : "",
+          "Break In": (candidates["Break In"] && candidates["Break In"][0]) ? normalizeTimeWithAmPm(pickEarliest(candidates["Break In"]), "PM") : "",
+          "Time Out": (candidates["Time Out"] && candidates["Time Out"][0]) ? normalizeTimeWithAmPm(pickLatest(candidates["Time Out"]), "PM") : "",
+        };
+      };
+
+      const resolved = resolveSequence(rawCandidates);
+      let timeIn = resolved["Time In"];
+      let breakOut = resolved["Break Out"];
+      let breakIn = resolved["Break In"];
+      let timeOut = resolved["Time Out"];
+      // pick overtime values if any (raw)
+      const otInRaw = dayData ? pickEarliest(dayData["OT In"]) : "";
+      const otOutRaw = dayData ? pickLatest(dayData["OT Out"]) : "";
+      const otIn = otInRaw ? normalizeTimeWithAmPm(otInRaw, "PM") : otInRaw;
+      const otOut = otOutRaw ? normalizeTimeWithAmPm(otOutRaw, "PM") : otOutRaw;
 
       // Determine training presence using provided trainings
       const trainingLabel = getTrainingLabelForDay(dateKey) || "";
       const isTraining = Boolean(trainingLabel) && !timeIn && !breakOut && !breakIn && !timeOut;
 
-      if (timeIn && !breakOut) breakOut = "12:00";
-      if (timeOut && !breakIn) breakIn = "1:00";
+      // If no normal punches but there are OT punches on weekend, show OT as the day's punches
+      let rowStatus = "";
+      if (isWeekend && (otIn || otOut)) {
+        // treat as worked day (show OT times)
+        timeIn = timeIn || otIn;
+        timeOut = timeOut || otOut;
+        // mark status as OT to indicate weekend overtime
+        rowStatus = "OT";
+      }
+
+      if (timeIn && !breakOut) breakOut = normalizeTimeWithAmPm("12:00", "PM");
+      if (timeOut && !breakIn) breakIn = normalizeTimeWithAmPm("1:00", "PM");
 
       rows.push({
         key: dateKey,
@@ -106,7 +301,7 @@ const ViewDTR = ({
         breakOut,
         breakIn,
         timeOut,
-        status: "",
+        status: rowStatus || "",
         isWeekend,
         weekendLabel: dayOfWeek === 6 ? "Saturday" : "Sunday",
         isHoliday,
@@ -284,16 +479,31 @@ const ViewDTR = ({
   };
 
   const getMissingDates = () => {
-    // Derive dates with no time record (non-weekend/holiday/training)
+    // Derive dates with missing time parts (non-weekend/holiday/training)
     return (tableData || [])
-      .filter(r => !r.isWeekend && !r.isHoliday && !r.isTraining && !r.timeIn && !r.breakOut && !r.breakIn && !r.timeOut)
-      .map(r => {
-        // r.key is YYYY-MM-DD; prefer it, fallback to convert r.date
-        if (r.key) return r.key;
-        try {
-          const [mm, dd, yyyy] = String(r.date).split('/')
-          return `${yyyy}-${String(mm).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;
-        } catch { return r.date; }
+      .filter(
+        (r) => !r.isWeekend && !r.isHoliday && !r.isTraining && (
+          !r.timeIn || !r.breakOut || !r.breakIn || !r.timeOut
+        )
+      )
+      .map((r) => {
+        const toIso = (rec) => {
+          if (rec.key) return rec.key;
+          try {
+            const [mm, dd, yyyy] = String(rec.date).split('/');
+            return `${yyyy}-${String(mm).padStart(2, '0')}-${String(dd).padStart(2, '0')}`;
+          } catch {
+            return rec.date;
+          }
+        };
+
+        const missing = [];
+        if (!r.timeIn) missing.push('Time In');
+        if (!r.breakOut) missing.push('Break Out');
+        if (!r.breakIn) missing.push('Break In');
+        if (!r.timeOut) missing.push('Time Out');
+
+        return { date: toIso(r), display: r.date, missing };
       });
   };
 
@@ -323,9 +533,14 @@ const ViewDTR = ({
           </p>
           <div style={{ marginTop: 8, padding: 12, background: "#fafafa", border: "1px solid #eee", borderRadius: 6 }}>
             <div style={{ fontWeight: 600, marginBottom: 6 }}>Preview (first 15 days shown)</div>
-            <ul style={{ margin: 0, paddingLeft: 18 }}>
+              <ul style={{ margin: 0, paddingLeft: 18 }}>
               {missingDates.slice(0,15).map(d => (
-                <li key={d}>{dayjs(d).isValid() ? dayjs(d).format('MMMM D, YYYY') : d}</li>
+                <li key={d.date}>
+                  {dayjs(d.date).isValid() ? dayjs(d.date).format('MMMM D, YYYY') : d.date}
+                  {d.missing && d.missing.length ? (
+                    <div style={{ fontSize: 12, color: '#666' }}>Missing: {d.missing.join(', ')}</div>
+                  ) : null}
+                </li>
               ))}
             </ul>
             {missingDates.length > 15 && (
@@ -342,7 +557,7 @@ const ViewDTR = ({
             employeeId: employee.empId,
             email: employee.emails[0],
             name: employee.name,
-            dates: missingDates,
+            dates: missingDates, // array of {date, missing}
             periodLabel,
           });
           message.success("Bulk reminder sent");
@@ -363,6 +578,11 @@ const ViewDTR = ({
     const displayDate = row?.date || dateStr;
     const name = employee.name || "Employee";
     const empId = employee.empId;
+    const missing = [];
+    if (!row.timeIn) missing.push('Time In');
+    if (!row.breakOut) missing.push('Break Out');
+    if (!row.breakIn) missing.push('Break In');
+    if (!row.timeOut) missing.push('Time Out');
 
     Modal.confirm({
       title: "Send No Time Record Reminder",
@@ -373,10 +593,11 @@ const ViewDTR = ({
           </p>
           <div style={{ marginTop: 8, padding: 12, background: "#fafafa", border: "1px solid #eee", borderRadius: 6 }}>
             <div style={{ fontWeight: 600, marginBottom: 6 }}>Preview</div>
-            <div style={{ fontSize: 13 }}>
+              <div style={{ fontSize: 13 }}>
               <p>Good day <strong>{name}</strong>{empId ? ` (ID: ${empId})` : ''},</p>
-              <p>We noticed that there is <strong>no recorded time entry</strong> for <strong>{displayDate}</strong> in the Daily Time Record system.</p>
-              <p>If you reported for duty on that date, please coordinate with HR or your immediate supervisor to update your record accordingly.</p>
+              <p>We noticed that the following time entries are missing for <strong>{displayDate}</strong> in the Daily Time Record system:</p>
+              <p style={{ margin: 0, fontSize: 13, color: '#333' }}>{missing.length ? missing.join(', ') : 'No time entries recorded'}</p>
+              <p style={{ marginTop: 12 }}>If you reported for duty on that date, please coordinate with HR or your immediate supervisor to update your record accordingly.</p>
               <p style={{ marginTop: 12 }}>Thank you,<br/>HR Unit, EMB Region III</p>
             </div>
           </div>
@@ -391,6 +612,7 @@ const ViewDTR = ({
             email: employee.emails[0],
             name,
             date: dateStr,
+            missing,
           });
           message.success("Reminder sent");
         } catch (e) {

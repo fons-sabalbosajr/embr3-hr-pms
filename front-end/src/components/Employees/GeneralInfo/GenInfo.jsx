@@ -559,8 +559,21 @@ const GenInfo = () => {
         >
           {modalType === "add" ? (
             <AddEmployee
-              onClose={() => {
+              onClose={(created) => {
+                // Close modal
                 handleCancel();
+
+                // If server returned created employee, open its profile immediately
+                if (created) {
+                  setSelectedEmployee(created);
+                  setModalMode("report");
+                  setModalVisible(true);
+                  // Refresh list in background
+                  fetchEmployees();
+                  return;
+                }
+
+                // Otherwise just refresh list
                 fetchEmployees();
               }}
               onEmpNoChange={handleEmpNoChange} // pass callback here

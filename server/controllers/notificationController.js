@@ -3,7 +3,7 @@ import Employee from "../models/Employee.js";
 
 export const sendNoTimeRecordReminder = async (req, res) => {
   try {
-    const { employeeId, email, date, name, remarks } = req.body || {};
+    const { employeeId, email, date, name, remarks, missing } = req.body || {};
     if (!employeeId || !date) {
       return res.status(400).json({ success: false, message: "employeeId and date are required" });
     }
@@ -23,7 +23,7 @@ export const sendNoTimeRecordReminder = async (req, res) => {
       return res.status(400).json({ success: false, message: "Employee has no email on record" });
     }
 
-    await sendNoTimeRecordReminderEmail({ to: finalEmail, name: finalName, empId: employeeId, date, remarks });
+    await sendNoTimeRecordReminderEmail({ to: finalEmail, name: finalName, empId: employeeId, date, remarks, missing });
     return res.json({ success: true, message: "Reminder sent" });
   } catch (err) {
     console.error("sendNoTimeRecordReminder error:", err);

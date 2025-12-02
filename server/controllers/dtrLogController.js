@@ -156,12 +156,25 @@ export const getMergedDTRLogs = async (req, res) => {
       }
 
       if (!matchedEmployee && acNoDigits) {
+        const digitMatch = (a, b) => {
+          // a and b are digit-only strings
+          if (!a || !b) return false;
+          if (a === b) return true; // exact
+          // allow suffix match conservatively: shorter length must be >=3 and lengths not too different
+          if (a.endsWith(b) || b.endsWith(a)) {
+            const shorter = Math.min(a.length, b.length);
+            const longer = Math.max(a.length, b.length);
+            if (shorter >= 3 && longer - shorter <= 3) return true;
+          }
+          return false;
+        };
+
         matchedEmployee = employees.find((emp) => {
           const idDigits = [emp.empId, ...(emp.alternateEmpIds || []), emp.empNo]
             .filter(Boolean)
             .map(normalizeDigits)
             .filter(Boolean);
-          return idDigits.some((d) => d.includes(acNoDigits) || acNoDigits.includes(d));
+          return idDigits.some((d) => digitMatch(d, acNoDigits));
         });
       }
 

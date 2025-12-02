@@ -226,12 +226,15 @@ export const sendPasswordChangeVerificationEmail = async (to, name, confirmLink,
   }, "password-change-verify");
 };
 
-export const sendNoTimeRecordReminderEmail = async ({ to, name, empId, date, remarks }) => {
+export const sendNoTimeRecordReminderEmail = async ({ to, name, empId, date, remarks, missing } = {}) => {
   const safeName = name || 'Employee';
   const dateStr = new Date(date).toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' });
   const subject = `Reminder: No Time Record on ${dateStr}`;
   const preheader = `Our records show no time entry for ${dateStr}.`;
   const bodyRemarks = remarks ? `<p style="margin-top:10px;white-space:pre-wrap">${remarks}</p>` : '';
+  const missingHtml = (Array.isArray(missing) && missing.length)
+    ? `<p style="margin-top:8px"><strong>Missing entries:</strong> ${missing.join(', ')}</p>`
+    : '';
   return sendWithRetry({
     from: `"EMB Region III - HRPMS" <${process.env.EMAIL_USER}>`,
     to,
@@ -245,6 +248,7 @@ export const sendNoTimeRecordReminderEmail = async ({ to, name, empId, date, rem
         <div style="padding:20px">
           <p>Good day <strong>${safeName}</strong>${empId ? ` (ID: <strong>${empId}</strong>)` : ''},</p>
           <p>We noticed that there is <strong>no recorded time entry</strong> for <strong>${dateStr}</strong> in the Daily Time Record system.</p>
+          ${missingHtml}
           <p>If you reported for duty on that date, please coordinate with HR or your immediate supervisor to update your record accordingly.</p>
           ${bodyRemarks}
           <p style="margin-top:16px">Thank you,<br/>HR Unit, EMB Region III</p>
@@ -254,16 +258,19 @@ export const sendNoTimeRecordReminderEmail = async ({ to, name, empId, date, rem
         </div>
       </div>
     `,
-    text: `Good day ${safeName}${empId ? ` (ID: ${empId})` : ''},\n\nWe noticed that there is no recorded time entry for ${dateStr} in the DTR system. If you reported for duty on that date, please coordinate with HR or your immediate supervisor to update your record.\n\n${remarks || ''}\n\nThank you,\nHR Unit, EMB Region III`,
+    text: `Good day ${safeName}${empId ? ` (ID: ${empId})` : ''},\n\nWe noticed that there is no recorded time entry for ${dateStr} in the DTR system.\n${Array.isArray(missing) && missing.length ? `Missing entries: ${missing.join(', ')}\\n\\n` : ''}If you reported for duty on that date, please coordinate with HR or your immediate supervisor to update your record.\n\n${remarks || ''}\n\nThank you,\nHR Unit, EMB Region III`,
   }, "no-time-record-single");
 };
 
-export const sendNoTimeRecordBulkEmail = async ({ to, name, empId, dates = [], periodLabel, remarks }) => {
+export const sendNoTimeRecordBulkEmail = async ({ to, name, empId, dates = [], periodLabel, remarks } = {}) => {
   const safeName = name || 'Employee';
   const subject = `Reminder: No Time Records${periodLabel ? ` for ${periodLabel}` : ''}`;
   const listItems = (dates || []).map(d => {
-    const ds = new Date(d).toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' });
-    return `<li>${ds}</li>`;
+    // support both simple date strings and objects {date, missing}
+    const dateVal = (d && typeof d === 'object' && d.date) ? d.date : d;
+    const missing = (d && typeof d === 'object' && Array.isArray(d.missing)) ? d.missing : [];
+    const ds = new Date(dateVal).toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' });
+    return `<li>${ds}${missing.length ? ` <div style="font-size:12px;color:#666;margin-top:4px">Missing: ${missing.join(', ')}</div>` : ''}</li>`;
   }).join('');
   const bodyRemarks = remarks ? `<p style="margin-top:10px;white-space:pre-wrap">${remarks}</p>` : '';
   return sendWithRetry({
@@ -278,7 +285,7 @@ export const sendNoTimeRecordBulkEmail = async ({ to, name, empId, dates = [], p
         </div>
         <div style="padding:20px">
           <p>Good day <strong>${safeName}</strong>${empId ? ` (ID: <strong>${empId}</strong>)` : ''},</p>
-          <p>Please review the dates below where no time record was found:</p>
+          <p>Please review the dates below where no time record was found (missing entries shown):</p>
           <ul style="margin:10px 0 0 18px; padding:0;">${listItems}</ul>
           <p style="margin-top:12px">If you reported for duty on any of these dates, kindly coordinate with HR or your immediate supervisor to update your record.</p>
           ${bodyRemarks}
@@ -289,7 +296,11 @@ export const sendNoTimeRecordBulkEmail = async ({ to, name, empId, dates = [], p
         </div>
       </div>
     `,
-    text: `Good day ${safeName}${empId ? ` (ID: ${empId})` : ''},\n\nOur records show no time entries on the following dates${periodLabel ? ` for ${periodLabel}` : ''}:\n- ${(dates||[]).map(d => new Date(d).toLocaleDateString('en-PH')).join('\n- ')}\n\nIf you reported for duty on any of these dates, please coordinate with HR or your immediate supervisor to update your record.\n\n${remarks || ''}\n\nThank you,\nHR Unit, EMB Region III`,
+    text: `Good day ${safeName}${empId ? ` (ID: ${empId})` : ''},\n\nOur records show no time entries on the following dates${periodLabel ? ` for ${periodLabel}` : ''}:\n${(dates||[]).map(d => {
+    const dateVal = (d && typeof d === 'object' && d.date) ? d.date : d;
+    const missing = (d && typeof d === 'object' && Array.isArray(d.missing)) ? d.missing : [];
+    return `- ${new Date(dateVal).toLocaleDateString('en-PH')}${missing.length ? ` (Missing: ${missing.join(', ')})` : ''}`;
+  }).join('\n')}\n\nIf you reported for duty on any of these dates, please coordinate with HR or your immediate supervisor to update your record.\n\n${remarks || ''}\n\nThank you,\nHR Unit, EMB Region III`,
   }, "no-time-record-bulk");
 };
 

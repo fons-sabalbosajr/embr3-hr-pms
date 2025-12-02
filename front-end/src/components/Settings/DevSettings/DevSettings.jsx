@@ -96,6 +96,28 @@ const DevSettings = () => {
   const [attendanceLoading, setAttendanceLoading] = useState(false);
   const [attendanceData, setAttendanceData] = useState([]);
   const [attendanceRange, setAttendanceRange] = useState(null);
+  const [attendanceNameFilter, setAttendanceNameFilter] = useState("");
+  const [attendancePage, setAttendancePage] = useState(1);
+  const [attendancePageSize, setAttendancePageSize] = useState(10);
+  const [attendanceTotal, setAttendanceTotal] = useState(0);
+
+  const filteredAttendance = useMemo(() => {
+    const q = (attendanceNameFilter || "").trim().toLowerCase();
+    if (!q) return attendanceData || [];
+    return (attendanceData || []).filter((r) =>
+      (r.name || "").toLowerCase().includes(q)
+    );
+  }, [attendanceData, attendanceNameFilter]);
+
+  // Reset page to 1 when the name filter changes
+  useEffect(() => {
+    setAttendancePage(1);
+  }, [attendanceNameFilter]);
+
+  // Keep total in sync with filtered results
+  useEffect(() => {
+    setAttendanceTotal((filteredAttendance || []).length);
+  }, [filteredAttendance]);
 
   // Database & Maintenance
   const [collections, setCollections] = useState([]);
@@ -1852,7 +1874,10 @@ const DevSettings = () => {
             : row.timeOut || "-",
       }));
 
+      // Server now verifies presence of raw logs and hides phantom rows.
       setAttendanceData(formatted);
+      setAttendanceTotal(formatted.length);
+      setAttendancePage(1);
       if (!formatted.length) {
         message.info("No attendance rows found for the selected range.");
       } else {
@@ -1921,6 +1946,15 @@ const DevSettings = () => {
               />
             </Col>
             <Col>
+              <Input
+                placeholder="Filter by employee name"
+                value={attendanceNameFilter}
+                onChange={(e) => setAttendanceNameFilter(e.target.value)}
+                style={{ width: 220 }}
+                allowClear
+              />
+            </Col>
+            <Col>
               <Button
                 onClick={() => fetchAttendancePreview(attendanceRange)}
                 loading={attendanceLoading}
@@ -1943,25 +1977,76 @@ const DevSettings = () => {
                 Disable Override
               </Button>
             </Col>
+              <Col>
+                <Button
+                  onClick={() => exportAttendanceCsv()}
+                  disabled={!attendanceData || !attendanceData.length}
+                >
+                  Export CSV
+                </Button>
+              </Col>
           </Row>
-
+          
           <Table
             className="compact-table"
             columns={attendanceColumns}
-            dataSource={attendanceData}
+            dataSource={filteredAttendance}
             loading={attendanceLoading}
             size="small"
             rowKey={(r) => `${r.empId}-${r.date}`}
             pagination={{
-              pageSize: 10,
+              current: attendancePage,
+              pageSize: attendancePageSize,
+              total: (filteredAttendance || []).length,
               showSizeChanger: true,
               pageSizeOptions: [5, 10, 20, 50],
+              onChange: (page, pageSize) => {
+                setAttendancePage(page);
+                setAttendancePageSize(pageSize);
+              },
+            }}
+            onChange={(pagination) => {
+              if (pagination?.current) setAttendancePage(pagination.current);
+              if (pagination?.pageSize) setAttendancePageSize(pagination.pageSize);
             }}
           />
         </Space>
       </Section>
     </>
   );
+
+  const exportAttendanceCsv = () => {
+    try {
+      const rows = filteredAttendance || [];
+      if (!rows.length) return message.info("No attendance rows to export");
+
+      const header = ["Emp ID", "Name", "Date", "Time In", "Break Out", "Break In", "Time Out"];
+      const lines = [header.join(",")].concat(
+        rows.map((r) =>
+          [
+            JSON.stringify(r.empId || ""),
+            JSON.stringify(r.name || ""),
+            JSON.stringify(r.date || ""),
+            JSON.stringify(r.timeIn || ""),
+            JSON.stringify(r.breakOut || ""),
+            JSON.stringify(r.breakIn || ""),
+            JSON.stringify(r.timeOut || ""),
+          ].join(",")
+        )
+      );
+      const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `attendance-preview-${dayjs().format("YYYYMMDD-HHmmss")}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      message.error("Failed to export attendance CSV");
+    }
+  };
 
   // DB & Maintenance tab
   const loadCollections = async () => {
