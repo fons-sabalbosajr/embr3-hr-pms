@@ -1,11 +1,12 @@
 import React from "react";
-import { Modal, Avatar, Typography, Divider, Space, Button } from "antd";
+import { Modal, Typography, Divider, Space, Button } from "antd";
 import {
   UserOutlined,
   IdcardOutlined,
   ClockCircleOutlined,
   MailOutlined,
 } from "@ant-design/icons";
+import UserAvatar from "../../common/UserAvatar";
 
 const ProfileModal = ({ isModalOpen, handleCancel, selectedEmployee }) => {
   return (
@@ -18,19 +19,12 @@ const ProfileModal = ({ isModalOpen, handleCancel, selectedEmployee }) => {
       width={500}
     >
       <div style={{ textAlign: "center", padding: "20px" }}>
-        <Avatar
+        <UserAvatar
           size={100}
-          src={selectedEmployee?.avatarUrl || undefined}
+          src={selectedEmployee?.avatarUrl}
+          name={selectedEmployee?.name}
           style={{ backgroundColor: "#1677ff", marginBottom: 15 }}
-          onError={(e) => {
-            try { e.currentTarget.src = ''; } catch(_) {}
-            return false;
-          }}
-        >
-          {!selectedEmployee?.avatarUrl && (
-            selectedEmployee?.name?.charAt(0).toUpperCase() || <UserOutlined />
-          )}
-        </Avatar>
+        />
         <Typography.Title level={4} style={{ marginBottom: 0 }}>
           {selectedEmployee?.name || "Unknown User"}
         </Typography.Title>

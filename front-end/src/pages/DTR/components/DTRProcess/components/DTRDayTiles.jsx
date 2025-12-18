@@ -99,6 +99,46 @@ const DTRDayTiles = ({
           ...(isTrainingDay ? trainingStyle : {}),
         };
 
+        // Helper: normalize and sort time strings, returning dayjs objects and formatted strings
+        const normalizeTimes = (arr) => {
+          const list = (Array.isArray(arr) ? arr : [arr]).filter(Boolean);
+          const parsed = list
+            .map((t) => ({ raw: t, d: dayjs(t, "hh:mm A") }))
+            .filter((o) => o.d && o.d.isValid())
+            .sort((a, b) => (a.d.isBefore(b.d) ? -1 : 1));
+          // dedupe by formatted time (hh:mm A)
+          const seen = new Set();
+          const unique = [];
+          parsed.forEach((o) => {
+            const k = o.d.format("hh:mm A");
+            if (!seen.has(k)) {
+              seen.add(k);
+              unique.push({ raw: o.raw, formatted: k, d: o.d });
+            }
+          });
+          return unique;
+        };
+
+        // Decide whether label should pick earliest or latest
+        const pickEarliestLabels = new Set(["Time In", "Break Out", "OT In"]);
+        const pickLatestLabels = new Set(["Time Out", "Break In", "OT Out"]);
+
+        // Compute primary (earliest/latest) display values for main tile
+        const getPrimaryForLabel = (label, times) => {
+          const items = normalizeTimes(times);
+          if (!items || items.length === 0) return null;
+          if (pickEarliestLabels.has(label)) return items[0].formatted;
+          if (pickLatestLabels.has(label)) return items[items.length - 1].formatted;
+          // default: show all unique times joined
+          return items.map((i) => i.formatted).join(", ");
+        };
+
+        const primaryTimeIn = getPrimaryForLabel("Time In", dayLogs?.["Time In"]);
+        const primaryTimeOut = getPrimaryForLabel("Time Out", dayLogs?.["Time Out"]);
+        const primaryOTIn = getPrimaryForLabel("OT In", dayLogs?.["OT In"]);
+        const primaryOTOut = getPrimaryForLabel("OT Out", dayLogs?.["OT Out"]);
+        const hasOT = !!(primaryOTIn || primaryOTOut);
+
         const popoverContent = (
           <div style={{ fontSize: 12, lineHeight: 1.5, maxWidth: 350 }}>
             {holiday && (
@@ -266,30 +306,19 @@ const DTRDayTiles = ({
                       times && (Array.isArray(times) ? times.length > 0 : true)
                   )
                   .map(([label, times]) => {
-                    const timesArr = Array.isArray(times) ? times : [times];
+                    const items = normalizeTimes(times);
+                    if (!items || items.length === 0) return null;
+
+                    const display = pickEarliestLabels.has(label)
+                      ? items[0].formatted
+                      : pickLatestLabels.has(label)
+                      ? items[items.length - 1].formatted
+                      : items.map((i) => i.formatted).join(", ");
 
                     return (
                       <div key={label}>
                         <strong>{label}:</strong>{" "}
-                        {timesArr
-                          .slice()
-                          .sort((a, b) =>
-                            dayjs(a, "hh:mm A").isBefore(dayjs(b, "hh:mm A"))
-                              ? -1
-                              : 1
-                          )
-                          .join(", ")}
-                        {timesArr.length > 1 && (
-                          <span
-                            style={{
-                              fontSize: 8,
-                              color: "#888",
-                              marginLeft: 4,
-                            }}
-                          >
-                            ({timesArr.length})
-                          </span>
-                        )}
+                        {display}
                       </div>
                     );
                   })
@@ -355,6 +384,22 @@ const DTRDayTiles = ({
                   </span>
                 )}
               </div>
+              {hasOT && (
+                <div
+                  style={{
+                    marginTop: 4,
+                    display: "flex",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Tag
+                    color="#fa8c16"
+                    style={{ fontSize: 10, padding: "0 6px", borderRadius: 3 }}
+                  >
+                    OT
+                  </Tag>
+                </div>
+              )}
             </div>
           </Popover>
         );

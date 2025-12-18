@@ -1,7 +1,6 @@
 import {
   Layout,
   Menu,
-  Avatar,
   Badge,
   Tooltip,
   Typography,
@@ -60,6 +59,7 @@ import FeatureModal from "./components/FeatureModal";
 import { NotificationsContext } from "../../context/NotificationsContext";
 import socket from "../../../utils/socket";
 import dayjs from "dayjs";
+import UserAvatar from "../../components/common/UserAvatar";
 
 import "./hompage.css";
 import { FloatButton, Form, Input, Upload } from "antd";
@@ -1601,19 +1601,12 @@ const HomePage = () => {
               trigger="hover"
               classNames="user-popover"
             >
-              <Avatar
+              <UserAvatar
                 className="user-avatar"
-                src={user?.avatarUrl || undefined}
-                onError={(e) => {
-                  try {
-                    // Remove broken src to let fallback render
-                    e.currentTarget.src = '';
-                  } catch(_) {}
-                  return false;
-                }}
-              >
-                {!user?.avatarUrl && (user?.name?.charAt(0).toUpperCase() || <UserOutlined />)}
-              </Avatar>
+                src={user?.avatarUrl}
+                name={user?.name}
+                size={32}
+              />
             </Popover>
           </div>
         </Header>

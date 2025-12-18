@@ -2,6 +2,83 @@ import DTRData from "../models/DTRData.js";
 import DTRLog from "../models/DTRLog.js";
 import Employee from "../models/Employee.js";
 import dayjs from "dayjs";
+import mongoose from "mongoose";
+import User from "../models/User.js";
+
+// In-memory progress store for delete jobs (simple, cleared on restart)
+const deleteJobs = new Map();
+
+export const deleteDTRDataJob = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Basic permission check (caller must be admin or developer-ish)
+    const callerId = req.user?.id || req.user?._id;
+    const caller = callerId ? await User.findById(callerId) : null;
+    if (!caller || !(caller.isAdmin || caller.userType === 'developer' || caller.canManipulateBiometrics)) {
+      return res.status(403).json({ success: false, message: 'Forbidden' });
+    }
+
+    // Verify record exists
+    const record = await DTRData.findById(id).lean();
+    if (!record) return res.status(404).json({ success: false, message: 'Not found' });
+
+    const jobId = `${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+    deleteJobs.set(jobId, { status: 'queued', total: 0, deleted: 0, recordId: id });
+
+    // Start background task (do not await)
+    (async () => {
+      try {
+        deleteJobs.set(jobId, { status: 'running', total: 0, deleted: 0, recordId: id });
+
+        // Count total logs linked to this DTRData
+        const total = await DTRLog.countDocuments({ DTR_ID: mongoose.Types.ObjectId(id) });
+        deleteJobs.set(jobId, { status: 'running', total, deleted: 0, recordId: id });
+
+        const batchSize = 500;
+        let deleted = 0;
+
+        while (true) {
+          // fetch a batch of ids
+          const docs = await DTRLog.find({ DTR_ID: mongoose.Types.ObjectId(id) }).select('_id').limit(batchSize).lean();
+          if (!docs || docs.length === 0) break;
+          const ids = docs.map(d => d._id);
+          const del = await DTRLog.deleteMany({ _id: { $in: ids } });
+          deleted += del.deletedCount || ids.length;
+          deleteJobs.set(jobId, { status: 'running', total, deleted, recordId: id });
+        }
+
+        // Finally remove the DTRData record itself
+        await DTRData.findByIdAndDelete(id);
+
+        deleteJobs.set(jobId, { status: 'done', total, deleted, recordId: id });
+        // expire job after short time
+        setTimeout(() => deleteJobs.delete(jobId), 1000 * 60 * 5);
+      } catch (e) {
+        deleteJobs.set(jobId, { status: 'error', message: String(e), recordId: id });
+        setTimeout(() => deleteJobs.delete(jobId), 1000 * 60 * 5);
+      }
+    })();
+
+    return res.json({ success: true, jobId });
+  } catch (err) {
+    console.error('deleteDTRDataJob error', err);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+export const getDeleteJobProgress = async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    if (!jobId) return res.status(400).json({ success: false, message: 'jobId required' });
+    const p = deleteJobs.get(jobId);
+    if (!p) return res.status(404).json({ success: false, message: 'Job not found' });
+    return res.json({ success: true, data: p });
+  } catch (err) {
+    console.error('getDeleteJobProgress error', err);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
 
 export const getDTRDataList = async (req, res) => {
   try {

@@ -238,19 +238,19 @@ const DTRProcess = ({ currentUser }) => {
     } catch (error) {
       console.error("Failed to fetch DTR logs:", error);
       appMessage.error("Error loading DTR logs");
+      setDtrLogs({});
     } finally {
       setLoading(false);
     }
   };
 
+  // Fetch logs for a specific DTR record (handles pagination and robust candidate mapping)
   const fetchDtrLogsByRecord = async (selectedRecord, employees) => {
-    if (!selectedRecord || !employees.length) return;
-
     try {
       setLoading(true);
 
-  const employeeNames = employees.map((emp) => emp.name).filter(Boolean);
-  const employeeEmpIds = employees.map((emp) => emp.empId).filter(Boolean);
+      const employeeNames = employees.map((emp) => emp.name).filter(Boolean);
+      const employeeEmpIds = employees.map((emp) => emp.empId).filter(Boolean);
 
       // Fetch all pages to avoid pagination truncation on server (max 500 per page)
       const limit = 500;
@@ -277,11 +277,70 @@ const DTRProcess = ({ currentUser }) => {
         page += 1;
         if (page > 100) break; // safety guard
       }
-      const logsPayload = allLogs;
+      let logsPayload = allLogs;
       if (!logsPayload) {
         appMessage.error("Failed to load DTR logs");
         setDtrLogs({});
         return;
+      }
+
+      // Pre-filter logs to the selected record's cut-off window and to names matching our employees
+      try {
+        const cutStart = dayjs.tz(selectedRecord.DTR_Cut_Off.start, LOCAL_TZ).startOf("day");
+        const cutEnd = dayjs.tz(selectedRecord.DTR_Cut_Off.end, LOCAL_TZ).endOf("day");
+
+        const normalizeTextLocal = (s) => {
+          if (!s) return "";
+          return String(s)
+            .toLowerCase()
+            .replace(/[^a-z0-9\s]/g, " ")
+            .replace(/\s+/g, " ")
+            .trim();
+        };
+
+        const empNameNorms = employees
+          .map((e) => e.normalizedName || normalizeTextLocal(e.name || ""))
+          .filter(Boolean);
+
+        logsPayload = logsPayload.filter((log) => {
+          // Filter by time within cut-off
+          const t = dayjs.tz(log.time, LOCAL_TZ);
+          if (!t.isValid()) return false;
+          if (t.isBefore(cutStart) || t.isAfter(cutEnd)) return false;
+
+          // If the log has a name, try to match any normalized employee name token (similar to /Sabalbosa/)
+          const logName = normalizeTextLocal(log.name || log.Name || "");
+          if (logName) {
+            for (const en of empNameNorms) {
+              if (!en) continue;
+              if (logName.includes(en) || en.includes(logName)) return true;
+              // fallback: match on any token (e.g., last name)
+              const tokens = en.split(" ").filter(Boolean);
+              for (const tk of tokens) {
+                if (tk && logName.includes(tk)) return true;
+              }
+            }
+          }
+
+          // If no name match, still keep logs that contain numeric identifiers matching employees (AC-No, empNo, cardNo)
+          const numeric = (v) => (v ? String(v).replace(/\D/g, "").replace(/^0+/, "") : "");
+          const fields = [log.acNo, log["AC-No"], log["AC No"], log.empNo, log.cardNo, log.badge, log.userid, log.userId];
+          for (const f of fields) {
+            if (!f) continue;
+            const nf = numeric(f);
+            if (!nf) continue;
+            for (const emp of employees) {
+              if (!emp) continue;
+              const cand = [emp.empId, emp.empNo, emp.acNo, emp.cardNo, emp.badge].filter(Boolean).map(numeric);
+              if (cand.includes(nf)) return true;
+            }
+          }
+
+          return false;
+        });
+      } catch (e) {
+        // Non-fatal: if anything goes wrong here, fall back to unfiltered payload
+        console.warn("DTR pre-filter failed, using unfiltered logs:", e);
       }
       const logsByEmpDay = {};
 
@@ -303,6 +362,30 @@ const DTRProcess = ({ currentUser }) => {
 
       const empIdByCandidate = new Map();
       const empIdByNameNorm = new Map();
+      // token -> Set(empId)
+      const nameTokensMap = new Map();
+      const empTokensMap = new Map();
+      // digits -> Set(empId) for robust numeric/suffix matching
+      const digitsToEmpIds = new Map();
+      const addCandidate = (key, id) => {
+        if (!key) return;
+        const s = String(key);
+        empIdByCandidate.set(s, id);
+        const digits = normalizeDigits(s);
+        if (digits) empIdByCandidate.set(digits, id);
+        if (digits) {
+          if (!digitsToEmpIds.has(digits)) digitsToEmpIds.set(digits, new Set());
+          digitsToEmpIds.get(digits).add(id);
+        }
+        const lowered = s.toLowerCase().trim();
+        if (lowered) empIdByCandidate.set(lowered, id);
+        const compact = lowered.replace(/\s+/g, "");
+        if (compact) empIdByCandidate.set(compact, id);
+      };
+
+      // Debug target (temporary): digits to watch for mapping issues
+      const DEBUG_TARGET_DIGITS = "1007";
+
       employees.forEach((emp) => {
         if (!emp) return;
         const primaryEmpId = emp.empId;
@@ -310,37 +393,168 @@ const DTRProcess = ({ currentUser }) => {
           emp.empId,
           emp.empNo,
           emp.acNo,
+          emp.cardNo,
+          emp.badge,
           ...(emp.alternateEmpIds || []),
         ]
           .filter(Boolean)
           .map(String);
-        candidates.forEach((c) => {
-          // raw form
-          empIdByCandidate.set(c, primaryEmpId);
-          // digits-only form
-          const d = normalizeDigits(c);
-          if (d) empIdByCandidate.set(d, primaryEmpId);
-        });
+        candidates.forEach((c) => addCandidate(c, primaryEmpId));
+
+        // also add empId, empNo lowercased/no-spaces
+        addCandidate(emp.empId, primaryEmpId);
+        addCandidate(emp.empNo, primaryEmpId);
+
         const nameNorm = emp.normalizedName || normalizeText(emp.name);
         if (nameNorm) empIdByNameNorm.set(nameNorm, primaryEmpId);
+
+        // Build token index for keyword matching
+        const tokens = (nameNorm || "").split(/\s+/).filter(Boolean);
+        empTokensMap.set(primaryEmpId, tokens);
+        tokens.forEach((tk) => {
+          if (!nameTokensMap.has(tk)) nameTokensMap.set(tk, new Set());
+          nameTokensMap.get(tk).add(primaryEmpId);
+        });
       });
 
       logsPayload.forEach((log) => {
         // Prefer server-resolved empId
         let empKey = log.empId || null;
 
-        // Fallback 1: match by AC-No variants
-        if (!empKey && (log.acNo || log["AC-No"])) {
-          const acRaw = log.acNo || log["AC-No"]; 
-          const acDigits = normalizeDigits(acRaw);
-          if (empIdByCandidate.has(acRaw)) empKey = empIdByCandidate.get(acRaw);
-          else if (acDigits && empIdByCandidate.has(acDigits)) empKey = empIdByCandidate.get(acDigits);
+        // Normalize helper for lookup: try raw, digits-only, lowercased, compact
+        const tryLookup = (val) => {
+          if (!val && val !== 0) return null;
+          const s = String(val);
+          let found = null;
+          if (empIdByCandidate.has(s)) found = empIdByCandidate.get(s);
+          const d = normalizeDigits(s);
+          // exact digits match
+          if (!found && d && digitsToEmpIds.has(d)) {
+            const set = digitsToEmpIds.get(d);
+            if (set.size === 1) found = Array.from(set)[0];
+          }
+          // suffix match: e.g., device prefix -> '31007' should match '1007'
+          if (!found && d) {
+            for (const [candDigits, idSet] of digitsToEmpIds.entries()) {
+              if (!candDigits) continue;
+              if (d.endsWith(candDigits)) {
+                if (idSet.size === 1) {
+                  found = Array.from(idSet)[0];
+                  break;
+                }
+                // ambiguous: if multiple empIds share the same digits, skip
+              }
+            }
+          }
+          if (!found && d && empIdByCandidate.has(d)) found = empIdByCandidate.get(d);
+          const low = s.toLowerCase().trim();
+          if (!found && empIdByCandidate.has(low)) found = empIdByCandidate.get(low);
+          const compact = low.replace(/\s+/g, "");
+          if (!found && empIdByCandidate.has(compact)) found = empIdByCandidate.get(compact);
+
+          // Debug logging when the lookup involves the target digits
+          try {
+            if (String(s).includes(DEBUG_TARGET_DIGITS) || (d && d.includes(DEBUG_TARGET_DIGITS))) {
+              console.debug("DTR_DEBUG tryLookup", { val: s, digits: d, found });
+            }
+          } catch (e) {}
+          return found;
+        };
+
+        // Try common fields from the log object
+        if (!empKey) {
+          const tryFields = [
+            "empId",
+            "empNo",
+            "acNo",
+            "AC-No",
+            "AC No",
+            "cardNo",
+            "badge",
+            "userid",
+            "userId",
+          ];
+          for (const f of tryFields) {
+            if (log[f]) {
+              const hit = tryLookup(log[f]);
+              if (hit) {
+                empKey = hit;
+                break;
+              }
+            }
+          }
         }
 
-        // Fallback 2: match by normalized name (approx)
+        // Fallback: match by normalized name (exact approximate)
         if (!empKey && log.name) {
           const ln = normalizeText(log.name);
           if (empIdByNameNorm.has(ln)) empKey = empIdByNameNorm.get(ln);
+        }
+
+        // If still unknown, attempt keyword/token-based matching using the name tokens
+        if (!empKey && log.name) {
+          const ln = normalizeText(log.name);
+          const logTokens = (ln || "").split(/\s+/).filter(Boolean);
+          const score = new Map();
+          logTokens.forEach((tk) => {
+            if (!tk) return;
+            const set = nameTokensMap.get(tk);
+            if (!set) return;
+            set.forEach((eid) => {
+              score.set(eid, (score.get(eid) || 0) + 1);
+            });
+          });
+
+          if (score.size) {
+            // pick best candidate
+            let best = null;
+            let bestCount = 0;
+            for (const [eid, cnt] of score.entries()) {
+              if (cnt > bestCount) {
+                best = eid;
+                bestCount = cnt;
+              } else if (cnt === bestCount) {
+                // tie → prefer exact last-name match if present
+                const eidTokens = empTokensMap.get(eid) || [];
+                const bestTokens = empTokensMap.get(best) || [];
+                const lastLog = logTokens[logTokens.length - 1];
+                if (lastLog && eidTokens.includes(lastLog) && !bestTokens.includes(lastLog)) {
+                  best = eid;
+                }
+              }
+            }
+
+            // Apply threshold: require at least 2 token matches OR a clear unique single-token match of a longer token
+            if (best && (bestCount >= 2 || (bestCount === 1 && logTokens.some(t => t.length >= 4)))) {
+              empKey = best;
+            }
+            // If the empKey is still ambiguous but the log contains numeric identifiers that map strongly, prefer numeric
+            if (!empKey) {
+              const numeric = (v) => (v ? String(v).replace(/\D/g, "").replace(/^0+/, "") : "");
+              const fields = [log.acNo, log["AC-No"], log["AC No"], log.empNo, log.cardNo, log.badge, log.userid, log.userId];
+              for (const f of fields) {
+                if (!f) continue;
+                const nf = numeric(f);
+                if (!nf) continue;
+                // exact digits or suffix matching
+                if (digitsToEmpIds.has(nf)) {
+                  const set = digitsToEmpIds.get(nf);
+                  if (set.size === 1) {
+                    empKey = Array.from(set)[0];
+                    break;
+                  }
+                }
+                for (const [candDigits, idSet] of digitsToEmpIds.entries()) {
+                  if (!candDigits) continue;
+                  if (nf.endsWith(candDigits) && idSet.size === 1) {
+                    empKey = Array.from(idSet)[0];
+                    break;
+                  }
+                }
+                if (empKey) break;
+              }
+            }
+          }
         }
 
         if (!empKey) return; // still unknown, skip
@@ -354,23 +568,50 @@ const DTRProcess = ({ currentUser }) => {
             "Break Out": [],
             "Break In": [],
             "Time Out": [],
+            // collect overtime punches separately so weekend OT can be shown
+            "OT In": [],
+            "OT Out": [],
           };
         }
 
         const stateLabel = STATE_LABELS[log.state];
         if (stateLabel) {
           const t = dayjs(log.time).tz(LOCAL_TZ).format("hh:mm A");
-          const arr = logsByEmpDay[empKey][dateKey][stateLabel];
-          if (Array.isArray(arr)) arr.push(t);
-          else if (!arr) logsByEmpDay[empKey][dateKey][stateLabel] = [t];
-          else logsByEmpDay[empKey][dateKey][stateLabel] = [arr, t];
+          let arr = logsByEmpDay[empKey][dateKey][stateLabel];
+          // normalize to array
+          if (!Array.isArray(arr)) {
+            arr = arr ? [arr] : [];
+          }
+          // avoid pushing duplicates
+          if (!arr.includes(t)) arr.push(t);
+          logsByEmpDay[empKey][dateKey][stateLabel] = arr;
         }
+      });
+
+      // Cleanup: sort and dedupe all time arrays (ensure consistent ordering and remove duplicates)
+      Object.keys(logsByEmpDay).forEach((empKey) => {
+        Object.keys(logsByEmpDay[empKey]).forEach((dateKey) => {
+          const dayObj = logsByEmpDay[empKey][dateKey];
+          Object.keys(dayObj).forEach((label) => {
+            const val = dayObj[label];
+            if (Array.isArray(val)) {
+              const unique = Array.from(new Set(val));
+              unique.sort((a, b) => {
+                const da = dayjs(a, "hh:mm A");
+                const db = dayjs(b, "hh:mm A");
+                if (da.isValid() && db.isValid()) return da.isBefore(db) ? -1 : 1;
+                return String(a).localeCompare(String(b));
+              });
+              dayObj[label] = unique;
+            }
+          });
+        });
       });
 
       setDtrLogs(logsByEmpDay);
     } catch (error) {
-      console.error("Failed to fetch DTR logs:", error);
-      appMessage.error("Error loading DTR logs");
+      console.error("Failed to fetch DTR logs (by record):", error);
+      appMessage.error("Error loading DTR logs for selected record");
       setDtrLogs({});
     } finally {
       setLoading(false);

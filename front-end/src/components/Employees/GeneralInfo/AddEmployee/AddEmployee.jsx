@@ -12,7 +12,7 @@ import {
   Tag,
   Typography,
 } from "antd";
-import axios from "axios";
+import axiosInstance from "../../../../api/axiosInstance";
 
 const { Option } = Select;
 const { Text } = Typography;
@@ -22,6 +22,10 @@ const AddEmployee = ({ onClose, onEmpNoChange }) => {
   const [sectionOptions, setSectionOptions] = useState([]);
   const [divisionOptions, setDivisionOptions] = useState([]);
   const [positionOptions, setPositionOptions] = useState([]);
+  const [newSection, setNewSection] = useState("");
+  const [newDivision, setNewDivision] = useState("");
+  const [showSectionRemove, setShowSectionRemove] = useState(false);
+  const [showDivisionRemove, setShowDivisionRemove] = useState(false);
   const [loading, setLoading] = useState(false);
   const [empNoLoading, setEmpNoLoading] = useState(false);
 
@@ -29,26 +33,30 @@ const AddEmployee = ({ onClose, onEmpNoChange }) => {
   useEffect(() => {
     const fetchDropdownOptions = async () => {
       try {
-        const res = await axios.get("/api/employees");
+        const res = await axiosInstance.get("/employees");
         const employees = res.data || [];
 
-        setSectionOptions([
-          ...new Set(
+        const sections = Array.from(
+          new Set(
             employees.map((emp) => emp.sectionOrUnit?.trim()).filter(Boolean)
-          ),
-        ]);
+          )
+        ).sort((a, b) => a.localeCompare(b));
 
-        setDivisionOptions([
-          ...new Set(
+        const divisions = Array.from(
+          new Set(
             employees.map((emp) => emp.division?.trim()).filter(Boolean)
-          ),
-        ]);
+          )
+        ).sort((a, b) => a.localeCompare(b));
 
-        setPositionOptions([
-          ...new Set(
+        const positions = Array.from(
+          new Set(
             employees.map((emp) => emp.position?.trim()).filter(Boolean)
-          ),
-        ]);
+          )
+        ).sort((a, b) => a.localeCompare(b));
+
+        setSectionOptions(sections);
+        setDivisionOptions(divisions);
+        setPositionOptions(positions);
       } catch (error) {
         console.error("Failed to fetch dropdown data", error);
       }
@@ -67,7 +75,7 @@ const AddEmployee = ({ onClose, onEmpNoChange }) => {
 
     try {
       setEmpNoLoading(true);
-      const res = await axios.get(`/api/employees/latest-empno/${value}`);
+      const res = await axiosInstance.get(`/employees/latest-empno/${value}`);
       if (res.data?.empNo) {
         form.setFieldsValue({ empNo: res.data.empNo });
         onEmpNoChange?.(res.data.empNo); // update parent with new empNo
@@ -105,10 +113,14 @@ const AddEmployee = ({ onClose, onEmpNoChange }) => {
 
       delete payload.email;
 
-      await axios.post("/api/employees", payload);
+      // Use axiosInstance so interceptors/baseURL are applied
+      const res = await axiosInstance.post("/employees", payload);
+
+      const created = res.data;
 
       message.success("Employee added successfully");
-      onClose?.();
+      // Inform parent of newly created employee so it can open profile or refresh optimistically
+      onClose?.(created);
       form.resetFields();
     } catch (error) {
       console.error("Failed to add employee:", error);
@@ -186,6 +198,47 @@ const AddEmployee = ({ onClose, onEmpNoChange }) => {
             allowClear
             placeholder="Select or type Division"
             popupMatchSelectWidth={false}
+            popupRender={(menu) => (
+              <>
+                {menu}
+                <div style={{ borderTop: '1px solid #f0f0f0', padding: 8, display: 'flex', gap: 8 }}>
+                  <Input
+                    placeholder="Add new Division"
+                    value={newDivision}
+                    onChange={(e) => setNewDivision(e.target.value)}
+                    onKeyDown={(e) => e.stopPropagation()}
+                    style={{ flex: 1 }}
+                  />
+                  <Button
+                    type="primary"
+                    size="small"
+                    onClick={() => {
+                      const v = newDivision.trim();
+                      if (v && !divisionOptions.includes(v)) {
+                        setDivisionOptions((prev) => [...prev, v].sort((a, b) => a.localeCompare(b)));
+                        form.setFieldsValue({ division: v });
+                        setNewDivision("");
+                      }
+                    }}
+                  >
+                    Add
+                  </Button>
+                  <Button size="small" onClick={() => setShowDivisionRemove(!showDivisionRemove)}>
+                    {showDivisionRemove ? 'Hide' : 'Manage'}
+                  </Button>
+                </div>
+
+                {showDivisionRemove && (
+                  <div style={{ padding: '4px 8px', maxHeight: 120, overflowY: 'auto', marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                    {divisionOptions.map((div) => (
+                      <Tag key={div} closable onClose={(e) => { e.preventDefault(); setDivisionOptions((prev) => prev.filter((d) => d !== div)); if (form.getFieldValue('division') === div) form.setFieldsValue({ division: undefined }); }}>
+                        {div}
+                      </Tag>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
           >
             {divisionOptions.map((division) => (
               <Option key={division} value={division}>
@@ -202,6 +255,47 @@ const AddEmployee = ({ onClose, onEmpNoChange }) => {
             allowClear
             placeholder="Select or type Section/Unit"
             popupMatchSelectWidth={false}
+            popupRender={(menu) => (
+              <>
+                {menu}
+                <div style={{ borderTop: '1px solid #f0f0f0', padding: 8, display: 'flex', gap: 8 }}>
+                  <Input
+                    placeholder="Add new Section/Unit"
+                    value={newSection}
+                    onChange={(e) => setNewSection(e.target.value)}
+                    onKeyDown={(e) => e.stopPropagation()}
+                    style={{ flex: 1 }}
+                  />
+                  <Button
+                    type="primary"
+                    size="small"
+                    onClick={() => {
+                      const v = newSection.trim();
+                      if (v && !sectionOptions.includes(v)) {
+                        setSectionOptions((prev) => [...prev, v].sort((a, b) => a.localeCompare(b)));
+                        form.setFieldsValue({ sectionOrUnit: v });
+                        setNewSection("");
+                      }
+                    }}
+                  >
+                    Add
+                  </Button>
+                  <Button size="small" onClick={() => setShowSectionRemove(!showSectionRemove)}>
+                    {showSectionRemove ? 'Hide' : 'Manage'}
+                  </Button>
+                </div>
+
+                {showSectionRemove && (
+                  <div style={{ padding: '4px 8px', maxHeight: 120, overflowY: 'auto', marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                    {sectionOptions.map((sec) => (
+                      <Tag key={sec} closable onClose={(e) => { e.preventDefault(); setSectionOptions((prev) => prev.filter((s) => s !== sec)); if (form.getFieldValue('sectionOrUnit') === sec) form.setFieldsValue({ sectionOrUnit: undefined }); }}>
+                        {sec}
+                      </Tag>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
           >
             {sectionOptions.map((section) => (
               <Option key={section} value={section}>
