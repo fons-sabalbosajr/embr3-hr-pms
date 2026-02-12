@@ -73,6 +73,7 @@
 }
 .cutoff-banner__content {
   flex: 1;
+  min-width: 0;
 }
 .cutoff-banner__title {
   font-weight: 600;
@@ -82,11 +83,13 @@
 .cutoff-banner__desc {
   font-size: 12px;
   color: #444;
+  word-break: break-word;
 }
 .cutoff-recent {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  flex-wrap: wrap;
 }
 .cutoff-recent .anticon {
   color: #52c41a;
@@ -113,7 +116,8 @@
 .responsive-month-picker-item .ant-picker {
   width: 100%;
 }
-/* Compact control size on tablet widths */
+
+/* ── Tablet ── */
 @media (max-width: 1080px) {
   .responsive-month-picker-item .ant-picker {
     height: 32px;
@@ -124,6 +128,69 @@
     font-size: 12px;
   }
 }
+
+@media (max-width: 767.98px) {
+  .payslip-request-container {
+    padding: 16px;
+    align-items: flex-start;
+    padding-top: 6vh;
+  }
+  .payslip-request-card {
+    border-radius: 14px;
+    max-width: 100%;
+  }
+  .payslip-request-card .auth-title {
+    font-size: 20px;
+  }
+  .cutoff-banner {
+    flex-direction: row;
+    align-items: flex-start;
+    padding: 8px 10px;
+  }
+  .cutoff-banner__icon {
+    margin-top: 2px;
+  }
+}
+
+/* ── Mobile ── */
+@media (max-width: 479.98px) {
+  .payslip-request-container {
+    padding: 12px;
+    padding-top: 4vh;
+  }
+  .payslip-request-card {
+    border-radius: 12px;
+  }
+  .payslip-request-card .ant-form-item-label > label {
+    font-size: 12px;
+  }
+  .payslip-request-card .ant-input,
+  .payslip-request-card .ant-picker,
+  .payslip-request-card .ant-select-selector {
+    font-size: 12px;
+  }
+  .payslip-request-card .ant-btn {
+    height: 36px;
+    font-size: 14px;
+  }
+  .cutoff-banner {
+    flex-direction: column;
+  }
+  .cutoff-banner__icon {
+    width: 40px;
+    height: 40px;
+    font-size: 18px;
+  }
+  .cutoff-banner__desc {
+    font-size: 11px;
+  }
+  .mobile-friendly-month-picker {
+    left: 0 !important;
+    right: 0 !important;
+    width: auto !important;
+  }
+}
+
 @media (max-width: 575.98px) {
   .mobile-friendly-month-picker .ant-picker-panel-container {
     width: 100% !important;
@@ -133,42 +200,5 @@
   }
   .mobile-friendly-month-picker .ant-picker-body {
     padding: 4px 8px;
-  }
-}
-
-@media (max-width: 767.98px) {
-  .payslip-request-container {
-    padding: 16px;
-  }
-  .payslip-request-card {
-    border-radius: 14px;
-  }
-  .payslip-request-card .auth-title {
-    font-size: 20px;
-  }
-}
-
-@media (max-width: 479.98px) {
-  .payslip-request-container {
-    padding: 12px;
-  }
-  .payslip-request-card {
-    border-radius: 12px;
-  }
-  .payslip-request-card .ant-form-item-label > label {
-    font-size: 12px;
-  }
-  .payslip-request-card .ant-input,
-  .payslip-request-card .ant-picker {
-    font-size: 12px;
-  }
-  .payslip-request-card .ant-btn {
-    height: 36px;
-    font-size: 14px;
-  }
-  .mobile-friendly-month-picker {
-    left: 0 !important;
-    right: 0 !important;
-    width: auto !important;
   }
 }

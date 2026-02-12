@@ -40,7 +40,8 @@ const RecentAttendanceTable = ({
   const [pageSize, setPageSize] = useState(5);
 
   useEffect(() => {
-    // When multi-day rows provided, compute PRESENT as distinct employees with a Time In across either of the last two dates.
+    // When multi-day rows provided, compute PRESENT as distinct employees with any time record
+    // on the LAST day (within the last-two-day window) that actually has records.
     // Fallback to previous single-day logic when only one date exists or no multi-day rows yet.
     if (attendanceRows && attendanceRows.length) {
       const uniqueDates = Array.from(new Set(
@@ -49,29 +50,48 @@ const RecentAttendanceTable = ({
 
       if (uniqueDates.length >= 2) {
         const lastTwo = uniqueDates.slice(-2); // [older, newer]
+        const [d1, d2] = lastTwo;
+
+        const hasAnyRecord = (att) => {
+          if (!att) return false;
+          return !!(att.timeIn || att.breakOut || att.breakIn || att.timeOut);
+        };
+
+        // Present tile should match the table total: count employees with any record across the 2-day window.
         const presentEmpSet = new Set();
-        attendanceRows.forEach(r => {
+        attendanceRows.forEach((r) => {
           const d = r.attendance?.date;
-            if (d && lastTwo.includes(d) && r.attendance?.timeIn) {
-              const key = r.empId || r.empNo || r._id;
-              presentEmpSet.add(key);
-            }
+          if (!d || !lastTwo.includes(d)) return;
+          if (!hasAnyRecord(r.attendance)) return;
+          const key = r.empId || r.empNo || r._id;
+          presentEmpSet.add(key);
         });
+
         setPresentCount(presentEmpSet.size);
-        // Keep the latest date for backward compatibility / fallback displays
-        setLastAttendanceDate(lastTwo[1]);
+        // Keep the latest day for legacy displays
+        setLastAttendanceDate(d2);
         return;
       } else if (uniqueDates.length === 1) {
         const onlyDate = uniqueDates[0];
-        const count = attendanceRows.filter(r => r.attendance?.date === onlyDate && r.attendance?.timeIn).length;
-        setPresentCount(count);
+        const hasAnyRecord = (att) => !!(att?.timeIn || att?.breakOut || att?.breakIn || att?.timeOut);
+
+        const presentEmpSet = new Set();
+        attendanceRows.forEach((r) => {
+          if (r.attendance?.date !== onlyDate) return;
+          if (!hasAnyRecord(r.attendance)) return;
+          const key = r.empId || r.empNo || r._id;
+          presentEmpSet.add(key);
+        });
+
+        setPresentCount(presentEmpSet.size);
         setLastAttendanceDate(onlyDate);
         return;
       }
     }
     if (employees && employees.length > 0) {
+      const hasAnyRecord = (att) => !!(att?.timeIn || att?.breakOut || att?.breakIn || att?.timeOut);
       const present = employees.filter(
-        (emp) => emp.attendance && emp.attendance.timeIn
+        (emp) => emp.attendance && hasAnyRecord(emp.attendance)
       ).length;
       setPresentCount(present);
       const dates = employees
@@ -401,6 +421,7 @@ const RecentAttendanceTable = ({
 
     return matchesKeyword && matchesType;
   });
+
 
   // paginated data
   const paginatedEmployees = filteredEmployees.slice(

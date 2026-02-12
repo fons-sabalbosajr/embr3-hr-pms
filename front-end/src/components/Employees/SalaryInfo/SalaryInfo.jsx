@@ -11,6 +11,7 @@ import {
   Tooltip,
   notification,
   Tabs,
+  Grid,
 } from "antd";
 import {
   SearchOutlined,
@@ -24,8 +25,11 @@ import AddSalaryInfo from "./AddSalaryInfo/AddSalaryInfo";
 import EditSalaryInfo from "./EditSalaryInfo/EditSalaryInfo";
 
 const { Option } = Select;
+const { useBreakpoint } = Grid;
 
 const SalaryInfo = () => {
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;   // < 768px
   const { readOnly, isDemoActive, isDemoUser } = useDemoMode();
   const demoDeleteDisabled = isDemoActive; // Disable deletes in demo
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -144,7 +148,7 @@ const SalaryInfo = () => {
     {
       title: "Employee Details",
       key: "employeeDetails",
-      width: 250,
+      width: isMobile ? 180 : 250,
       render: (_, record) => (
         <div>
           <strong>{record.name}</strong>
@@ -163,10 +167,10 @@ const SalaryInfo = () => {
       ),
     },
     {
-      title: "Rate per Month",
+      title: isMobile ? "Rate/Mo" : "Rate per Month",
       dataIndex: ["salaryInfo", "ratePerMonth"],
       key: "ratePerMonth",
-      width: 120,
+      width: isMobile ? 100 : 120,
       render: (text, record) =>
         showSalaryAmounts
           ? text
@@ -177,9 +181,9 @@ const SalaryInfo = () => {
           : "*****",
     },
     {
-      title: "Cut off Rate",
+      title: isMobile ? "Cut off" : "Cut off Rate",
       key: "cutOffRate",
-      width: 120,
+      width: isMobile ? 100 : 120,
       render: (_, record) => {
         const rate = record.salaryInfo?.ratePerMonth || record.salaryInfo?.basicSalary;
         return showSalaryAmounts
@@ -222,7 +226,7 @@ const SalaryInfo = () => {
     {
       title: "Employee Details",
       key: "employeeDetails",
-      width: 250,
+      width: isMobile ? 180 : 250,
       render: (_, record) => (
         <div>
           <strong>{record.name}</strong>
@@ -241,17 +245,17 @@ const SalaryInfo = () => {
       ),
     },
     {
-      title: "Rate per Month",
+      title: isMobile ? "Rate/Mo" : "Rate per Month",
       dataIndex: ["salaryInfo", "ratePerMonth"],
       key: "ratePerMonth",
-      width: 120,
+      width: isMobile ? 100 : 120,
       render: (text) => (showSalaryAmounts ? (text ? `₱${text.toLocaleString()}` : "N/A") : "*****"),
     },
     {
-      title: "Daily Rate",
+      title: isMobile ? "Daily" : "Daily Rate",
       dataIndex: ["salaryInfo", "dailyRate"],
       key: "dailyRate",
-      width: 120,
+      width: isMobile ? 100 : 120,
       render: (text) => (showSalaryAmounts ? (text ? `₱${text.toLocaleString()}` : "N/A") : "*****"),
     },
     
@@ -298,7 +302,7 @@ const SalaryInfo = () => {
             value={searchKeyword}
             onChange={(e) => setSearchKeyword(e.target.value)}
             allowClear
-            style={{ width: 350 }}
+            style={{ width: isMobile ? '100%' : 350 }}
           />
         </Space>
 
@@ -355,6 +359,7 @@ const SalaryInfo = () => {
                   rowKey="_id"
                   size="small"
                   loading={loading}
+                  scroll={{ x: isMobile ? 500 : 600 }}
                 />
               </div>
             ),
@@ -371,6 +376,7 @@ const SalaryInfo = () => {
                   rowKey="_id"
                   size="small"
                   loading={loading}
+                  scroll={{ x: isMobile ? 500 : 600 }}
                 />
               </div>
             ),

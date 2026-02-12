@@ -2,12 +2,16 @@ import express from 'express';
 import verifyToken from '../middleware/authMiddleware.js';
 import multer from 'multer';
 import { storageUpload, storageList, storageGetStream, storageDelete } from '../utils/storageProvider.js';
+import { requireAnyPermission } from '../middleware/permissionMiddleware.js';
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
 // auth required
 router.use(verifyToken);
+
+// developer/settings-only file browser & manual uploads
+router.use(requireAnyPermission(["canAccessDeveloper", "canSeeDev"]));
 
 // Upload a file (multipart field name: file)
 router.post('/', upload.single('file'), async (req, res) => {

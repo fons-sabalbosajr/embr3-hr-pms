@@ -21,7 +21,7 @@
     "date-holidays": "^3.25.2",
     "dayjs": "^1.11.18",
     "framer-motion": "^12.23.22",
-    "jspdf": "^3.0.2",
+    "jspdf": "^4.1.0",
     "jspdf-autotable": "^5.0.2",
     "modern-normalize": "^2.0.0",
     "moment": "^2.30.1",

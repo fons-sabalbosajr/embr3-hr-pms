@@ -2,6 +2,7 @@ import DTRLog from "../models/DTRLog.js";
 import Employee from "../models/Employee.js";
 import DTRData from "../models/DTRData.js";
 import dayjs from "dayjs";
+import { resolveTimePunches } from "../utils/resolveTimePunches.js";
 
 export const getGroupedEmployeeDTR = async (req, res) => {
   try {
@@ -56,34 +57,12 @@ export const getGroupedEmployeeDTR = async (req, res) => {
       const empKey = emp.empId;
       const dateKey = dayjs(log.Time).format("YYYY-MM-DD");
 
-      if (!grouped[empKey]) grouped[empKey] = { employee: emp, dates: {} };
-      if (!grouped[empKey].dates[dateKey])
-        grouped[empKey].dates[dateKey] = {
-          timeIn: null,
-          breakOut: null,
-          breakIn: null,
-          timeOut: null,
-        };
-
-      switch (log.State) {
-        case "C/In":
-          grouped[empKey].dates[dateKey].timeIn = log.Time;
-          break;
-        case "Out":
-          grouped[empKey].dates[dateKey].breakOut = log.Time;
-          break;
-        case "Out Back":
-          grouped[empKey].dates[dateKey].breakIn = log.Time;
-          break;
-        case "C/Out":
-          grouped[empKey].dates[dateKey].timeOut = log.Time;
-          break;
-        default:
-          break;
-      }
+      if (!grouped[empKey]) grouped[empKey] = { employee: emp, dateRawLogs: {} };
+      if (!grouped[empKey].dateRawLogs[dateKey]) grouped[empKey].dateRawLogs[dateKey] = [];
+      grouped[empKey].dateRawLogs[dateKey].push(log);
     });
 
-    const result = Object.values(grouped).map(({ employee, dates }) => ({
+    const result = Object.values(grouped).map(({ employee, dateRawLogs }) => ({
       empId: employee.empId,
       empNo: employee.empNo,
       name: employee.name,
@@ -91,10 +70,16 @@ export const getGroupedEmployeeDTR = async (req, res) => {
       position: employee.position,
       division: employee.division,
       sectionOrUnit: employee.sectionOrUnit,
-      dtrByDate: Object.entries(dates).map(([date, times]) => ({
-        date,
-        ...times,
-      })),
+      dtrByDate: Object.entries(dateRawLogs).map(([date, dayLogs]) => {
+        const resolved = resolveTimePunches(dayLogs);
+        return {
+          date,
+          timeIn: resolved.timeIn,
+          breakOut: resolved.breakOut,
+          breakIn: resolved.breakIn,
+          timeOut: resolved.timeOut,
+        };
+      }),
     }));
 
     res.json({ success: true, data: result });

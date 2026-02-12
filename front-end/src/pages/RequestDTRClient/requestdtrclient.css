@@ -66,6 +66,7 @@
 }
 .cutoff-banner__content {
   flex: 1;
+  min-width: 0;
 }
 .cutoff-banner__title {
   font-weight: 600;
@@ -75,6 +76,7 @@
 .cutoff-banner__desc {
   font-size: 12px;
   color: #444;
+  word-break: break-word;
 }
 .cutoff-pills {
   display: flex;
@@ -101,6 +103,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  flex-wrap: wrap;
 }
 .cutoff-recent .anticon {
   color: #52c41a;
@@ -154,88 +157,43 @@
   box-shadow: none !important;
 }
 
-/* Mobile-friendly picker popup adjustments */
-.mobile-friendly-range-picker .ant-picker-panel-container {
-  max-width: 100vw;
-}
-.mobile-friendly-range-picker {
-  width: 100% !important;
-}
-.responsive-range-picker-item .ant-picker-range {
+/* Month picker styling */
+.responsive-month-picker-item .ant-picker {
   width: 100%;
 }
-@media (max-width: 575.98px) {
-  .mobile-friendly-range-picker .ant-picker-panel-container {
-    flex-direction: column;
-    width: 100% !important;
-  }
-  .mobile-friendly-range-picker .ant-picker-date-panel {
-    width: 100% !important;
-  }
-  .mobile-friendly-range-picker .ant-picker-header {
-    padding: 4px 8px;
-  }
-  .mobile-friendly-range-picker .ant-picker-body {
-    padding: 4px 8px;
-  }
-  .mobile-friendly-range-picker .ant-picker-cell-inner {
-    padding: 4px 0;
-  }
-}
-
-/* Table compact override already present; ensure readable on small screens */
 @media (max-width: 1080px) {
-  .mobile-friendly-range-picker {
-    left: 0 !important;
-    right: 0 !important;
-    width: auto !important;
-  }
-  /* Make the range picker more compact on tablet widths */
-  .responsive-range-picker-item .ant-picker,
-  .responsive-range-picker-item .ant-picker-range {
+  .responsive-month-picker-item .ant-picker {
     height: 32px;
     padding: 0 8px;
     font-size: 12px;
   }
-  .responsive-range-picker-item .ant-picker .ant-picker-input > input,
-  .responsive-range-picker-item .ant-picker-range .ant-picker-input > input {
+  .responsive-month-picker-item .ant-picker .ant-picker-input > input {
     font-size: 12px;
-  }
-  .responsive-range-picker-item .ant-picker .ant-picker-separator,
-  .responsive-range-picker-item .ant-picker-range .ant-picker-separator {
-    margin: 0 4px;
-  }
-  .responsive-range-picker-item .ant-picker .ant-picker-suffix,
-  .responsive-range-picker-item .ant-picker-range .ant-picker-suffix {
-    font-size: 12px;
-  }
-  /* Reduce popup width and stack calendars for tablet widths */
-  .mobile-friendly-range-picker .ant-picker-panel-container {
-    width: 500px !important; /* narrower overall popup */
-    max-width: 92vw;
-    flex-direction: row; /* stack start/end panels */
-  }
-  .mobile-friendly-range-picker .ant-picker-panels {
-    flex-direction: row;
-  }
-  .mobile-friendly-range-picker .ant-picker-date-panel {
-    width: 100% !important; /* full width per panel */
   }
 }
 
+/* ── Tablet / small desktop ── */
 @media (max-width: 767.98px) {
   .request-dtr-container {
     padding: 16px;
+    align-items: flex-start;
+    padding-top: 6vh;
   }
   .request-dtr-card.auth-card {
     border-radius: 14px;
+    max-width: 100%;
   }
   .cutoff-banner {
     flex-direction: row;
     align-items: flex-start;
+    padding: 8px 10px;
+  }
+  .cutoff-banner__icon {
+    margin-top: 2px;
   }
   .dtr-preview-modal .ant-modal {
     top: 12px !important;
+    margin: 0 auto;
   }
   .dtr-preview-modal .ant-modal-content {
     border-radius: 12px;
@@ -253,25 +211,30 @@
   .auth-title {
     font-size: 20px !important;
   }
-  /* Ensure picker doesn't overflow horizontally */
-  .mobile-friendly-range-picker {
-    left: 0 !important;
-    right: 0 !important;
-    width: auto !important;
+  /* Modal footer buttons compact */
+  .dtr-preview-modal .ant-modal-footer {
+    display: flex;
+    gap: 8px;
+  }
+  .dtr-preview-modal .ant-modal-footer .ant-btn {
+    flex: 1;
+    min-width: 0;
   }
 }
 
+/* ── Mobile ── */
 @media (max-width: 479.98px) {
   .request-dtr-container {
     padding: 12px;
+    padding-top: 4vh;
   }
   .cutoff-banner {
     flex-direction: column;
   }
   .cutoff-banner__icon {
-    width: 44px;
-    height: 44px;
-    font-size: 20px;
+    width: 40px;
+    height: 40px;
+    font-size: 18px;
   }
   .cutoff-banner__desc {
     font-size: 11px;
@@ -282,5 +245,27 @@
   .dtr-table-compact .time-cell,
   .dtr-table-compact .date-cell {
     font-size: 12px;
+  }
+  .dtr-preview-modal .ant-modal {
+    top: 8px !important;
+    padding: 0 4px;
+  }
+  .dtr-preview-modal .ant-modal-body {
+    padding: 8px;
+  }
+  .dtr-preview-modal .ant-modal-title {
+    font-size: 13px;
+  }
+  .request-dtr-card.auth-card .ant-form-item-label > label {
+    font-size: 12px;
+  }
+  .request-dtr-card.auth-card .ant-input,
+  .request-dtr-card.auth-card .ant-picker,
+  .request-dtr-card.auth-card .ant-select-selector {
+    font-size: 12px;
+  }
+  .request-dtr-card.auth-card .ant-btn {
+    height: 36px;
+    font-size: 14px;
   }
 }

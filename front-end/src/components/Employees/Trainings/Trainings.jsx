@@ -2,6 +2,10 @@ import React, { useEffect, useState } from "react";
 import useDemoMode from "../../../hooks/useDemoMode";
 import useAuth from "../../../hooks/useAuth";
 import {
+  secureSessionGet,
+  secureSessionStore,
+} from "../../../../utils/secureStorage";
+import {
   Table,
   Button,
   Modal,
@@ -18,6 +22,7 @@ import {
   Dropdown,
   Menu,
   Popconfirm,
+  Grid,
 } from "antd";
 import { PlusOutlined, EditOutlined, DeleteOutlined } from "@ant-design/icons";
 import axiosInstance from "../../../api/axiosInstance";
@@ -27,8 +32,12 @@ import "./trainings.css";
 
 const { Option } = Select;
 const { RangePicker } = DatePicker;
+const { useBreakpoint } = Grid;
 
 const Trainings = () => {
+  const screens = useBreakpoint();
+  const isMobile = !screens.md; // < 768px
+  const isTablet = screens.md && !screens.lg; // 768–991px
   const [trainings, setTrainings] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -45,21 +54,24 @@ const Trainings = () => {
   const { readOnly, isDemoActive, isDemoUser } = useDemoMode();
   const { user } = useAuth();
   const isDeveloper = Boolean(
-    user?.userType === "developer" || user?.canAccessDeveloper || user?.canSeeDev
+    user?.userType === "developer" ||
+    user?.canAccessDeveloper ||
+    user?.canSeeDev,
   );
   // Track IDs or signatures of trainings created in this session to allow deletion in demo
   const DEMO_SESSION_KEY = "__demo_new_training__";
   const [demoNewSet, setDemoNewSet] = useState(() => {
     try {
-      const raw = sessionStorage.getItem(DEMO_SESSION_KEY);
-      const arr = raw ? JSON.parse(raw) : [];
+      const arr = secureSessionGet(DEMO_SESSION_KEY) || [];
       return new Set(Array.isArray(arr) ? arr : []);
     } catch (_) {
       return new Set();
     }
   });
   const persistDemoNew = (nextSet) => {
-    try { sessionStorage.setItem(DEMO_SESSION_KEY, JSON.stringify(Array.from(nextSet))); } catch (_) {}
+    try {
+      secureSessionStore(DEMO_SESSION_KEY, Array.from(nextSet));
+    } catch (_) {}
   };
   const markSessionNew = (idOrSig) => {
     if (!idOrSig) return;
@@ -73,8 +85,16 @@ const Trainings = () => {
   const makeSignature = (payloadOrRecord) => {
     if (!payloadOrRecord) return "";
     const t = payloadOrRecord;
-    const dates = Array.isArray(t.trainingDate) ? t.trainingDate.join("|") : String(t.trainingDate || "");
-    return [t.name || "", t.host || "", t.venue || "", dates, t.iisTransaction || ""].join("::");
+    const dates = Array.isArray(t.trainingDate)
+      ? t.trainingDate.join("|")
+      : String(t.trainingDate || "");
+    return [
+      t.name || "",
+      t.host || "",
+      t.venue || "",
+      dates,
+      t.iisTransaction || "",
+    ].join("::");
   };
   const isRecordSessionNew = (record) => {
     if (!isDemoActive || !record) return false;
@@ -178,7 +198,7 @@ const Trainings = () => {
 
       // Participants payload
       const participantsPayload = selectedParticipants.map((empId) =>
-        employees.find((emp) => emp.empId === empId)
+        employees.find((emp) => emp.empId === empId),
       );
 
       const payload = {
@@ -193,7 +213,8 @@ const Trainings = () => {
         message.success("Training updated successfully ✅");
       } else {
         const res = await axiosInstance.post("/trainings", payload);
-        const createdId = res?.data?.data?._id || res?.data?._id || res?.data?.id;
+        const createdId =
+          res?.data?.data?._id || res?.data?._id || res?.data?.id;
         if (createdId) {
           markSessionNew(createdId);
         } else {
@@ -242,37 +263,48 @@ const Trainings = () => {
       dataIndex: "name",
       key: "name",
       align: "center",
-      width: 250,
+      width: isMobile ? 160 : 250,
       render: (text) => (
         <div style={{ textAlign: "left", fontSize: "12px" }}>{text}</div>
       ),
     },
+    // On mobile, merge Host and Venue into Training Name area via hidden columns
+    ...(!isMobile
+      ? [
+          {
+            title: () => (
+              <span style={{ fontSize: "12px" }}>Training Host</span>
+            ),
+            dataIndex: "host",
+            key: "host",
+            align: "center",
+            width: isTablet ? 100 : 120,
+            render: (text) => (
+              <div style={{ textAlign: "left", fontSize: "12px" }}>{text}</div>
+            ),
+          },
+          {
+            title: () => <span style={{ fontSize: "12px" }}>Venue</span>,
+            dataIndex: "venue",
+            key: "venue",
+            align: "center",
+            width: isTablet ? 100 : 120,
+            render: (text) => (
+              <div style={{ textAlign: "left", fontSize: "12px" }}>{text}</div>
+            ),
+          },
+        ]
+      : []),
     {
-      title: () => <span style={{ fontSize: "12px" }}>Training Host</span>,
-      dataIndex: "host",
-      key: "host",
-      align: "center",
-      width: 120,
-      render: (text) => (
-        <div style={{ textAlign: "left", fontSize: "12px" }}>{text}</div>
+      title: () => (
+        <span style={{ fontSize: "12px" }}>
+          {isMobile ? "Date" : "Training Date"}
+        </span>
       ),
-    },
-    {
-      title: () => <span style={{ fontSize: "12px" }}>Venue</span>,
-      dataIndex: "venue",
-      key: "venue",
-      align: "center",
-      width: 120,
-      render: (text) => (
-        <div style={{ textAlign: "left", fontSize: "12px" }}>{text}</div>
-      ),
-    },
-    {
-      title: () => <span style={{ fontSize: "12px" }}>Training Date</span>,
       dataIndex: "trainingDate",
       key: "trainingDate",
       align: "center",
-      width: 100,
+      width: isMobile ? 90 : 100,
       render: (dates) =>
         dates ? (
           <div style={{ textAlign: "left", fontSize: "12px" }}>
@@ -321,7 +353,9 @@ const Trainings = () => {
                             padding: "2px 8px",
                             color: emp.resigned ? "#ddd" : "#fff",
                             fontSize: "12px",
-                            textDecoration: emp.resigned ? "line-through" : undefined,
+                            textDecoration: emp.resigned
+                              ? "line-through"
+                              : undefined,
                             opacity: emp.resigned ? 0.7 : 1,
                           }}
                           title={emp.resigned ? "Resigned" : undefined}
@@ -358,52 +392,63 @@ const Trainings = () => {
         );
       },
     },
-    {
-      title: () => (
-        <span style={{ fontSize: "12px" }}>IIS Transaction No./RSO No.</span>
-      ),
-      dataIndex: "iisTransaction",
-      key: "iisTransaction",
-      align: "center",
-      width: 120,
-      render: (text) => (
-        <div style={{ textAlign: "left", fontSize: "13px" }}>{text}</div>
-      ),
-    },
+    ...(!isMobile
+      ? [
+          {
+            title: () => (
+              <span style={{ fontSize: "12px" }}>
+                IIS Transaction No./RSO No.
+              </span>
+            ),
+            dataIndex: "iisTransaction",
+            key: "iisTransaction",
+            align: "center",
+            width: isTablet ? 100 : 120,
+            render: (text) => (
+              <div style={{ textAlign: "left", fontSize: "13px" }}>{text}</div>
+            ),
+          },
+        ]
+      : []),
     {
       title: () => <span style={{ fontSize: "12px" }}>Actions</span>,
       key: "actions",
       align: "center",
       render: (_, record) => {
-        const demoDeleteDisabled = isDemoActive && !isRecordSessionNew(record) && !isDeveloper;
+        const demoDeleteDisabled =
+          isDemoActive && !isRecordSessionNew(record) && !isDeveloper;
         return (
-        <div style={{ textAlign: "left" }}>
-          <Space>
-            <Button
-              icon={<EditOutlined />}
-              size="small"
-              onClick={() => openModal(record)}
-              type="primary"
-              disabled={readOnly && isDemoActive && isDemoUser}
-            />
-            <Popconfirm
-              title="Delete this training?"
-              description={demoDeleteDisabled ? "Deletion is disabled in demo for existing records" : "This action cannot be undone."}
-              okText="Delete"
-              okButtonProps={{ danger: true, disabled: demoDeleteDisabled }}
-              onConfirm={() => handleDelete(record._id, record)}
-              disabled={demoDeleteDisabled}
-            >
+          <div style={{ textAlign: "left" }}>
+            <Space>
               <Button
-                icon={<DeleteOutlined />}
+                icon={<EditOutlined />}
                 size="small"
-                danger
+                onClick={() => openModal(record)}
                 type="primary"
-                disabled={demoDeleteDisabled}
+                disabled={readOnly && isDemoActive && isDemoUser}
               />
-            </Popconfirm>
-          </Space>
-        </div>
+              <Popconfirm
+                title="Delete this training?"
+                description={
+                  demoDeleteDisabled
+                    ? "Deletion is disabled in demo for existing records"
+                    : "This action cannot be undone."
+                }
+                okText="Delete"
+                okButtonProps={{ danger: true, disabled: demoDeleteDisabled }}
+                onConfirm={() => handleDelete(record._id, record)}
+                disabled={demoDeleteDisabled}
+              >
+                <Button
+                  icon={<DeleteOutlined />}
+                  size="small"
+                  danger
+                  type="primary"
+                  disabled={demoDeleteDisabled}
+                />
+              </Popconfirm>
+            </Space>
+          </div>
         );
       },
     },
@@ -439,25 +484,25 @@ const Trainings = () => {
         }}
       >
         {/* Filters */}
-        <Space wrap>
+        <Space wrap style={{ width: isMobile ? "100%" : "auto" }}>
           <Input
             placeholder="Filter by Training Name"
             value={filters.name}
             onChange={(e) => setFilters({ ...filters, name: e.target.value })}
             allowClear
-            style={{ width: 200 }}
+            style={{ width: isMobile ? "100%" : 200 }}
           />
           <Input
             placeholder="Filter by Host"
             value={filters.host}
             onChange={(e) => setFilters({ ...filters, host: e.target.value })}
             allowClear
-            style={{ width: 200 }}
+            style={{ width: isMobile ? "100%" : 200 }}
           />
           <Select
             placeholder="Filter by Participant"
             allowClear
-            style={{ width: 250 }}
+            style={{ width: isMobile ? "100%" : 250 }}
             value={filters.participant}
             onChange={(value) => setFilters({ ...filters, participant: value })}
           >
@@ -478,7 +523,6 @@ const Trainings = () => {
         >
           Add Training
         </Button>
-
       </div>
 
       <div className="trainings-table">
@@ -487,6 +531,7 @@ const Trainings = () => {
           dataSource={filteredTrainings}
           rowKey="_id"
           size="small"
+          scroll={{ x: isMobile ? 500 : isTablet ? 800 : 1000 }}
         />
       </div>
       {isModalOpen && (
@@ -506,7 +551,10 @@ const Trainings = () => {
                 { required: true, message: "Please enter training name" },
               ]}
             >
-              <Input.TextArea rows={2} disabled={readOnly && isDemoActive && isDemoUser} />
+              <Input.TextArea
+                rows={2}
+                disabled={readOnly && isDemoActive && isDemoUser}
+              />
             </Form.Item>
 
             <Space.Compact style={{ width: "100%" }}>
@@ -633,7 +681,7 @@ const Trainings = () => {
                   const shortcutMatch = Object.entries(divisionShortcuts).some(
                     ([shortcut, full]) =>
                       shortcut.toLowerCase() === lowerInput &&
-                      item.division === full
+                      item.division === full,
                   );
                   return (
                     nameMatch || divisionMatch || sectionMatch || shortcutMatch
@@ -675,14 +723,14 @@ const Trainings = () => {
                                 onClick={() =>
                                   onItemSelect(
                                     item.key,
-                                    !selectedParticipants.includes(item.key)
+                                    !selectedParticipants.includes(item.key),
                                   )
                                 }
                                 style={{
                                   padding: "2px 4px",
                                   cursor: "pointer",
                                   background: selectedParticipants.includes(
-                                    item.key
+                                    item.key,
                                   )
                                     ? "#e6f7ff"
                                     : undefined,
@@ -723,7 +771,7 @@ const Trainings = () => {
                           onClose={(e) => {
                             e.preventDefault();
                             setSelectedParticipants((prev) =>
-                              prev.filter((k) => k !== item.key)
+                              prev.filter((k) => k !== item.key),
                             );
                           }}
                           style={{
@@ -757,13 +805,20 @@ const Trainings = () => {
                 },
               ]}
             >
-              <Input placeholder="Enter Special Order No. or IIS Transaction No." disabled={readOnly && isDemoActive && isDemoUser} />
+              <Input
+                placeholder="Enter Special Order No. or IIS Transaction No."
+                disabled={readOnly && isDemoActive && isDemoUser}
+              />
             </Form.Item>
 
             <Form.Item>
               <Space style={{ display: "flex", justifyContent: "end" }}>
                 <Button onClick={closeModal}>Cancel</Button>
-                <Button type="primary" htmlType="submit" disabled={readOnly && isDemoActive && isDemoUser}>
+                <Button
+                  type="primary"
+                  htmlType="submit"
+                  disabled={readOnly && isDemoActive && isDemoUser}
+                >
                   {editingTraining ? "Update" : "Add"}
                 </Button>
               </Space>

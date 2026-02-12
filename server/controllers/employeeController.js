@@ -26,7 +26,7 @@ export const searchEmployeesByEmpId = async (req, res) => {
     const q = (req.query.q || "").toString().trim();
     if (!q) return res.status(400).json({ success: false, message: "Missing q" });
 
-    // Build candidate variants
+    // Build candidate variants for empId matching
     const variants = new Set();
     const raw = q;
     variants.add(raw);
@@ -52,17 +52,22 @@ export const searchEmployeesByEmpId = async (req, res) => {
         return new RegExp(`^${esc}`, "i");
       });
 
-    if (regexes.length === 0) {
-      return res.json({ success: true, data: [] });
-    }
+    // Also build a name regex for substring matching
+    const nameEsc = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const nameRegex = new RegExp(nameEsc, "i");
 
-    // Exclude resigned employees for public search
+    // Combine: match empId/alternateEmpIds OR name
+    const orConditions = [];
+    if (regexes.length > 0) {
+      orConditions.push({ empId: { $in: regexes } });
+      orConditions.push({ alternateEmpIds: { $in: regexes } });
+    }
+    orConditions.push({ name: nameRegex });
+
+    // Exclude resigned employees
     const results = await Employee.find({
       isResigned: { $ne: true },
-      $or: [
-        { empId: { $in: regexes } },
-        { alternateEmpIds: { $in: regexes } },
-      ],
+      $or: orConditions,
     })
       .select("empId name position sectionOrUnit")
       .limit(10)
@@ -614,6 +619,7 @@ export const resignEmployee = async (req, res) => {
 export const undoResignEmployee = async (req, res) => {
   try {
     const { id } = req.params;
+    const { reason, restoredAt } = req.body || {};
 
     const callerId = req.user?.id || req.user?._id;
     const caller = callerId ? await User.findById(callerId).lean() : null;
@@ -625,7 +631,15 @@ export const undoResignEmployee = async (req, res) => {
 
     const employee = await Employee.findByIdAndUpdate(
       id,
-      { $set: { isResigned: false }, $unset: { resignedAt: '', resignedReason: '' } },
+      {
+        $set: {
+          isResigned: false,
+          restoredAt: restoredAt ? new Date(restoredAt) : new Date(),
+          restorationReason: reason || undefined,
+          restoredByName: caller?.name || caller?.email,
+        },
+        $unset: { resignedAt: '', resignedReason: '' },
+      },
       { new: true }
     );
     if (!employee) return res.status(404).json({ success: false, message: 'Employee not found' });
@@ -655,6 +669,8 @@ export const undoResignEmployee = async (req, res) => {
           employeeId: employee._id,
           empId: employee.empId,
           name: employee.name,
+          restoredAt: restoredAt ? new Date(restoredAt) : new Date(),
+          restorationReason: reason || undefined,
         },
       });
     } catch (e) { /* non-fatal */ }
@@ -884,6 +900,129 @@ export const deleteEmployeeCascade = async (req, res) => {
   res.json({ success: true, message: 'Employee and related records deleted; Emp No reordered' });
   } catch (err) {
     console.error('deleteEmployeeCascade error', err);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// Purge all resigned employees and cascade delete related records (developer/admin only)
+export const purgeResignedEmployeesCascade = async (req, res) => {
+  try {
+    const confirm = (req.body?.confirm || '').toString().trim();
+    if (confirm !== 'DELETE RESIGNED') {
+      return res.status(400).json({
+        success: false,
+        message: 'Confirmation required. Type: DELETE RESIGNED',
+      });
+    }
+
+    // Permission check
+    const callerId = req.user?.id || req.user?._id;
+    const caller = callerId ? await User.findById(callerId).lean() : null;
+    if (!caller || !(
+      caller.userType === 'developer' || caller.isAdmin || caller.canAccessDeveloper || caller.canSeeDev
+    )) {
+      return res.status(403).json({ success: false, message: 'Forbidden' });
+    }
+
+    const resignedEmployees = await Employee.find({ isResigned: true })
+      .select('_id empId name')
+      .lean();
+
+    if (!resignedEmployees?.length) {
+      return res.json({ success: true, message: 'No resigned employees to delete', deleted: 0 });
+    }
+
+    let storageDelete;
+    try {
+      ({ storageDelete } = await import('../utils/storageProvider.js'));
+    } catch (e) {
+      storageDelete = null;
+    }
+
+    // Cascade cleanup per employee (best-effort, sequential to avoid DB overload)
+    for (const emp of resignedEmployees) {
+      const empId = emp.empId;
+
+      if (empId) {
+        // Best-effort delete of underlying stored files for EmployeeDocs
+        if (storageDelete) {
+          try {
+            const docs = await EmployeeDoc.find({ empId })
+              .select('storageProvider fileId reference')
+              .lean();
+            if (docs?.length) {
+              await Promise.allSettled(
+                docs.map((d) => {
+                  if (d.storageProvider === 'drive' && d.fileId) return storageDelete(d.fileId);
+                  if (d.reference) return storageDelete(d.reference);
+                  return Promise.resolve();
+                }),
+              );
+            }
+          } catch (e) {
+            console.warn('EmployeeDoc file cleanup failed for empId', empId, e?.message || e);
+          }
+        }
+
+        await Promise.all([
+          EmployeeDoc.deleteMany({ empId }),
+          PayslipRequest.deleteMany({ employeeId: empId }),
+          DTRGenerationLog.deleteMany({ employeeId: empId }),
+          DTRRequest.deleteMany({ employeeId: empId }),
+          (async () => {
+            const rawEmpDigits = String(empId).replace(/\D/g, '');
+            const strippedEmpDigits = rawEmpDigits.replace(/^0+/, '');
+            const acCandidates = [];
+            if (rawEmpDigits) acCandidates.push(rawEmpDigits);
+            if (strippedEmpDigits && strippedEmpDigits !== rawEmpDigits) acCandidates.push(strippedEmpDigits);
+            if (acCandidates.length) {
+              await DTRLog.deleteMany({ normalizedAcNo: { $in: acCandidates } });
+            }
+          })(),
+          Training.updateMany(
+            { 'participants.empId': empId },
+            { $pull: { participants: { empId } } },
+          ),
+        ]);
+      }
+
+      await EmployeeSalary.deleteOne({ employeeId: emp._id });
+    }
+
+    const ids = resignedEmployees.map((e) => e._id);
+    await Employee.deleteMany({ _id: { $in: ids } });
+
+    // Resequence empNo once to fill gaps (simple ascending reassignment)
+    try {
+      const remaining = await Employee.find({}).sort({ createdAt: 1 }).select('_id').lean();
+      let seq = 1;
+      const bulk = remaining.map((r) => ({
+        updateOne: {
+          filter: { _id: r._id },
+          update: { $set: { empNo: String(seq++) } },
+        },
+      }));
+      if (bulk.length) await Employee.bulkWrite(bulk);
+    } catch (reErr) {
+      console.error('EmpNo resequence error', reErr);
+    }
+
+    try {
+      await AuditLog.create({
+        action: 'employee:purge-resigned',
+        performedBy: caller?._id,
+        performedByName: caller?.name || caller?.email,
+        details: { deleted: resignedEmployees.length },
+      });
+    } catch (_) {}
+
+    res.json({
+      success: true,
+      message: `Deleted ${resignedEmployees.length} resigned employee(s) and related records`,
+      deleted: resignedEmployees.length,
+    });
+  } catch (err) {
+    console.error('purgeResignedEmployeesCascade error', err);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };

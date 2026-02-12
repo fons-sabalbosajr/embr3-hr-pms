@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import useDemoMode from "../../../../hooks/useDemoMode";
+import { secureSessionGet, secureSessionStore } from "../../../../../utils/secureStorage";
 import { buildColorMapFromList, pickTagColor, TAG_COLOR_PALETTE } from "../../../../utils/tagColors";
 import {
   Table,
@@ -11,6 +12,7 @@ import {
   Typography,
   Form,
   Tooltip,
+  Grid,
 } from "antd";
 import {
   getEmployees,
@@ -66,19 +68,20 @@ const designationColors = {
 // Deterministic color assignment for divisions / sections / units so tags visually align app-wide.
 
 const Signatory = () => {
+  const screens = Grid.useBreakpoint();
+  const isMobile = !screens.md;
   const { readOnly, isDemoActive, isDemoUser } = useDemoMode();
   const DEMO_SESSION_KEY = "__demo_new_signatory__";
   const [demoNewSet, setDemoNewSet] = useState(() => {
     try {
-      const raw = sessionStorage.getItem(DEMO_SESSION_KEY);
-      const arr = raw ? JSON.parse(raw) : [];
+      const arr = secureSessionGet(DEMO_SESSION_KEY) || [];
       return new Set(Array.isArray(arr) ? arr : []);
     } catch (_) {
       return new Set();
     }
   });
   const persistDemoNew = (next) => {
-    try { sessionStorage.setItem(DEMO_SESSION_KEY, JSON.stringify(Array.from(next))); } catch (_) {}
+    try { secureSessionStore(DEMO_SESSION_KEY, Array.from(next)); } catch (_) {}
   };
   const markSessionNew = (id) => {
     if (!id) return;
@@ -325,19 +328,28 @@ const Signatory = () => {
   );
 
   const columns = [
-    {
-      title: "Employee ID",
-      dataIndex: "empId",
-      key: "empId",
-      render: (text) => <Text strong>{text}</Text>,
-    },
+    ...(!isMobile
+      ? [
+          {
+            title: "Employee ID",
+            dataIndex: "empId",
+            key: "empId",
+            render: (text) => <Text strong>{text}</Text>,
+          },
+        ]
+      : []),
     {
       title: "Employee Details",
       key: "details",
-      width: 200,
+      width: isMobile ? 160 : 200,
       render: (text, record) => (
         <div className="employee-details">
           <Text className="employee-name">{record.name}</Text>
+          {isMobile && (
+            <Text type="secondary" style={{ fontSize: '0.8em' }}>
+              {record.empId}
+            </Text>
+          )}
           <Text type="secondary" className="employee-meta">
             {getAcronymFromEnv(record.division, VITE_DIVISION_ACRONYMS)} |{" "}
             {getAcronymFromEnv(record.position, VITE_POSITION_ACRONYMS)}
@@ -381,62 +393,66 @@ const Signatory = () => {
         </div>
       ),
     },
-    {
-      title: "Alternate Signatory",
-      key: "alternate",
-      render: (text, record) => (
-        <div className="employee-details">
-          {record.alternateSignatoryEmpId ? (
-            <>
-              <Text className="employee-name">
-                {record.alternateSignatoryName ||
-                  record.alternateSignatoryEmpId}
-              </Text>
-              <Text type="secondary" className="employee-meta">
-                {record.alternateDateOfEffectivityStart
-                  ? dayjs(record.alternateDateOfEffectivityStart).format(
-                      "YYYY-MM-DD"
-                    )
-                  : "N/A"}
-                {record.alternateDateOfEffectivityEnd &&
-                  ` - ${dayjs(record.alternateDateOfEffectivityEnd).format(
-                    "YYYY-MM-DD"
-                  )}`}
-              </Text>
-            </>
-          ) : (
-            <Text type="secondary">N/A</Text>
-          )}
-        </div>
-      ),
-    },
-    {
-      title: (
-        <Tooltip title="This is the proof or special order of the approved employee as alternate signatory employee.">
-          IIS Transaction No.{" "}
-          <InfoCircleOutlined style={{ color: "rgba(0,0,0,.45)" }} />
-        </Tooltip>
-      ),
-      dataIndex: "iisTransactionNo",
-      key: "iisTransactionNo",
-      render: (text) =>
-        text ? (
-          <a
-            href={`https://iis.emb.gov.ph/embis/dms/documents/tracker/?trn_no=${text}`}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            {text}
-          </a>
-        ) : (
-          "N/A"
-        ),
-    },
-    {
-      title: "Remarks",
-      dataIndex: "remarks",
-      key: "remarks",
-    },
+    ...(!isMobile
+      ? [
+          {
+            title: "Alternate Signatory",
+            key: "alternate",
+            render: (text, record) => (
+              <div className="employee-details">
+                {record.alternateSignatoryEmpId ? (
+                  <>
+                    <Text className="employee-name">
+                      {record.alternateSignatoryName ||
+                        record.alternateSignatoryEmpId}
+                    </Text>
+                    <Text type="secondary" className="employee-meta">
+                      {record.alternateDateOfEffectivityStart
+                        ? dayjs(record.alternateDateOfEffectivityStart).format(
+                            "YYYY-MM-DD"
+                          )
+                        : "N/A"}
+                      {record.alternateDateOfEffectivityEnd &&
+                        ` - ${dayjs(record.alternateDateOfEffectivityEnd).format(
+                          "YYYY-MM-DD"
+                        )}`}
+                    </Text>
+                  </>
+                ) : (
+                  <Text type="secondary">N/A</Text>
+                )}
+              </div>
+            ),
+          },
+          {
+            title: (
+              <Tooltip title="This is the proof or special order of the approved employee as alternate signatory employee.">
+                IIS Transaction No.{" "}
+                <InfoCircleOutlined style={{ color: "rgba(0,0,0,.45)" }} />
+              </Tooltip>
+            ),
+            dataIndex: "iisTransactionNo",
+            key: "iisTransactionNo",
+            render: (text) =>
+              text ? (
+                <a
+                  href={`https://iis.emb.gov.ph/embis/dms/documents/tracker/?trn_no=${text}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {text}
+                </a>
+              ) : (
+                "N/A"
+              ),
+          },
+          {
+            title: "Remarks",
+            dataIndex: "remarks",
+            key: "remarks",
+          },
+        ]
+      : []),
     {
       title: "Actions",
       key: "actions",
@@ -489,6 +505,7 @@ const Signatory = () => {
         loading={loading}
         rowKey="_id"
         size="small"
+        scroll={{ x: isMobile ? 400 : 800 }}
         pagination={{
           showSizeChanger: true,
           pageSizeOptions: [5, 10, 20, 50, 100],

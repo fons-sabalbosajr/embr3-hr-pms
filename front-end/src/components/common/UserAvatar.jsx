@@ -1,9 +1,18 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Avatar } from "antd";
 import { UserOutlined } from "@ant-design/icons";
+import { getServerBaseUrl, resolveServerAssetUrl } from "../../utils/assetUrl";
 
 const UserAvatar = ({ src, name, size = 32, shape = "circle", className, style, icon, alt, ...rest }) => {
   const [errored, setErrored] = useState(false);
+
+  const serverBase = getServerBaseUrl();
+
+  useEffect(() => {
+    // If the previous attempt failed before server base was known,
+    // allow retry once configuration becomes available.
+    setErrored(false);
+  }, [src, serverBase]);
 
   const initials = useMemo(() => {
     if (!name) return null;
@@ -15,7 +24,11 @@ const UserAvatar = ({ src, name, size = 32, shape = "circle", className, style, 
     return letters || null;
   }, [name]);
 
-  const effectiveSrc = errored ? undefined : (src || undefined);
+  const effectiveSrc = useMemo(() => {
+    if (errored) return undefined;
+    const resolved = resolveServerAssetUrl(src);
+    return resolved || undefined;
+  }, [src, errored, serverBase]);
 
   return (
     <Avatar

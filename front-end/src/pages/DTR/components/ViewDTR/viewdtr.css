@@ -4,7 +4,8 @@
   color: var(--app-text-color);
 }
 
-.view-dtr-modal :where(.ant-modal-content, .ant-modal-body, .ant-typography, .ant-divider) {
+.view-dtr-modal
+  :where(.ant-modal-content, .ant-modal-body, .ant-typography, .ant-divider) {
   color: var(--app-text-color);
 }
 
@@ -20,6 +21,22 @@
   border-color: var(--app-border-color);
 }
 
+/* Make the modal table denser/smaller */
+.view-dtr-modal :where(.ant-table) {
+  font-size: 11px;
+}
+
+.view-dtr-modal :where(.ant-table-thead > tr > th) {
+  font-size: 11px;
+  padding: 2px 6px;
+  line-height: 1.2;
+}
+
+.view-dtr-modal :where(.ant-table-tbody > tr > td) {
+  padding: 2px 6px;
+  line-height: 1.2;
+}
+
 .view-dtr-modal :where(.ant-table-tbody > tr > td) {
   background: var(--app-surface-bg);
   color: var(--app-text-color);
@@ -32,45 +49,81 @@
 
 /* Special rows */
 .weekend-row {
-  background-color: var(--dtr-weekend-row-bg, rgba(255,230,230,0.30)); /* theme-aware weekend */
+  background-color: var(
+    --dtr-weekend-row-bg,
+    rgba(255, 230, 230, 0.3)
+  ); /* theme-aware weekend */
 }
 
 .holiday-row {
-  background-color: var(--dtr-holiday-row-bg, rgba(250,173,20,0.18)); /* theme-aware holiday */
+  background-color: var(
+    --dtr-holiday-row-bg,
+    rgba(250, 173, 20, 0.18)
+  ); /* theme-aware holiday */
 }
 
 /* Training rows */
 .training-row {
-  background-color: var(--dtr-training-row-bg, rgba(114,46,209,0.12));
+  background-color: var(--dtr-training-row-bg, rgba(114, 46, 209, 0.12));
 }
 
 /* Ensure row background colors apply to cells (override base td background) */
 .view-dtr-modal :where(.ant-table-tbody > tr.weekend-row > td) {
-  background-color: var(--dtr-weekend-row-bg, rgba(255,230,230,0.30)) !important;
+  background-color: var(
+    --dtr-weekend-row-bg,
+    rgba(255, 230, 230, 0.3)
+  ) !important;
 }
 .view-dtr-modal :where(.ant-table-tbody > tr.holiday-row > td) {
-  background-color: var(--dtr-holiday-row-bg, rgba(250,173,20,0.18)) !important;
+  background-color: var(
+    --dtr-holiday-row-bg,
+    rgba(250, 173, 20, 0.18)
+  ) !important;
 }
 .view-dtr-modal :where(.ant-table-tbody > tr.training-row > td) {
-  background-color: var(--dtr-training-row-bg, rgba(114,46,209,0.12)) !important;
+  background-color: var(
+    --dtr-training-row-bg,
+    rgba(114, 46, 209, 0.12)
+  ) !important;
+}
+
+.view-dtr-modal :where(.emp-type-tag) {
+  margin-inline-end: 0;
+  font-weight: 600;
 }
 
 /* Special cells for merged states */
 .view-dtr-modal :where(.weekend-cell) {
-  background-color: var(--dtr-weekend-row-bg, rgba(255,230,230,0.30)) !important;
+  background-color: var(
+    --dtr-weekend-row-bg,
+    rgba(255, 230, 230, 0.3)
+  ) !important;
   color: var(--app-text-color);
   font-weight: 600;
 }
 
 .view-dtr-modal :where(.holiday-cell) {
-  background-color: var(--dtr-holiday-row-bg, rgba(250,173,20,0.18)) !important;
+  background-color: var(
+    --dtr-holiday-row-bg,
+    rgba(250, 173, 20, 0.18)
+  ) !important;
   color: var(--app-text-color);
   font-weight: 600;
 }
 
 .view-dtr-modal :where(.training-cell) {
-  background-color: var(--dtr-training-row-bg, rgba(114,46,209,0.12)) !important;
+  background-color: var(
+    --dtr-training-row-bg,
+    rgba(114, 46, 209, 0.12)
+  ) !important;
   color: var(--dtr-training-text-color, #722ed1) !important;
   font-weight: 600;
   font-size: 11px;
+}
+
+/* ─── Responsive ─── */
+@media (max-width: 767px) {
+  .view-dtr-modal :where(.ant-table) { font-size: 10px; }
+  .view-dtr-modal :where(.ant-table-thead > tr > th) { font-size: 10px; padding: 2px 4px; }
+  .view-dtr-modal :where(.ant-table-tbody > tr > td) { padding: 2px 4px; }
 }

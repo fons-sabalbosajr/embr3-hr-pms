@@ -346,3 +346,166 @@ export const sendBugReportEmail = async ({ to, from, subject, message, meta = {}
     attachments,
   }, "bug-report");
 };
+
+// ─── Announcement & App-Update email templates ────────────────────────────────
+
+const announcementHtml = ({ title, body, type, priority }) => {
+  const isUpdate = type === 'app-update';
+  const isMaintenance = type === 'maintenance';
+  const headerBg = isMaintenance ? '#fa8c16' : isUpdate ? '#52c41a' : '#1890ff';
+  const headerLabel = isMaintenance ? 'Maintenance Notice' : isUpdate ? 'App Update' : 'Announcement';
+  const priorityBadge = priority === 'critical'
+    ? '<span style="display:inline-block;background:#ff4d4f;color:#fff;font-size:11px;padding:2px 8px;border-radius:4px;margin-left:8px;vertical-align:middle;">CRITICAL</span>'
+    : priority === 'high'
+    ? '<span style="display:inline-block;background:#fa8c16;color:#fff;font-size:11px;padding:2px 8px;border-radius:4px;margin-left:8px;vertical-align:middle;">HIGH</span>'
+    : '';
+  const safeTitle = String(title || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const safeBody = String(body || '')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\n/g, '<br/>');
+
+  return `
+    <div style="font-family:Arial,sans-serif;max-width:640px;margin:auto;border:1px solid #e6e6e6;border-radius:8px;overflow:hidden">
+      <div style="background:${headerBg};color:#fff;padding:16px 20px">
+        <h2 style="margin:0;font-weight:600;font-size:18px">EMB Region III &bull; HRPMS</h2>
+        <div style="opacity:0.9;font-size:12px;margin-top:2px">${headerLabel}</div>
+      </div>
+      <div style="padding:20px">
+        <h3 style="margin:0 0 12px">${safeTitle}${priorityBadge}</h3>
+        <div style="line-height:1.6;color:#333">${safeBody}</div>
+      </div>
+      <div style="background:#fafafa;border-top:1px solid #eee;color:#888;padding:12px 20px;font-size:12px;text-align:center">
+        &copy; ${new Date().getFullYear()} EMB Region III &mdash; Human Resource Payroll Management System
+      </div>
+    </div>`;
+};
+
+export const sendAnnouncementEmail = async ({ to, title, body, type, priority }) => {
+  return sendWithRetry({
+    from: `"EMB Region III - HRPMS" <${process.env.EMAIL_USER}>`,
+    to,
+    subject: `[Announcement] ${title}`,
+    html: announcementHtml({ title, body, type, priority }),
+    text: `${title}\n\n${body}`,
+  }, "announcement");
+};
+
+export const sendAppUpdateEmail = async ({ to, title, body, type, priority }) => {
+  return sendWithRetry({
+    from: `"EMB Region III - HRPMS" <${process.env.EMAIL_USER}>`,
+    to,
+    subject: `[App Update] ${title}`,
+    html: announcementHtml({ title, body, type: type || 'app-update', priority }),
+    text: `${title}\n\n${body}`,
+  }, "app-update");
+};
+
+/**
+ * Send a payslip email with PDF attachment through the shared transport.
+ * @param {{ to: string, subject: string, html: string, pdfBuffer: Buffer, filename: string }} opts
+ * @returns {Promise<object>} nodemailer info or { skipped: true }
+ */
+export const sendPayslipDeliveryEmail = async ({ to, subject, html, pdfBuffer, filename }) => {
+  const fromName = process.env.EMAIL_FROM_NAME || "EMBR3 DTRMS Personnel";
+  const fromAddress = process.env.EMAIL_USER || "no-reply@example.local";
+  return sendWithRetry({
+    from: `${fromName} <${fromAddress}>`,
+    to,
+    subject,
+    html,
+    attachments: [
+      {
+        filename,
+        content: pdfBuffer,
+        contentType: "application/pdf",
+        contentDisposition: "attachment",
+      },
+    ],
+  }, "payslip-delivery");
+};
+
+// ── Signup Approval / Rejection Emails ──────────────────────────────────────
+
+export const sendSignupApprovedEmail = async (to, name, loginLink) => {
+  return sendWithRetry({
+    from: `"EMB Region III Payroll Management System" <${process.env.EMAIL_USER}>`,
+    to,
+    subject: "Your Account Has Been Approved",
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #e6e6e6; padding: 20px; border-radius: 8px;">
+        <h2 style="color: #52c41a;">Account Approved!</h2>
+        <p>Hi <strong>${name}</strong>,</p>
+        <p>Your account registration for the <strong>EMB Region III Payroll Management System</strong> has been <strong style="color:#52c41a;">approved</strong> by an administrator.</p>
+        <p>You can now log in and start using the system:</p>
+        <div style="text-align: center; margin: 20px 0;">
+          <a href="${loginLink}" style="
+            padding: 12px 24px;
+            background-color: #52c41a;
+            color: #ffffff;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: bold;
+            display: inline-block;
+          ">Log In Now</a>
+        </div>
+        <p style="font-size: 13px; color: #666;">Your access permissions will be configured by your system administrator.</p>
+        <hr style="border: none; border-top: 1px solid #ddd;" />
+        <p style="font-size: 12px; color: #999; text-align: center;">© 2025 EMB Region III. All rights reserved.</p>
+      </div>
+    `,
+    text: `Hi ${name},\n\nYour account has been approved! You can now log in at: ${loginLink}`,
+  }, "signup-approval");
+};
+
+export const sendSignupRejectedEmail = async (to, name, reason) => {
+  return sendWithRetry({
+    from: `"EMB Region III Payroll Management System" <${process.env.EMAIL_USER}>`,
+    to,
+    subject: "Account Registration Update",
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #e6e6e6; padding: 20px; border-radius: 8px;">
+        <h2 style="color: #ff4d4f;">Registration Not Approved</h2>
+        <p>Hi <strong>${name}</strong>,</p>
+        <p>We regret to inform you that your account registration for the <strong>EMB Region III Payroll Management System</strong> has not been approved at this time.</p>
+        ${reason ? `<p><strong>Reason:</strong> ${reason}</p>` : ""}
+        <p>If you believe this was a mistake, please contact your system administrator for assistance.</p>
+        <hr style="border: none; border-top: 1px solid #ddd;" />
+        <p style="font-size: 12px; color: #999; text-align: center;">© 2025 EMB Region III. All rights reserved.</p>
+      </div>
+    `,
+    text: `Hi ${name},\n\nYour account registration has not been approved.${reason ? ` Reason: ${reason}` : ""}\n\nPlease contact your administrator if you have questions.`,
+  }, "signup-rejection");
+};
+
+export const sendNewSignupNotificationEmail = async (to, newUserName, newUserEmail, dashboardLink) => {
+  return sendWithRetry({
+    from: `"EMB Region III Payroll Management System" <${process.env.EMAIL_USER}>`,
+    to,
+    subject: `New Account Signup: ${newUserName}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #e6e6e6; padding: 20px; border-radius: 8px;">
+        <h2 style="color: #1890ff;">New Account Pending Approval</h2>
+        <p>A new user has registered and is awaiting your approval:</p>
+        <table style="width: 100%; border-collapse: collapse; margin: 12px 0;">
+          <tr><td style="padding: 6px 8px; font-weight: bold; width: 100px;">Name:</td><td style="padding: 6px 8px;">${newUserName}</td></tr>
+          <tr><td style="padding: 6px 8px; font-weight: bold;">Email:</td><td style="padding: 6px 8px;">${newUserEmail}</td></tr>
+        </table>
+        <div style="text-align: center; margin: 20px 0;">
+          <a href="${dashboardLink}" style="
+            padding: 12px 24px;
+            background-color: #1890ff;
+            color: #ffffff;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: bold;
+            display: inline-block;
+          ">Review in Dashboard</a>
+        </div>
+        <hr style="border: none; border-top: 1px solid #ddd;" />
+        <p style="font-size: 12px; color: #999; text-align: center;">© 2025 EMB Region III. All rights reserved.</p>
+      </div>
+    `,
+  }, "new-signup-notification");
+};
+

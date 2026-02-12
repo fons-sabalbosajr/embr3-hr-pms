@@ -7,6 +7,7 @@ import {
   secureSessionGet,
   secureSessionStore,
   secureSessionRemove,
+  secureClearAll,
 } from "../../utils/secureStorage";
 import axiosInstance from "../api/axiosInstance";
 import socket from "../../utils/socket";
@@ -64,12 +65,26 @@ export const AuthProvider = ({ children }) => {
           }
         } catch (_) {}
       };
+
+      const onUserAccessUpdated = (payload) => {
+        try {
+          const targetId = payload?.userId;
+          const updated = payload?.user;
+          if (!targetId || !updated) return;
+          if (String(targetId) !== String(user._id)) return;
+          // Update current user in-session so route guards/menus refresh immediately
+          setUser(updated);
+          secureSessionStore("user", updated);
+        } catch (_) {}
+      };
       socket.on("connect", onConnect);
       socket.on("user-avatar-updated", onAvatarUpdated);
+      socket.on("user-access-updated", onUserAccessUpdated);
       // Clean listener on effect cleanup
       return () => {
         socket.off("connect", onConnect);
         socket.off("user-avatar-updated", onAvatarUpdated);
+        socket.off("user-access-updated", onUserAccessUpdated);
         socket.disconnect(); // Disconnect on logout
       };
     } else {
@@ -114,12 +129,8 @@ export const AuthProvider = ({ children }) => {
       socket.disconnect();
     }
 
-    // Clear session storage (per-tab)
-    secureSessionRemove("token");
-    secureSessionRemove("user");
-    // Also clear any legacy local values just in case
-    try { secureRemove("token"); } catch {}
-    try { secureRemove("user"); } catch {}
+    // Wipe ALL encrypted/obfuscated keys from localStorage & sessionStorage
+    secureClearAll();
     setToken(null);
     setUser(null);
     delete axiosInstance.defaults.headers.common["Authorization"];

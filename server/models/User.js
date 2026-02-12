@@ -12,6 +12,19 @@ const userSchema = new mongoose.Schema(
   // Profile avatar URL (public URL). Points to latest uploaded file.
   avatarUrl: { type: String },
     isVerified: { type: Boolean, default: false },
+
+    // Signup Approval Workflow
+    approvalStatus: {
+      type: String,
+      enum: ["pending", "approved", "rejected"],
+      default: "pending",
+    },
+    approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    approvedAt: { type: Date },
+    rejectedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    rejectedAt: { type: Date },
+    rejectionReason: { type: String },
+
   // Per-user Demo Mode flag (used to apply demo restrictions to selected accounts)
   // When true and global demo settings are active, this user is treated as a demo user
   // Front-end toggles this via PUT /users/:userId/access with { isDemo: true/false }
@@ -84,6 +97,7 @@ userSchema.index({ verificationToken: 1 }, { sparse: true });
 userSchema.index({ resetPasswordToken: 1 }, { sparse: true });
 userSchema.index({ changePasswordToken: 1 }, { sparse: true });
 userSchema.index({ userType: 1 });
+userSchema.index({ approvalStatus: 1, createdAt: -1 });
 userSchema.index({ isOnline: 1, updatedAt: -1 });
 userSchema.index({ createdAt: -1 });
 

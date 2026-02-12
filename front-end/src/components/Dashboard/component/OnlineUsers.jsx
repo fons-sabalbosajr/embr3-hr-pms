@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
-import { List, Avatar, Badge } from "antd";
+import { List, Badge } from "antd";
 import { getUsers } from "../../../api/userAPI";
 import socket from "../../../../utils/socket";
 import useAuth from "../../../hooks/useAuth";
 import "./OnlineUsers.css";
+import UserAvatar from "../../common/UserAvatar";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 dayjs.extend(relativeTime);
@@ -12,9 +13,9 @@ dayjs.extend(relativeTime);
 // If lastSeenAt is older than 48 hours, treat as Offline
 const HOURS_OFFLINE_THRESHOLD = 48;
 const formatShortLastSeen = (dateLike) => {
-  if (!dateLike) return "";
+  if (!dateLike) return null;
   const t = new Date(dateLike).getTime();
-  if (Number.isNaN(t)) return "";
+  if (Number.isNaN(t)) return null;
   const diffMs = Date.now() - t;
   const hours = diffMs / (1000 * 60 * 60);
   if (hours >= HOURS_OFFLINE_THRESHOLD) return null; // signal that user should be considered offline
@@ -36,12 +37,7 @@ const OnlineUsers = () => {
           if (u.isOnline) lastSeen = "Online now";
           else if (u.lastSeenAt) {
             const short = formatShortLastSeen(u.lastSeenAt);
-            if (short === null) {
-              // older than threshold, treat as offline
-              lastSeen = "Offline";
-            } else {
-              lastSeen = `Last seen ${short}`;
-            }
+            lastSeen = short ? `Last seen ${short}` : "Offline";
           }
           return { ...u, lastSeen };
         });
@@ -112,9 +108,10 @@ const OnlineUsers = () => {
         prev.map((u) => {
           if (u.isOnline) return u;
           if (!u.lastSeenAt) return u;
+          const short = formatShortLastSeen(u.lastSeenAt);
           return {
             ...u,
-            lastSeen: `Last seen ${formatShortLastSeen(u.lastSeenAt)}`,
+            lastSeen: short ? `Last seen ${short}` : "Offline",
           };
         })
       );
@@ -191,9 +188,12 @@ const OnlineUsers = () => {
               offset={[-4, 24]} // Adjusted for smaller avatar
               color={user.isOnline ? "limegreen" : "red"}
             >
-              <Avatar className="user-avatar">
-                {user.name ? user.name.charAt(0).toUpperCase() : "?"}
-              </Avatar>
+              <UserAvatar
+                className="user-avatar"
+                src={user.avatarUrl}
+                name={user.name}
+                size={28}
+              />
             </Badge>
           }
           title={<span className="user-title">{renderName(user.name, isCurrentUser)}</span>}

@@ -125,6 +125,26 @@ function reformatName(name) {
   return `${firstNameAndMiddle} ${lastName}`;
 }
 
+// Robust getter for time fields that accepts multiple possible key formats
+function getDayLogValue(dayLogs, label) {
+  if (!dayLogs || !label) return undefined;
+  const variants = [
+    label,
+    label.replace(/\s+/g, ""),
+    label.replace(/\s+/g, "_").toLowerCase(),
+    label.toLowerCase(),
+  ];
+  for (const k of variants) {
+    if (Object.prototype.hasOwnProperty.call(dayLogs, k)) return dayLogs[k];
+  }
+  // try case-insensitive search
+  const keys = Object.keys(dayLogs || {});
+  for (const k of keys) {
+    if (String(k).toLowerCase() === String(label).toLowerCase()) return dayLogs[k];
+  }
+  return undefined;
+}
+
 export async function generateDTRPdf({
   employee,
   _dtrDays, // dtrDays is no longer used directly here
@@ -139,11 +159,23 @@ export async function generateDTRPdf({
       if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(val)) {
         return dayjs.tz(val + ' 00:00', 'YYYY-MM-DD HH:mm', LOCAL_TZ);
       }
-      // Fallback: parse with tz awareness; if it has a Z/offset, this preserves the instant
-      const tzParsed = dayjs.tz(val, LOCAL_TZ);
-      if (tzParsed && tzParsed.isValid()) return tzParsed;
+      // If ISO string already includes a timezone (Z or ±HH:mm), parse the instant then convert.
+      if (typeof val === 'string') {
+        const s = String(val);
+        const hasZone = /([zZ]|[+-]\d{2}:\d{2})$/.test(s);
+        if (hasZone) {
+          const parsed = dayjs(s).tz(LOCAL_TZ);
+          if (parsed && parsed.isValid()) return parsed;
+        }
+        const tzParsed = dayjs.tz(s, LOCAL_TZ);
+        if (tzParsed && tzParsed.isValid()) return tzParsed;
+      }
+      if (val instanceof Date || typeof val === 'number') {
+        const parsed = dayjs(val).tz(LOCAL_TZ);
+        if (parsed && parsed.isValid()) return parsed;
+      }
       const basic = dayjs(val);
-      return basic.isValid() ? dayjs.tz(basic.toISOString(), LOCAL_TZ) : dayjs().tz(LOCAL_TZ);
+      return basic.isValid() ? basic.tz(LOCAL_TZ) : dayjs().tz(LOCAL_TZ);
     } catch {
       return dayjs().tz(LOCAL_TZ);
     }
@@ -231,8 +263,8 @@ export async function generateDTRPdf({
   try {
     const hasToken = !!(secureSessionGet("token") || secureRetrieve("token"));
     if (hasToken && selectedRecord && selectedRecord.DTR_Cut_Off) {
-      const start = dayjs(selectedRecord.DTR_Cut_Off.start).format("YYYY-MM-DD");
-      const end = dayjs(selectedRecord.DTR_Cut_Off.end).format("YYYY-MM-DD");
+      const start = parseCutoff(selectedRecord.DTR_Cut_Off.start).format("YYYY-MM-DD");
+      const end = parseCutoff(selectedRecord.DTR_Cut_Off.end).format("YYYY-MM-DD");
       const [lhRes, sRes] = await Promise.all([
         axiosInstance.get(`/local-holidays`, { params: { start, end } }),
         axiosInstance.get(`/suspensions`, { params: { start, end } }),
@@ -330,14 +362,15 @@ export async function generateDTRPdf({
       currentDate.isSameOrAfter(cutOffStart, "day") &&
       currentDate.isSameOrBefore(cutOffEnd, "day");
 
-    const amIn = formatTimeForPdf(dayLogs["Time In"], dateKey) || "";
-    const pmOut = formatTimeForPdf(dayLogs["Time Out"], dateKey) || "";
-    const amOut =
-      formatTimeForPdf(dayLogs["Break Out"], dateKey) ||
-      (isInCutOff && amIn ? "12:00" : "");
-    const pmIn = 
-      formatTimeForPdf(dayLogs["Break In"], dateKey) || 
-      (isInCutOff && pmOut ? "1:00" : "");
+    const rawAmIn = getDayLogValue(dayLogs, "Time In");
+    const rawPmOut = getDayLogValue(dayLogs, "Time Out");
+    const rawAmOut = getDayLogValue(dayLogs, "Break Out");
+    const rawPmIn = getDayLogValue(dayLogs, "Break In");
+
+    const amIn = formatTimeForPdf(rawAmIn, dateKey) || "";
+    const pmOut = formatTimeForPdf(rawPmOut, dateKey) || "";
+    const amOut = formatTimeForPdf(rawAmOut, dateKey) || (isInCutOff && amIn ? "12:00" : "");
+    const pmIn = formatTimeForPdf(rawPmIn, dateKey) || (isInCutOff && pmOut ? "1:00" : "");
 
     const hasLogs = !!(amIn || amOut || pmIn || pmOut);
 
@@ -582,8 +615,22 @@ export async function generateBatchDTRPdf(printerTray) {
       if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(val)) {
         return dayjs.tz(val + ' 00:00', 'YYYY-MM-DD HH:mm', LOCAL_TZ);
       }
-      const tzParsed = dayjs.tz(val, LOCAL_TZ);
-      return tzParsed && tzParsed.isValid() ? tzParsed : dayjs().tz(LOCAL_TZ);
+      if (typeof val === 'string') {
+        const s = String(val);
+        const hasZone = /([zZ]|[+-]\d{2}:\d{2})$/.test(s);
+        if (hasZone) {
+          const parsed = dayjs(s).tz(LOCAL_TZ);
+          if (parsed && parsed.isValid()) return parsed;
+        }
+        const tzParsed = dayjs.tz(s, LOCAL_TZ);
+        if (tzParsed && tzParsed.isValid()) return tzParsed;
+      }
+      if (val instanceof Date || typeof val === 'number') {
+        const parsed = dayjs(val).tz(LOCAL_TZ);
+        if (parsed && parsed.isValid()) return parsed;
+      }
+      const basic = dayjs(val);
+      return basic && basic.isValid() ? basic.tz(LOCAL_TZ) : dayjs().tz(LOCAL_TZ);
     } catch {
       return dayjs().tz(LOCAL_TZ);
     }
@@ -648,7 +695,7 @@ export async function generateBatchDTRPdf(printerTray) {
       { header: "Work Status", dataKey: "status", width: 40 },
     ];
 
-    const year = dayjs(selectedRecord.DTR_Cut_Off.start).year();
+    const year = start.year();
     const holidaysPH = await fetchPhilippineHolidays(year);
     const trainings = await fetchEmployeeTrainings(employee.empId);
 
@@ -657,8 +704,8 @@ export async function generateBatchDTRPdf(printerTray) {
     const startOfMonth = referenceDate.startOf("month");
     const endOfMonth = referenceDate.endOf("month");
 
-  const cutOffStart = parseCutoffBatch(selectedRecord.DTR_Cut_Off.start).startOf('day');
-  const cutOffEnd = parseCutoffBatch(selectedRecord.DTR_Cut_Off.end).startOf('day');
+  const cutOffStart = start.startOf('day');
+  const cutOffEnd = end.endOf('day');
 
     // Local holidays and suspensions within cut-off
     let localHolidays = [];
@@ -748,14 +795,15 @@ export async function generateBatchDTRPdf(printerTray) {
         currentDate.isSameOrAfter(cutOffStart, "day") &&
         currentDate.isSameOrBefore(cutOffEnd, "day");
 
-      const amIn = formatTimeForPdf(dayLogs["Time In"], dateKey) || "";
-      const pmOut = formatTimeForPdf(dayLogs["Time Out"], dateKey) || "";
-      const amOut =
-        formatTimeForPdf(dayLogs["Break Out"], dateKey) ||
-        (isInCutOff && amIn ? "12:00" : "");
-      const pmIn = 
-        formatTimeForPdf(dayLogs["Break In"], dateKey) || 
-        (isInCutOff && pmOut ? "1:00" : "");
+      const rawAmIn = getDayLogValue(dayLogs, "Time In");
+      const rawPmOut = getDayLogValue(dayLogs, "Time Out");
+      const rawAmOut = getDayLogValue(dayLogs, "Break Out");
+      const rawPmIn = getDayLogValue(dayLogs, "Break In");
+
+      const amIn = formatTimeForPdf(rawAmIn, dateKey) || "";
+      const pmOut = formatTimeForPdf(rawPmOut, dateKey) || "";
+      const amOut = formatTimeForPdf(rawAmOut, dateKey) || (isInCutOff && amIn ? "12:00" : "");
+      const pmIn = formatTimeForPdf(rawPmIn, dateKey) || (isInCutOff && pmOut ? "1:00" : "");
 
       const hasLogs = !!(amIn || amOut || pmIn || pmOut);
 

@@ -36,3 +36,11 @@
     margin-top: 15px;
 }
 
+/* ─── Responsive ─── */
+@media (max-width: 767px) {
+  .payslip-modal-content .ant-input,
+  .payslip-modal-content .ant-input-number { height: 28px; font-size: 11px; }
+  .payslip-modal-content .ant-picker-range { height: 28px; }
+  .payslip-modal-content .cutoff-card { padding: 4px; }
+}
+

@@ -2,14 +2,26 @@ import express from "express";
 import DTRData from "../models/DTRData.js";
 import DTRLog from "../models/DTRLog.js";
 import { getRecentAttendance, getLogsByAcNo, logDTRGeneration } from "../controllers/dtrController.js";
+import verifyToken from "../middleware/authMiddleware.js";
+import { requirePermissions } from "../middleware/permissionMiddleware.js";
 
 const router = express.Router();
 
-router.get("/recent-daily-attendance", getRecentAttendance);
-router.get("/logs-by-acno", getLogsByAcNo);
-router.post("/log-generation", logDTRGeneration);
+router.use(verifyToken);
 
-router.post("/upload", async (req, res) => {
+router.get(
+  "/recent-daily-attendance",
+  requirePermissions(["canViewDTR"]),
+  getRecentAttendance
+);
+router.get("/logs-by-acno", requirePermissions(["canViewDTR"]), getLogsByAcNo);
+router.post(
+  "/log-generation",
+  requirePermissions(["canProcessDTR"]),
+  logDTRGeneration
+);
+
+router.post("/upload", requirePermissions(["canProcessDTR"]), async (req, res) => {
   try {
     const { recordName, cutOffStart, cutOffEnd, rows, userId, uploadedBy } =
       req.body;

@@ -13,6 +13,7 @@ import {
   Typography,
   Upload,
   Switch,
+  Grid,
 } from "antd";
 import { UploadOutlined } from "@ant-design/icons";
 import * as XLSX from "xlsx";
@@ -20,10 +21,14 @@ import dayjs from "dayjs";
 import axiosInstance from "../../api/axiosInstance";
 import { fetchPhilippineHolidays } from "../../api/holidayPH";
 import useDemoMode from "../../hooks/useDemoMode";
+import useLoading from "../../hooks/useLoading";
+import { secureSessionGet, secureSessionStore } from "../../../utils/secureStorage";
 
 const { RangePicker } = DatePicker;
 
 const NationalHolidays = () => {
+  const screens = Grid.useBreakpoint();
+  const isMobile = !screens.md;
   const [year, setYear] = useState(dayjs().year());
   const [data, setData] = useState([]);
   useEffect(() => {
@@ -48,32 +53,39 @@ const NationalHolidays = () => {
           onChange={(d) => setYear(d?.year() || dayjs().year())}
         />
       </Space>
-      <Table
-        className="compact-table"
-        size="small"
-        pagination={false}
-        dataSource={data}
-        columns={[
-          {
-            title: "Date",
-            dataIndex: "date",
-            key: "date",
-            render: (d) => dayjs(d).format("YYYY-MM-DD"),
-          },
-          { title: "Name", dataIndex: "name", key: "name" },
-          { title: "Type", dataIndex: "type", key: "type" },
-        ]}
-      />
+      <div style={{ overflowX: 'auto' }}>
+        <Table
+          className="compact-table"
+          size="small"
+          pagination={false}
+          dataSource={data}
+          scroll={{ x: isMobile ? 400 : undefined }}
+          columns={[
+            {
+              title: "Date",
+              dataIndex: "date",
+              key: "date",
+              width: isMobile ? 110 : undefined,
+              render: (d) => dayjs(d).format("YYYY-MM-DD"),
+            },
+            { title: "Name", dataIndex: "name", key: "name" },
+            { title: "Type", dataIndex: "type", key: "type", width: isMobile ? 80 : undefined },
+          ]}
+        />
+      </div>
     </div>
   );
 };
 
 const LocalHolidays = () => {
+  const screens = Grid.useBreakpoint();
+  const isMobile = !screens.md;
   const { isDemoActive, isDemoUser } = useDemoMode();
+  const { withLoading } = useLoading();
   const DEMO_SESSION_KEY = "__demo_new_local_holiday__";
   const [demoNewIds, setDemoNewIds] = useState(() => {
     try {
-      return JSON.parse(sessionStorage.getItem(DEMO_SESSION_KEY) || "[]");
+      return secureSessionGet(DEMO_SESSION_KEY) || [];
     } catch {
       return [];
     }
@@ -84,7 +96,7 @@ const LocalHolidays = () => {
       const base = Array.isArray(prev) ? prev : [];
       const next = Array.from(new Set([...base, id]));
       try {
-        sessionStorage.setItem(DEMO_SESSION_KEY, JSON.stringify(next));
+        secureSessionStore(DEMO_SESSION_KEY, next);
       } catch {}
       return next;
     });
@@ -212,76 +224,85 @@ const LocalHolidays = () => {
   };
 
   const confirmBulkUpload = async () => {
-    try {
-      await axiosInstance.post("/local-holidays/bulk-upload", {
-        rows: previewRows,
-      });
-      message.success("Bulk upload complete");
-      setPreviewModalOpen(false);
-      setBulkOpen(false);
-      setPreviewRows([]);
-      load();
-    } catch (e) {
-      message.error(e?.response?.data?.message || "Bulk upload failed");
-    }
+    await withLoading(async ({ updateProgress }) => {
+      try {
+        updateProgress(20, "Uploading holidays…");
+        await axiosInstance.post("/local-holidays/bulk-upload", {
+          rows: previewRows,
+        });
+        updateProgress(90, "Finalising…");
+        message.success("Bulk upload complete");
+        setPreviewModalOpen(false);
+        setBulkOpen(false);
+        setPreviewRows([]);
+        load();
+      } catch (e) {
+        message.error(e?.response?.data?.message || "Bulk upload failed");
+      }
+    }, "Uploading holidays…");
   };
 
   return (
     <div>
-      <Space style={{ marginBottom: 12 }}>
-        <Button type="primary" onClick={() => setOpen(true)}>
+      <Space style={{ marginBottom: 12, flexWrap: 'wrap' }}>
+        <Button type="primary" size={isMobile ? 'small' : 'middle'} onClick={() => setOpen(true)}>
           Add Local Holiday
         </Button>
-        <Button onClick={() => setBulkOpen(true)}>Bulk Upload CSV/Excel</Button>
+        <Button size={isMobile ? 'small' : 'middle'} onClick={() => setBulkOpen(true)}>Bulk Upload CSV/Excel</Button>
       </Space>
-      <Table
-        className="compact-table"
-        size="small"
-        dataSource={list}
-        rowKey="key"
-        columns={[
-          { title: "Name", dataIndex: "name" },
-          {
-            title: "Date",
-            dataIndex: "date",
-            render: (d, r) =>
-              r.endDate
-                ? `${dayjs(d).format("YYYY-MM-DD")} → ${dayjs(r.endDate).format(
-                    "YYYY-MM-DD"
-                  )}`
-                : dayjs(d).format("YYYY-MM-DD"),
-          },
-          { title: "Location", dataIndex: "location" },
-          { title: "Notes", dataIndex: "notes" },
-          {
-            title: "Action",
-            key: "action",
-            render: (_, r) => {
-              const deleteDisabled =
-                isDemoActive && isDemoUser && !demoNewIds.includes(r.key);
-              return (
-                <Space>
-                  <Button
-                    type="primary"
-                    size="small"
-                    onClick={() => startEdit(r)}
-                  >
-                    Edit
-                  </Button>
-                  <Button
-                    danger
-                    size="small"
-                    disabled={deleteDisabled}
-                    onClick={() => remove(r)}
-                  >
-                    Delete
-                  </Button>
-                </Space>
-              );
+      <div style={{ overflowX: 'auto' }}>
+        <Table
+          className="compact-table"
+          size="small"
+          dataSource={list}
+          rowKey="key"
+          scroll={{ x: isMobile ? 500 : undefined }}
+          columns={[
+            { title: "Name", dataIndex: "name", width: isMobile ? 120 : undefined },
+            {
+              title: "Date",
+              dataIndex: "date",
+              width: isMobile ? 110 : undefined,
+              render: (d, r) =>
+                r.endDate
+                  ? `${dayjs(d).format("YYYY-MM-DD")} → ${dayjs(r.endDate).format(
+                      "YYYY-MM-DD"
+                    )}`
+                  : dayjs(d).format("YYYY-MM-DD"),
             },
-          },
-        ]}
-      />
+            ...(!isMobile ? [{ title: "Location", dataIndex: "location" }] : []),
+            ...(!isMobile ? [{ title: "Notes", dataIndex: "notes" }] : []),
+            {
+              title: "Action",
+              key: "action",
+              width: isMobile ? 120 : undefined,
+              render: (_, r) => {
+                const deleteDisabled =
+                  isDemoActive && isDemoUser && !demoNewIds.includes(r.key);
+                return (
+                  <Space size={isMobile ? 4 : 8}>
+                    <Button
+                      type="primary"
+                      size="small"
+                      onClick={() => startEdit(r)}
+                    >
+                      Edit
+                    </Button>
+                    <Button
+                      danger
+                      size="small"
+                      disabled={deleteDisabled}
+                      onClick={() => remove(r)}
+                    >
+                      Del
+                    </Button>
+                  </Space>
+                );
+              },
+            },
+          ]}
+        />
+      </div>
 
       <Modal
         open={open}
@@ -393,11 +414,14 @@ const LocalHolidays = () => {
 const { Title, Paragraph } = Typography;
 
 const Suspensions = () => {
+  const screens = Grid.useBreakpoint();
+  const isMobile = !screens.md;
   const { isDemoActive, isDemoUser } = useDemoMode();
+  const { withLoading } = useLoading();
   const DEMO_SESSION_KEY = "__demo_new_suspension__";
   const [demoNewIds, setDemoNewIds] = useState(() => {
     try {
-      return JSON.parse(sessionStorage.getItem(DEMO_SESSION_KEY) || "[]");
+      return secureSessionGet(DEMO_SESSION_KEY) || [];
     } catch {
       return [];
     }
@@ -408,7 +432,7 @@ const Suspensions = () => {
       const base = Array.isArray(prev) ? prev : [];
       const next = Array.from(new Set([...base, id]));
       try {
-        sessionStorage.setItem(DEMO_SESSION_KEY, JSON.stringify(next));
+        secureSessionStore(DEMO_SESSION_KEY, next);
       } catch {}
       return next;
     });
@@ -547,18 +571,22 @@ const Suspensions = () => {
   };
 
   const confirmBulkUpload = async () => {
-    try {
-      await axiosInstance.post("/suspensions/bulk-upload", {
-        rows: previewRows,
-      });
-      message.success("Bulk upload complete");
-      setPreviewModalOpen(false);
-      setBulkOpen(false);
-      setPreviewRows([]);
-      load();
-    } catch (e) {
-      message.error(e?.response?.data?.message || "Bulk upload failed");
-    }
+    await withLoading(async ({ updateProgress }) => {
+      try {
+        updateProgress(20, "Uploading suspensions…");
+        await axiosInstance.post("/suspensions/bulk-upload", {
+          rows: previewRows,
+        });
+        updateProgress(90, "Finalising…");
+        message.success("Bulk upload complete");
+        setPreviewModalOpen(false);
+        setBulkOpen(false);
+        setPreviewRows([]);
+        load();
+      } catch (e) {
+        message.error(e?.response?.data?.message || "Bulk upload failed");
+      }
+    }, "Uploading suspensions…");
   };
 
   return (
@@ -566,72 +594,78 @@ const Suspensions = () => {
       <Title level={4} style={{ marginBottom: 8 }}>
         Suspension Days
       </Title>
-      <Paragraph type="secondary" style={{ marginTop: 0, marginBottom: 12 }}>
+      <Paragraph type="secondary" style={{ marginTop: 0, marginBottom: 12, fontSize: isMobile ? 12 : 14 }}>
         Manage suspension days (temporary office closures or suspensions). Use
         the Add Suspension button to create a new suspension record; these
         entries will be used when calculating DTRs and reports.
       </Paragraph>
-      <Space style={{ marginBottom: 12 }}>
-        <Button type="primary" onClick={() => setOpen(true)}>
+      <Space style={{ marginBottom: 12, flexWrap: 'wrap' }}>
+        <Button type="primary" size={isMobile ? 'small' : 'middle'} onClick={() => setOpen(true)}>
           Add Suspension
         </Button>
-        <Button onClick={() => setBulkOpen(true)}>Bulk Upload CSV/Excel</Button>
+        <Button size={isMobile ? 'small' : 'middle'} onClick={() => setBulkOpen(true)}>Bulk Upload CSV/Excel</Button>
       </Space>
-      <Table
-        className="compact-table"
-        size="small"
-        dataSource={list}
-        rowKey="key"
-        columns={[
-          { title: "Title", dataIndex: "title" },
-          {
-            title: "Date",
-            dataIndex: "date",
-            render: (d, r) =>
-              r.endDate
-                ? `${dayjs(d).format("YYYY-MM-DD")} → ${dayjs(r.endDate).format(
-                    "YYYY-MM-DD"
-                  )}`
-                : dayjs(d).format("YYYY-MM-DD"),
-          },
-          { title: "Scope", dataIndex: "scope" },
-          {
-            title: "Reference",
-            key: "ref",
-            render: (_, r) => `${r.referenceType || ""} ${r.referenceNo || ""}`,
-          },
-          { title: "Location", dataIndex: "location" },
-          { title: "Notes", dataIndex: "notes" },
-          {
-            title: "Active",
-            dataIndex: "active",
-            render: (v) => (v === false ? "Inactive" : "Active"),
-          },
-          {
-            title: "Action",
-            key: "action",
-            render: (_, r) => {
-              const deleteDisabled =
-                isDemoActive && isDemoUser && !demoNewIds.includes(r.key);
-              return (
-                <Space>
-                  <Button size="small" onClick={() => startEdit(r)}>
-                    Edit
-                  </Button>
-                  <Button
-                    danger
-                    size="small"
-                    disabled={deleteDisabled}
-                    onClick={() => remove(r)}
-                  >
-                    Delete
-                  </Button>
-                </Space>
-              );
+      <div style={{ overflowX: 'auto' }}>
+        <Table
+          className="compact-table"
+          size="small"
+          dataSource={list}
+          rowKey="key"
+          scroll={{ x: isMobile ? 500 : 800 }}
+          columns={[
+            { title: "Title", dataIndex: "title", width: isMobile ? 120 : undefined },
+            {
+              title: "Date",
+              dataIndex: "date",
+              width: isMobile ? 110 : undefined,
+              render: (d, r) =>
+                r.endDate
+                  ? `${dayjs(d).format("YYYY-MM-DD")} → ${dayjs(r.endDate).format(
+                      "YYYY-MM-DD"
+                    )}`
+                  : dayjs(d).format("YYYY-MM-DD"),
             },
-          },
-        ]}
-      />
+            ...(!isMobile ? [{ title: "Scope", dataIndex: "scope" }] : []),
+            ...(!isMobile ? [{
+              title: "Reference",
+              key: "ref",
+              render: (_, r) => `${r.referenceType || ""} ${r.referenceNo || ""}`,
+            }] : []),
+            ...(!isMobile ? [{ title: "Location", dataIndex: "location" }] : []),
+            ...(!isMobile ? [{ title: "Notes", dataIndex: "notes" }] : []),
+            {
+              title: "Active",
+              dataIndex: "active",
+              width: isMobile ? 70 : undefined,
+              render: (v) => (v === false ? "Inactive" : "Active"),
+            },
+            {
+              title: "Action",
+              key: "action",
+              width: isMobile ? 120 : undefined,
+              render: (_, r) => {
+                const deleteDisabled =
+                  isDemoActive && isDemoUser && !demoNewIds.includes(r.key);
+                return (
+                  <Space size={isMobile ? 4 : 8}>
+                    <Button size="small" onClick={() => startEdit(r)}>
+                      Edit
+                    </Button>
+                    <Button
+                      danger
+                      size="small"
+                      disabled={deleteDisabled}
+                      onClick={() => remove(r)}
+                    >
+                      Del
+                    </Button>
+                  </Space>
+                );
+              },
+            },
+          ]}
+        />
+      </div>
 
       <Modal
         open={open}

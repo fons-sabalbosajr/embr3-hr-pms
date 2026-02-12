@@ -10,7 +10,18 @@ import dayjs from "dayjs";
 export const getSettings = async (req, res) => {
   try {
     const settings = await Settings.getSingleton();
-    res.status(200).json(settings);
+
+    const proto = String(req.headers['x-forwarded-proto'] || req.protocol || 'http');
+    const host = String(req.headers['x-forwarded-host'] || req.get('host') || '').trim();
+    const serverPublic = String(process.env.SERVER_PUBLIC_URL || '').trim().replace(/\/$/, '');
+    const derived = host ? `${proto}://${host}` : '';
+    const serverPublicUrl = serverPublic || derived;
+
+    const payload = typeof settings?.toObject === 'function' ? settings.toObject() : settings;
+    res.status(200).json({
+      ...(payload || {}),
+      serverPublicUrl,
+    });
   } catch (error) {
     res.status(500).json({ message: "Error fetching settings", error });
   }

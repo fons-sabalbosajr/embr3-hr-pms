@@ -30,12 +30,26 @@ const settingsSchema = new mongoose.Schema({
     siderColor: { type: String, default: "#001529" }, // Sider background (AntD default dark)
   },
 
-  // Maintenance mode
+  // Maintenance mode (general — blocks entire app for non-developers)
   maintenance: {
     enabled: { type: Boolean, default: false },
     startDate: { type: Date },
     endDate: { type: Date },
     message: { type: String },
+  },
+
+  // Per-feature maintenance — hides / disables individual menu features
+  featureMaintenance: {
+    type: Map,
+    of: new mongoose.Schema(
+      {
+        enabled: { type: Boolean, default: false },
+        message: { type: String, default: "This feature is temporarily unavailable." },
+        hidden: { type: Boolean, default: false }, // true = hide from menu entirely
+      },
+      { _id: false }
+    ),
+    default: {},
   },
 
   // Security Settings

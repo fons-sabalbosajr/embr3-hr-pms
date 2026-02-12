@@ -4,9 +4,7 @@ import { getSocketInstance } from "../socket.js";
 import User from "../models/User.js";
 import AuditLog from "../models/AuditLog.js";
 import Employee from "../models/Employee.js";
-import nodemailer from "nodemailer";
-import fs from 'fs';
-import path from 'path';
+import { sendPayslipDeliveryEmail } from "../utils/email.js";
 import { buildPayslipEmail } from "../utils/emailTemplates.js";
 
 export const createPayslipRequest = async (req, res) => {
@@ -185,45 +183,6 @@ export const sendPayslipEmail = async (req, res) => {
       });
     }
 
-    // Validate env configuration with non-production fallback
-    const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_SECURE, ALLOW_FAKE_EMAILS, NODE_ENV, DISABLE_EMAIL } = process.env;
-    const EMAIL_HOST = process.env.EMAIL_HOST;
-    const EMAIL_PORT = process.env.EMAIL_PORT;
-    const EMAIL_USER = process.env.EMAIL_USER;
-    const EMAIL_PASS = process.env.EMAIL_PASS;
-    const EMAIL_SECURE = (process.env.EMAIL_SECURE || '').toLowerCase();
-
-    // Prefer SMTP_* if set, else fall back to EMAIL_* variables
-    const host = SMTP_HOST || EMAIL_HOST;
-    const port = Number(SMTP_PORT || EMAIL_PORT);
-    const secure = (String(SMTP_SECURE).toLowerCase() === 'true') || (EMAIL_SECURE === 'true');
-    const user = SMTP_USER || EMAIL_USER;
-    const pass = SMTP_PASS || EMAIL_PASS;
-
-    const allowFake = (ALLOW_FAKE_EMAILS === 'true')
-      || (NODE_ENV && NODE_ENV !== 'production')
-      || (DISABLE_EMAIL && DISABLE_EMAIL.toLowerCase() === 'true')
-      || (!host || !port || !user || !pass);
-    let transporter;
-    if (!host || !port || !user || !pass) {
-      if (!allowFake) {
-        return res.status(500).json({ success: false, message: 'SMTP configuration missing. Please set SMTP_* or EMAIL_* variables.' });
-      }
-      // Fallback: capture email to server logs (non-production / ALLOW_FAKE_EMAILS)
-      transporter = nodemailer.createTransport({
-        streamTransport: true,
-        buffer: true,
-        newline: 'unix',
-      });
-    } else {
-      transporter = nodemailer.createTransport({
-        host,
-        port,
-        secure,
-        auth: { user, pass },
-      });
-    }
-
     // Retrieve employee document early for template enrichment
     let employeeDoc = null;
     try {
@@ -237,9 +196,7 @@ export const sendPayslipEmail = async (req, res) => {
 
     let info;
     let simulated = false;
-    const fromAddress = user || 'no-reply@example.local';
     try {
-      const fromName = process.env.EMAIL_FROM_NAME || 'EMBR3 DTRMS Personnel';
       // Normalize pdf payload to raw base64
       const extractBase64 = (s) => {
         try {
@@ -255,23 +212,15 @@ export const sendPayslipEmail = async (req, res) => {
       const rawBase64 = extractBase64(pdfBase64);
       const pdfBuffer = Buffer.from(rawBase64, 'base64');
 
-      const mailOptions = {
-        from: `${fromName} <${fromAddress}>`,
+      info = await sendPayslipDeliveryEmail({
         to: row.email,
         subject: subject || `Payslip ${row.period}`,
         html,
-        attachments: [
-          {
-            filename,
-            content: pdfBuffer,
-            contentType: 'application/pdf',
-            contentDisposition: 'attachment',
-          },
-        ],
-      };
-      info = await transporter.sendMail(mailOptions);
-      if (allowFake && info && info.message) {
-        console.log('FAKE EMAIL (captured):\n', info.message.toString());
+        pdfBuffer,
+        filename,
+      });
+      if (info && info.skipped) {
+        console.log('[Payslip] Email sending disabled (DISABLE_EMAIL). Marking as simulated.');
         simulated = true;
       }
     } catch (mailErr) {

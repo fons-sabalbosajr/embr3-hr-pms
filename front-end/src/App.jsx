@@ -1,8 +1,10 @@
 // client/src/App.jsx
-import React, { Suspense, lazy } from "react";
+import React, { Suspense, lazy, useEffect } from "react";
+import { Spin } from "antd";
 import ErrorBoundary from "./components/ErrorBoundary.jsx";
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import useAuth from "./hooks/useAuth";
+import NProgress from "nprogress";
 
 // Route-level code splitting
 const AuthPage = lazy(() => import("./pages/AuthPage/AuthPage"));
@@ -17,9 +19,37 @@ const Unauthorized = lazy(() => import("./pages/Unauthorized/Unauthorized"));
 
 const AppRoutes = () => {
   const { isAuthenticated } = useAuth();
+  const location = useLocation();
+
+  // ── NProgress on route change ────────────────────────────────────────────
+  useEffect(() => {
+    NProgress.start();
+    // Tiny delay so NProgress has time to animate before done()
+    const t = setTimeout(() => NProgress.done(), 150);
+    return () => {
+      clearTimeout(t);
+      NProgress.done();
+    };
+  }, [location.pathname]);
 
   return (
-    <Suspense fallback={<div style={{ padding: 24 }}>Loading…</div>}>
+    <Suspense
+      fallback={
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            height: "100vh",
+          }}
+        >
+          <Spin size="large" tip="Loading…">
+            {/* Spin requires a child when using tip */}
+            <div style={{ padding: 50 }} />
+          </Spin>
+        </div>
+      }
+    >
       <Routes>
       {/* 🔑 Auth routes */}
       <Route

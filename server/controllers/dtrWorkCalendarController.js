@@ -2,6 +2,21 @@
 import DTRLog from "../models/DTRLog.js";
 import Employee from "../models/Employee.js";
 import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc.js";
+import timezone from "dayjs/plugin/timezone.js";
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
+
+const LOCAL_TZ = "Asia/Manila";
+
+const parseInLocalTz = (value) => {
+  if (!value) return dayjs.invalid();
+  if (value instanceof Date || typeof value === "number") return dayjs(value).tz(LOCAL_TZ);
+  const s = String(value);
+  const hasZone = /([zZ]|[+-]\d{2}:\d{2})$/.test(s);
+  return hasZone ? dayjs(s).tz(LOCAL_TZ) : dayjs.tz(s, LOCAL_TZ);
+};
 
 export const getWorkCalendar = async (req, res) => {
   try {
@@ -44,8 +59,14 @@ export const getWorkCalendar = async (req, res) => {
     const filter = orConds.length ? { $or: orConds } : {};
     if (startDate || endDate) {
       filter.Time = {};
-      if (startDate) filter.Time.$gte = dayjs(startDate).startOf("day").toDate();
-      if (endDate) filter.Time.$lte = dayjs(endDate).endOf("day").toDate();
+      if (startDate) {
+        const s = parseInLocalTz(startDate);
+        if (s.isValid()) filter.Time.$gte = s.startOf("day").toDate();
+      }
+      if (endDate) {
+        const e = parseInLocalTz(endDate);
+        if (e.isValid()) filter.Time.$lte = e.endOf("day").toDate();
+      }
     }
 
     const logs = await DTRLog.find(filter).sort({ Time: 1 });

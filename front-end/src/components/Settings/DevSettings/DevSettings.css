@@ -1,0 +1,29 @@
+/* ── DevSettings Sider – override global sider theming ────────────── */
+.dev-settings-layout .ant-layout-sider {
+  background: transparent !important;
+}
+
+.dev-settings-layout .ant-layout-sider .ant-menu {
+  background: transparent !important;
+  color: var(--app-text-color, rgba(0, 0, 0, 0.88)) !important;
+}
+
+.dev-settings-layout .ant-layout-sider .ant-menu-item,
+.dev-settings-layout .ant-layout-sider .ant-menu-submenu-title {
+  color: var(--app-text-color, rgba(0, 0, 0, 0.88)) !important;
+}
+
+.dev-settings-layout .ant-layout-sider .ant-menu-item:hover,
+.dev-settings-layout .ant-layout-sider .ant-menu-submenu-title:hover {
+  background: var(--app-surface-hover-bg, rgba(0, 0, 0, 0.04)) !important;
+}
+
+.dev-settings-layout .ant-layout-sider .ant-menu-item-selected {
+  background: var(--ant-color-primary-bg, #e6f4ff) !important;
+  color: var(--ant-color-primary, #1677ff) !important;
+}
+
+.dev-settings-layout .ant-layout-sider .ant-menu-item .anticon,
+.dev-settings-layout .ant-layout-sider .ant-menu-submenu-title .anticon {
+  color: inherit !important;
+}

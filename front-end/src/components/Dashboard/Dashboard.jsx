@@ -1,4 +1,5 @@
 import React, { useEffect, useState, lazy, Suspense, useRef } from "react";
+import dayjs from "dayjs";
 import {
   Alert,
   Row,
@@ -18,6 +19,7 @@ import {
 } from "antd";
 import axiosInstance from "../../api/axiosInstance";
 import { generateDTRPdf } from "../../../utils/generateDTRpdf";
+import { resolveTimePunches } from "../../../utils/resolveTimePunches";
 import {
   EyeOutlined,
   FileTextOutlined,
@@ -46,6 +48,9 @@ const Dashboard = () => {
   const [users, setUsers] = useState([]);
   const employeesRef = useRef(employees);
   employeesRef.current = employees;
+
+  const [appSettings, setAppSettings] = useState(null);
+  const [attendanceRefresh, setAttendanceRefresh] = useState(0);
 
   const [totalEmployees, setTotalEmployees] = useState(0);
   const [employeeTypeCounts, setEmployeeTypeCounts] = useState({});
@@ -167,6 +172,32 @@ const Dashboard = () => {
     fetchEmployees();
   }, []);
 
+  // Load settings and refresh attendance when Developer Settings updates occur
+  useEffect(() => {
+    let mounted = true;
+    const loadSettings = async () => {
+      try {
+        const res = await axiosInstance.get("/settings");
+        if (!mounted) return;
+        setAppSettings(res.data);
+      } catch (_) {
+        // Non-fatal if not accessible
+      }
+    };
+
+    loadSettings();
+
+    const onUpdated = () => {
+      loadSettings();
+      setAttendanceRefresh((v) => v + 1);
+    };
+    window.addEventListener("app-settings-updated", onUpdated);
+    return () => {
+      mounted = false;
+      window.removeEventListener("app-settings-updated", onUpdated);
+    };
+  }, []);
+
   // Fetch all DTR data once to determine latest encoded biometrics cut-off end date
   useEffect(() => {
     const fetchLatestCutoff = async () => {
@@ -188,60 +219,193 @@ const Dashboard = () => {
       }
     };
     fetchLatestCutoff();
-  }, []);
+  }, [attendanceRefresh]);
 
   // Fetch and aggregate logs for two days (cutoff end date and previous day) building per-employee rows
   useEffect(() => {
     const fetchTwoDayAttendance = async () => {
-      if (!latestCutoffEndDate || !employees.length) return;
+      if (!employees.length) return;
       try {
-        const endDateObj = new Date(latestCutoffEndDate);
-        const day2 = endDateObj.toISOString().slice(0,10); // cutoff end
-        const prevObj = new Date(endDateObj);
-        prevObj.setDate(prevObj.getDate() - 1);
-        const day1 = prevObj.toISOString().slice(0,10); // previous day
-  const days = [day1, day2];
-  setLastTwoAttendanceDates(days);
+        const override = appSettings?.dtr?.overrideCutoff;
+        const overrideEnabled =
+          !!override?.enabled && !!override?.startDate && !!override?.endDate;
 
-        const allRows = [];
-        const toTimeStr = (t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        const normalizeState = (raw) => {
-          switch(raw){
-            case 'C/In': case 'Time In': case 'OverTime In': case 'Overtime In': return 'IN';
-            case 'Out': case 'Break Out': return 'BO';
-            case 'Out Back': case 'Break In': return 'BI';
-            case 'C/Out': case 'Time Out': case 'OverTime Out': case 'Overtime Out': return 'OUT';
-            default: return raw;
-          }
+        const anchorEnd = overrideEnabled ? override.endDate : latestCutoffEndDate;
+        if (!anchorEnd) return;
+
+        // Pick the last 2 days (looking back from month end) that actually have logs.
+        // This avoids showing a near-zero count when the last calendar day has no records.
+        const monthEnd = dayjs(anchorEnd).endOf("month");
+        const buildParamsForDay = (d) => {
+          // NOTE: Do NOT force recordName here.
+          // Some months/days can be split across different DTRData imports; recordName filtering can cause undercounts.
+          return { startDate: d, endDate: d };
         };
 
+        const fetchLogsForDay = async (d) => {
+          // /dtrlogs/merged is paginated (default limit=20). For counting/tiling we need ALL logs for the day.
+          const limit = 500;
+          let page = 1;
+          let total = Infinity;
+          const all = [];
+
+          while (all.length < total) {
+            const res = await axiosInstance.get('/dtrlogs/merged', {
+              params: { ...buildParamsForDay(d), page, limit },
+            });
+            const batch = res.data?.data || [];
+            total = Number(res.data?.total ?? all.length + batch.length);
+            all.push(...batch);
+
+            if (!batch.length) break;
+            page += 1;
+            // safety cap
+            if (page > 25) break;
+          }
+          return all;
+        };
+
+        const isWeekday = (d) => {
+          const dow = dayjs(d).day();
+          return dow !== 0 && dow !== 6;
+        };
+
+        const maxLookbackDays = 14;
+        const found = []; // newest-first
+        const cache = new Map(); // day -> logs
+        for (let i = 0; i <= maxLookbackDays; i++) {
+          const d = monthEnd.subtract(i, 'day').format('YYYY-MM-DD');
+          // Prefer working days (Mon-Fri) when we need to look back
+          if (i > 0 && !isWeekday(d)) continue;
+          const logs = await fetchLogsForDay(d);
+          cache.set(d, logs);
+          if (logs.length > 0) {
+            found.push(d);
+            if (found.length === 2) break;
+          }
+        }
+
+        // Fallback: if we didn't find 2 working days with records, include weekend days too.
+        if (found.length < 2) {
+          for (let i = 0; i <= maxLookbackDays; i++) {
+            const d = monthEnd.subtract(i, 'day').format('YYYY-MM-DD');
+            if (found.includes(d)) continue;
+            const logs = cache.has(d) ? cache.get(d) : await fetchLogsForDay(d);
+            cache.set(d, logs);
+            if (logs.length > 0) {
+              found.push(d);
+              if (found.length === 2) break;
+            }
+          }
+        }
+
+        // Last resort: keep the last 2 calendar days even if empty
+        let days;
+        if (found.length >= 2) {
+          const [newest, older] = found; // found is newest-first
+          days = [older, newest].sort();
+        } else {
+          const day2 = monthEnd.format('YYYY-MM-DD');
+          const day1 = monthEnd.subtract(1, 'day').format('YYYY-MM-DD');
+          days = [day1, day2];
+        }
+
+        setLastTwoAttendanceDates(days);
+
+        const allRows = [];
+        const normalizeDigits = (v) =>
+          v ? String(v).replace(/\D/g, "").replace(/^0+/, "") : "";
+
+        // Build a lookup from any known employee digits (empId/empNo/alternateEmpIds) -> primary digits.
+        // If a digit candidate is shared by multiple employees, mark it as ambiguous.
+        const digitsToPrimary = new Map();
+        const ambiguous = new Set();
+        employees.forEach((emp) => {
+          const primary = normalizeDigits(emp.empId || emp.empNo);
+          if (!primary) return;
+          const candidates = [emp.empId, emp.empNo, ...(emp.alternateEmpIds || [])]
+            .filter(Boolean)
+            .map(normalizeDigits)
+            .filter(Boolean);
+          candidates.forEach((c) => {
+            if (!c) return;
+            if (ambiguous.has(c)) return;
+            const existing = digitsToPrimary.get(c);
+            if (existing && existing !== primary) {
+              digitsToPrimary.delete(c);
+              ambiguous.add(c);
+              return;
+            }
+            digitsToPrimary.set(c, primary);
+          });
+        });
+
+        const resolvePrimaryDigitsFromLog = (log) => {
+          const logDigits = normalizeDigits(log?.empId || log?.acNo);
+          if (!logDigits) return null;
+
+          // direct match
+          const direct = digitsToPrimary.get(logDigits);
+          if (direct) return direct;
+
+          // suffix match: try longest suffix first (helps prefixed device IDs)
+          const maxSuffix = Math.min(8, logDigits.length);
+          for (let len = maxSuffix; len >= 4; len--) {
+            const suffix = logDigits.slice(-len);
+            const v = digitsToPrimary.get(suffix);
+            if (v) return v;
+          }
+          return null;
+        };
+        const toTimeStr = (t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+        const latestDay = days[1];
         for (const d of days) {
-          const params = { startDate: d, endDate: d };
-            if (latestCutoffRecordName) params.recordName = latestCutoffRecordName;
-          const res = await axiosInstance.get('/dtrlogs/merged', { params });
-          const logs = res.data?.data || [];
-          if (d === day2) setRecentAttendance(logs); // keep latest day raw logs for any other cards
-          // Group per employee key
-          const perEmp = {};
+          const logs = cache.has(d) ? cache.get(d) : await fetchLogsForDay(d);
+          if (d === latestDay) setRecentAttendance(logs); // keep latest day raw logs for any other cards
+          // Group raw logs per employee key, then resolve using chronological position
+          const rawPerEmp = {};
           logs.forEach(log => {
-            const empKey = log.empId || (log.acNo ? String(log.acNo).replace(/\D/g,'') : null) || null;
+            const empKey = resolvePrimaryDigitsFromLog(log) || normalizeDigits(log.empId) || normalizeDigits(log.acNo) || null;
             if (!empKey) return;
-            if (!perEmp[empKey]) perEmp[empKey] = { date: d, timeIn: null, breakOut: null, breakIn: null, timeOut: null };
-            const tag = normalizeState(log.state);
-            const timeStr = toTimeStr(log.time);
-            if (tag === 'IN') { if (!perEmp[empKey].timeIn) perEmp[empKey].timeIn = timeStr; }
-            else if (tag === 'BO') { if (!perEmp[empKey].breakOut) perEmp[empKey].breakOut = timeStr; }
-            else if (tag === 'BI') { if (!perEmp[empKey].breakIn) perEmp[empKey].breakIn = timeStr; }
-            else if (tag === 'OUT') { perEmp[empKey].timeOut = timeStr; }
+            if (!rawPerEmp[empKey]) rawPerEmp[empKey] = { date: d, logs: [] };
+            rawPerEmp[empKey].logs.push(log);
+          });
+
+          // Resolve each employee's punches using chronological position
+          const perEmp = {};
+          Object.entries(rawPerEmp).forEach(([empKey, { date, logs: empLogs }]) => {
+            const resolved = resolveTimePunches(empLogs, { format: "h:mm A" });
+            perEmp[empKey] = {
+              date,
+              timeIn: resolved.timeIn || null,
+              breakOut: resolved.breakOut || null,
+              breakIn: resolved.breakIn || null,
+              timeOut: resolved.timeOut || null,
+            };
           });
 
           // Create a row for each employee in master list (blank if none)
           employees.forEach(emp => {
-            const rawId = emp.empId || emp.empNo || '';
-            const digitsId = rawId.replace(/\D/g,'');
-            const att = perEmp[rawId] || perEmp[digitsId] || { date: d, timeIn: null, breakOut: null, breakIn: null, timeOut: null };
+            const rawPrimary = emp.empId || emp.empNo || '';
+            const digitCandidates = [
+              emp.empId,
+              emp.empNo,
+              ...(emp.alternateEmpIds || []),
+              rawPrimary,
+            ]
+              .filter(Boolean)
+              .map(normalizeDigits)
+              .filter(Boolean);
+
+            const primaryDigits = normalizeDigits(emp.empId || emp.empNo) || digitCandidates[0];
+
+            const att =
+              (primaryDigits ? perEmp[primaryDigits] : null) ||
+              digitCandidates.map((c) => perEmp[c]).find(Boolean) ||
+              { date: d, timeIn: null, breakOut: null, breakIn: null, timeOut: null };
             allRows.push({
-              _id: `${emp._id || rawId}-${d}`,
+              _id: `${emp._id || rawPrimary}-${d}`,
               empId: emp.empId,
               empNo: emp.empNo,
               name: emp.name,
@@ -256,7 +420,7 @@ const Dashboard = () => {
         setAttendanceRows(allRows);
 
         // Also update employees' single attendance to latest day for tiles that rely on it
-        const latestDayRows = allRows.filter(r => r.attendance.date === day2);
+        const latestDayRows = allRows.filter(r => r.attendance.date === latestDay);
         const perEmpLatest = latestDayRows.reduce((acc,r)=>{acc[r.empId||r.empNo]=r.attendance; return acc;},{});
   setEmployees(prev => prev.map(emp => ({...emp, attendance: perEmpLatest[emp.empId] || emp.attendance})));
       } catch (err) {
@@ -264,7 +428,15 @@ const Dashboard = () => {
       }
     };
     fetchTwoDayAttendance();
-  }, [employees.length, latestCutoffEndDate, latestCutoffRecordName]);
+  }, [
+    employees.length,
+    latestCutoffEndDate,
+    latestCutoffRecordName,
+    appSettings?.dtr?.overrideCutoff?.enabled,
+    appSettings?.dtr?.overrideCutoff?.startDate,
+    appSettings?.dtr?.overrideCutoff?.endDate,
+    attendanceRefresh,
+  ]);
 
   const handleViewProfile = (emp) => {
     setEmployeeModalVisible(false);
@@ -371,23 +543,24 @@ const Dashboard = () => {
         return;
       }
 
-      const STATE_LABELS = {
-        "C/In": "Time In",
-        Out: "Break Out",
-        "Out Back": "Break In",
-        "C/Out": "Time Out",
-      };
-
-      const logsByDay = dtrLogs.reduce((acc, log) => {
+      // Group raw logs by date, then resolve using chronological position
+      const rawByDate = {};
+      dtrLogs.forEach((log) => {
         const dateKey = new Date(log.time).toISOString().slice(0, 10);
-        if (!acc[dateKey]) acc[dateKey] = {};
-        const label = STATE_LABELS[log.state] || log.state;
-        acc[dateKey][label] = new Date(log.time).toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-        });
-        return acc;
-      }, {});
+        if (!rawByDate[dateKey]) rawByDate[dateKey] = [];
+        rawByDate[dateKey].push(log);
+      });
+
+      const logsByDay = {};
+      Object.entries(rawByDate).forEach(([dateKey, dayLogs]) => {
+        const resolved = resolveTimePunches(dayLogs, { format: "hh:mm A" });
+        logsByDay[dateKey] = {
+          "Time In": resolved.timeIn || "",
+          "Break Out": resolved.breakOut || "",
+          "Break In": resolved.breakIn || "",
+          "Time Out": resolved.timeOut || "",
+        };
+      });
 
       const dtrLogsForPdf = { [selectedEmployee.empId]: logsByDay };
 

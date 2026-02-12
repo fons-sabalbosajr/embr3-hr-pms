@@ -1,11 +1,16 @@
 /* training.css */
 
 /* Table styling */
+.trainings-table {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 .trainings-table .ant-table {
   background: var(--app-surface-bg, #fff);
   color: var(--app-text-color, #141414);
   border-radius: 8px;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .trainings-table .ant-table-thead > tr > th {
@@ -85,4 +90,35 @@
   .trainings-modal .ant-form-item {
     width: 100%;
   }
+  .trainings-filters-container {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 8px;
+  }
+  .trainings-filters-container .ant-space {
+    width: 100%;
+  }
+  .trainings-filters-container .ant-space .ant-space-item {
+    flex: 1 1 100%;
+  }
+  .trainings-filters-container .ant-space .ant-space-item .ant-input,
+  .trainings-filters-container .ant-space .ant-space-item .ant-select {
+    width: 100% !important;
+  }
+  .trainings-table .ant-table-thead > tr > th,
+  .trainings-table .ant-table-tbody > tr > td {
+    padding: 4px 6px;
+    font-size: 11px;
+  }
+  .trainings-table .ant-table-content { overflow-x: auto !important; }
+  .trainings-table { margin: 0 -10px; padding: 0 10px; }
+  .trainings-title { font-size: 16px; }
+}
+@media screen and (min-width: 769px) and (max-width: 1080px) {
+  .trainings-table .ant-table-thead > tr > th,
+  .trainings-table .ant-table-tbody > tr > td {
+    padding: 6px;
+    font-size: 12px;
+  }
+  .trainings-table .ant-table-content { overflow-x: auto !important; }
 }

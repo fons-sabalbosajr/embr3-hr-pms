@@ -2,8 +2,23 @@ import DTRLog from "../models/DTRLog.js";
 import Employee from "../models/Employee.js";
 import DTRData from "../models/DTRData.js";
 import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc.js";
+import timezone from "dayjs/plugin/timezone.js";
 import mongoose from "mongoose";
 import User from "../models/User.js";
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
+
+const LOCAL_TZ = "Asia/Manila";
+
+const parseInLocalTz = (value) => {
+  if (!value) return dayjs.invalid();
+  if (value instanceof Date || typeof value === "number") return dayjs(value).tz(LOCAL_TZ);
+  const s = String(value);
+  const hasZone = /([zZ]|[+-]\d{2}:\d{2})$/.test(s);
+  return hasZone ? dayjs(s).tz(LOCAL_TZ) : dayjs.tz(s, LOCAL_TZ);
+};
 
 export const getMergedDTRLogs = async (req, res) => {
   try {
@@ -31,19 +46,26 @@ export const getMergedDTRLogs = async (req, res) => {
 
     // Restrict by DTR Data record if provided
     if (recordName) {
-      const matchedRecords = await DTRData.find({ DTR_Record_Name: recordName }).select("_id");
+      const rn = String(recordName).trim();
+      const matchedRecords = await DTRData.find({ DTR_Record_Name: rn }).select("_id");
       if (matchedRecords.length) {
         filter.DTR_ID = { $in: matchedRecords.map((r) => r._id) };
       } else {
-        return res.json({ success: true, data: [] });
+        return res.json({ success: true, data: [], page, limit, total: 0 });
       }
     }
 
-    // Restrict by date range first to keep dataset small
+    // Restrict by date range first to keep dataset small (interpret as PH calendar days)
     if (startDate || endDate) {
       filter.Time = {};
-      if (startDate) filter.Time.$gte = dayjs(startDate).startOf("day").toDate();
-      if (endDate) filter.Time.$lte = dayjs(endDate).endOf("day").toDate();
+      if (startDate) {
+        const s = parseInLocalTz(startDate);
+        if (s.isValid()) filter.Time.$gte = s.startOf("day").toDate();
+      }
+      if (endDate) {
+        const e = parseInLocalTz(endDate);
+        if (e.isValid()) filter.Time.$lte = e.endOf("day").toDate();
+      }
     }
 
     // Build robust target sets from query
@@ -114,6 +136,21 @@ export const getMergedDTRLogs = async (req, res) => {
       or.push({ normalizedAcNo: { $in: Array.from(allowedDigits) } });
       // Fallback for legacy logs without normalizedAcNo
       or.push({ "AC-No": { $in: Array.from(allowedDigits) } });
+
+      // Some biometric systems prefix IDs (e.g., device code + employee digits). Allow suffix matches.
+      // Keep this conservative: require >=4 digits and cap the number of regexes.
+      const suffixDigits = Array.from(allowedDigits)
+        .filter((d) => typeof d === "string" && d.length >= 4)
+        .slice(0, 250);
+      if (suffixDigits.length) {
+        const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        suffixDigits.forEach((d) => {
+          const re = new RegExp(`${escapeRegex(d)}$`);
+          or.push({ normalizedAcNo: re });
+          // Extra fallback if normalizedAcNo is missing on some legacy docs
+          or.push({ "AC-No": re });
+        });
+      }
     }
     if (nameList.length > 0) {
       const nameRegex = nameList.map((n) => new RegExp(n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"));
@@ -179,6 +216,7 @@ export const getMergedDTRLogs = async (req, res) => {
       }
 
       return {
+        _id: log._id,
         no: index + 1,
         time: log.Time,
         state: log.State,

@@ -31,3 +31,26 @@ export default async function maintenanceMiddleware(req, res, next) {
     return next();
   }
 }
+
+/**
+ * Returns the flat feature-maintenance map for the front-end.
+ * Developers see everything — this is only for non-dev users.
+ */
+export async function getFeatureMaintenanceStatus(req, res) {
+  try {
+    const settings = await Settings.getSingleton();
+    const fm = settings?.featureMaintenance;
+    const obj = {};
+    if (fm && typeof fm.forEach === 'function') {
+      fm.forEach((val, key) => {
+        obj[key] = { enabled: val.enabled, message: val.message, hidden: val.hidden };
+      });
+    }
+    // Developers bypass
+    const isDev = req.user && req.user.userType === 'developer';
+    return res.json({ features: obj, isDeveloper: isDev });
+  } catch (err) {
+    console.error('Feature maintenance status error:', err);
+    return res.json({ features: {}, isDeveloper: false });
+  }
+}

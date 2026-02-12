@@ -15,6 +15,7 @@ import {
   Row,
   Col,
   Pagination,
+  Grid,
 } from "antd";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc";
@@ -29,8 +30,30 @@ dayjs.extend(isBetween);
 
 const { Title } = Typography;
 const { RangePicker } = DatePicker;
+const { useBreakpoint } = Grid;
 
-const userTimeZone = dayjs.tz.guess();
+const LOCAL_TZ = "Asia/Manila";
+
+const parseInLocalTz = (value) => {
+  if (!value) return dayjs.invalid();
+  if (dayjs.isDayjs && dayjs.isDayjs(value)) return value.tz(LOCAL_TZ);
+  if (value instanceof Date || typeof value === "number") return dayjs(value).tz(LOCAL_TZ);
+  const s = String(value);
+  const hasZone = /([zZ]|[+-]\d{2}:\d{2})$/.test(s);
+  return hasZone ? dayjs(s).tz(LOCAL_TZ) : dayjs.tz(s, LOCAL_TZ);
+};
+
+const toDayBoundsInTz = (start, end) => {
+  if (!start || !end) return [null, null];
+  const s = dayjs.isDayjs(start)
+    ? dayjs.tz(start.format("YYYY-MM-DD"), LOCAL_TZ).startOf("day")
+    : parseInLocalTz(start).startOf("day");
+  const e = dayjs.isDayjs(end)
+    ? dayjs.tz(end.format("YYYY-MM-DD"), LOCAL_TZ).endOf("day")
+    : parseInLocalTz(end).endOf("day");
+  if (!s.isValid() || !e.isValid()) return [null, null];
+  return [s, e];
+};
 
 const stringToColor = (str) => {
   let hash = 0;
@@ -44,8 +67,13 @@ const stringToColor = (str) => {
 const groupDTRLogs = (logs) => {
   const map = new Map();
 
+  const timeValue = (value) => {
+    const dt = parseInLocalTz(value);
+    return dt.isValid() ? dt.valueOf() : 0;
+  };
+
   logs.forEach((log) => {
-    const timeKey = dayjs(log.time).tz(userTimeZone).toISOString();
+    const timeKey = parseInLocalTz(log.time).toISOString();
     const key = `${timeKey}-${log.state}`;
 
     if (!map.has(key)) {
@@ -80,14 +108,20 @@ const groupDTRLogs = (logs) => {
     }
   });
 
-  const groupedArr = Array.from(map.values()).sort(
-    (a, b) => dayjs(b.time).valueOf() - dayjs(a.time).valueOf()
-  );
+  // Sort ascending so ranges start at the first available working day/time
+  const groupedArr = Array.from(map.values()).sort((a, b) => {
+    const diff = timeValue(a.time) - timeValue(b.time);
+    if (diff !== 0) return diff;
+    return String(a.state || "").localeCompare(String(b.state || ""));
+  });
 
   return groupedArr.map((item, idx) => ({ ...item, no: idx + 1 }));
 };
 
 const DTRLogs = () => {
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;   // < 768px
+  const isTablet = screens.md && !screens.lg; // 768–991px
   const [loading, setLoading] = useState(false);
   const [dtrData, setDtrData] = useState([]);
   const [employeeFilter, setEmployeeFilter] = useState("");
@@ -128,14 +162,22 @@ const DTRLogs = () => {
     const fetchLogs = async () => {
       if (!recordNameFilter) {
         setDtrData([]);
+        setCutOffDateRange([null, null]);
         return;
       }
       try {
         setLoading(true);
         // Derive cutoff dates from the selected record (if present)
         const rec = dtrRecords.find((r) => r.DTR_Record_Name === recordNameFilter);
-        const startDate = rec?.DTR_Cut_Off?.start ? dayjs(rec.DTR_Cut_Off.start).format("YYYY-MM-DD") : undefined;
-        const endDate = rec?.DTR_Cut_Off?.end ? dayjs(rec.DTR_Cut_Off.end).format("YYYY-MM-DD") : undefined;
+        const recStart = rec?.DTR_Cut_Off?.start ? parseInLocalTz(rec.DTR_Cut_Off.start) : null;
+        const recEnd = rec?.DTR_Cut_Off?.end ? parseInLocalTz(rec.DTR_Cut_Off.end) : null;
+        const startDate = recStart?.isValid() ? recStart.format("YYYY-MM-DD") : undefined;
+        const endDate = recEnd?.isValid() ? recEnd.format("YYYY-MM-DD") : undefined;
+
+        // Auto-fill Cut Off Date Range for accurate filtering context
+        if (recStart?.isValid() && recEnd?.isValid()) {
+          setCutOffDateRange([recStart.startOf("day"), recEnd.endOf("day")]);
+        }
         const { data } = await axiosInstance.get("/dtrlogs/merged", {
           params: {
             recordName: recordNameFilter,
@@ -174,12 +216,12 @@ const DTRLogs = () => {
     // Existing filters...
     if (cutOffDateRange && cutOffDateRange[0] && cutOffDateRange[1]) {
       const [start, end] = cutOffDateRange;
-      const startDate = start.startOf("day");
-      const endDate = end.endOf("day");
+      const [startDate, endDate] = toDayBoundsInTz(start, end);
+      if (!startDate || !endDate) return [];
 
       filtered = filtered.filter((log) => {
         if (!log.time) return false;
-        const logDate = dayjs(log.time).tz(userTimeZone);
+        const logDate = dayjs(log.time).tz(LOCAL_TZ);
         if (!logDate.isValid()) return false;
         return logDate.isBetween(startDate, endDate, null, "[]");
       });
@@ -192,25 +234,22 @@ const DTRLogs = () => {
     if (dateFilter) {
       filtered = filtered.filter((log) => {
         if (!log.time) return false;
-        const logDate = dayjs(log.time).tz(userTimeZone);
+        const logDate = dayjs(log.time).tz(LOCAL_TZ);
         if (!logDate.isValid()) return false;
-        return (
-          logDate.year() === dateFilter.year() &&
-          logDate.month() === dateFilter.month() &&
-          logDate.date() === dateFilter.date()
-        );
+        const target = dayjs.tz(dateFilter.format("YYYY-MM-DD"), LOCAL_TZ);
+        return logDate.isSame(target, "day");
       });
     }
 
     // New: Filter by DTR_Record_Name (fallback to cutoff date range if missing linkage)
     if (recordNameFilter) {
       const rec = dtrRecords.find((r) => r.DTR_Record_Name === recordNameFilter);
-      const recStart = rec?.DTR_Cut_Off?.start ? dayjs(rec.DTR_Cut_Off.start).startOf("day") : null;
-      const recEnd = rec?.DTR_Cut_Off?.end ? dayjs(rec.DTR_Cut_Off.end).endOf("day") : null;
+      const recStart = rec?.DTR_Cut_Off?.start ? parseInLocalTz(rec.DTR_Cut_Off.start).startOf("day") : null;
+      const recEnd = rec?.DTR_Cut_Off?.end ? parseInLocalTz(rec.DTR_Cut_Off.end).endOf("day") : null;
       filtered = filtered.filter((log) => {
         if (log.DTR_Record_Name === recordNameFilter) return true;
         if (!recStart || !recEnd || !log.time) return false;
-        const dt = dayjs(log.time).tz(userTimeZone);
+        const dt = dayjs(log.time).tz(LOCAL_TZ);
         if (!dt.isValid()) return false;
         return dt.isBetween(recStart, recEnd, null, "[]");
       });
@@ -232,6 +271,7 @@ const DTRLogs = () => {
     dateFilter,
     recordNameFilter,
     acNoFilter,
+    dtrRecords,
   ]);
 
   const groupedData = useMemo(
@@ -288,17 +328,24 @@ const DTRLogs = () => {
       title: "No.",
       dataIndex: "no",
       key: "no",
-      width: 60,
+      width: 50,
       align: "center",
       onCell: () => ({ style: SMALL_FONT_STYLE }),
     },
     {
-      title: "Date and Time",
+      title: isMobile ? "Date/Time" : "Date and Time",
       dataIndex: "time",
       key: "time",
       align: "center",
-      width: 180,
+      width: isMobile ? 130 : 180,
       onCell: () => ({ style: SMALL_FONT_STYLE }),
+      defaultSortOrder: "ascend",
+      sorter: (a, b) => {
+        const av = parseInLocalTz(a?.time);
+        const bv = parseInLocalTz(b?.time);
+        return (av.isValid() ? av.valueOf() : 0) - (bv.isValid() ? bv.valueOf() : 0);
+      },
+      sortDirections: ["ascend", "descend"],
       filterDropdown: ({
         setSelectedKeys,
         selectedKeys,
@@ -353,25 +400,29 @@ const DTRLogs = () => {
       // Removed onFilter to prevent AntD internal filtering
       render: (text) => {
         if (!text) return "-";
-        const date = dayjs(text).tz(userTimeZone);
+        const date = parseInLocalTz(text);
         if (!date.isValid()) return text;
         return date.format("MM/DD/YYYY hh:mm A");
       },
     },
+    ...(!isMobile
+      ? [
+          {
+            title: "State",
+            dataIndex: "state",
+            key: "state",
+            align: "center",
+            width: 120,
+            onCell: () => ({ style: SMALL_FONT_STYLE }),
+          },
+        ]
+      : []),
     {
-      title: "State",
-      dataIndex: "state",
-      key: "state",
-      align: "center",
-      width: 120,
-      onCell: () => ({ style: SMALL_FONT_STYLE }),
-    },
-    {
-      title: "Biometrics Code",
+      title: isMobile ? "Bio Code" : "Biometrics Code",
       dataIndex: "acNos",
       key: "acNos",
       align: "center",
-      width: 200,
+      width: isMobile ? 120 : 200,
       filterDropdown: ({
         setSelectedKeys,
         selectedKeys,
@@ -470,7 +521,7 @@ const DTRLogs = () => {
       title: "Employee",
       dataIndex: "employees",
       key: "employees",
-      width: 400,
+      width: isMobile ? 200 : 400,
 
       filterDropdown: ({
         setSelectedKeys,
@@ -554,14 +605,18 @@ const DTRLogs = () => {
         </Space>
       ),
     },
-    {
-      title: "Remarks",
-      dataIndex: "remarks",
-      key: "remarks",
-      align: "center",
-      render: (text) => text || "-",
-      onCell: () => ({ style: SMALL_FONT_STYLE }),
-    },
+    ...(!isMobile
+      ? [
+          {
+            title: "Remarks",
+            dataIndex: "remarks",
+            key: "remarks",
+            align: "center",
+            render: (text) => text || "-",
+            onCell: () => ({ style: SMALL_FONT_STYLE }),
+          },
+        ]
+      : []),
   ];
 
   const handleGenerateDTR = () => {
@@ -581,13 +636,13 @@ const DTRLogs = () => {
         align="middle"
         style={{
           marginBottom: 16,
-          flexWrap: "nowrap", // prevents wrapping
+          flexWrap: "wrap",
         }}
       >
         {/* Filters Group */}
         <Col
           flex="auto"
-          style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}
+          style={{ display: "flex", gap: isMobile ? "8px" : "16px", flexWrap: "wrap" }}
         >
           {/* Filter by Record Name */}
           <Space direction="vertical" style={{ fontSize: "12px" }}>
@@ -597,10 +652,28 @@ const DTRLogs = () => {
             <Select
               size="small"
               value={recordNameFilter}
-              onChange={(value) => setRecordNameFilter(value)}
+              onChange={(value) => {
+                setRecordNameFilter(value);
+                if (!value) {
+                  setCutOffDateRange([null, null]);
+                  return;
+                }
+                const rec = (dtrRecords || []).find(
+                  (r) => r.DTR_Record_Name === value
+                );
+                const rs = rec?.DTR_Cut_Off?.start
+                  ? parseInLocalTz(rec.DTR_Cut_Off.start)
+                  : null;
+                const re = rec?.DTR_Cut_Off?.end
+                  ? parseInLocalTz(rec.DTR_Cut_Off.end)
+                  : null;
+                if (rs?.isValid() && re?.isValid()) {
+                  setCutOffDateRange([rs.startOf("day"), re.endOf("day")]);
+                }
+              }}
               placeholder="Select DTR Record Name"
               allowClear
-              style={{ minWidth: "180px" }}
+              style={{ minWidth: isMobile ? "100%" : "180px" }}
             >
               {(recordNameOptions || []).map((option) => (
                 <Select.Option key={option.value} value={option.value}>
@@ -625,12 +698,12 @@ const DTRLogs = () => {
                 label: state,
                 value: state,
               }))}
-              style={{ minWidth: "150px" }}
+              style={{ minWidth: isMobile ? "100%" : "150px" }}
             />
           </Space>
 
           {/* Cut Off Date Range */}
-          <Space direction="vertical" style={{ fontSize: "12px" }}>
+          <Space direction="vertical" style={{ fontSize: "12px", width: isMobile ? '100%' : 'auto' }}>
             <label style={{ fontSize: "12px" }}>
               <b>Cut Off Date Range</b>
             </label>
@@ -666,6 +739,7 @@ const DTRLogs = () => {
         </Col>
       </Row>
 
+      <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
       <Table
         columns={columns}
         size="small"
@@ -673,22 +747,17 @@ const DTRLogs = () => {
           spinning: loading,
           tip: "Loading DTR data...",
         }}
-        dataSource={
-          recordNameFilter
-            ? filteredData.slice(
-                (currentPage - 1) * pageSize,
-                currentPage * pageSize
-              ) || []
-            : []
-        }
-        pagination={false} // <-- disable Table's built-in pagination
+        dataSource={recordNameFilter ? pagedData : []}
+        pagination={false}
         rowKey={(record) => record.no}
+        scroll={{ x: isMobile ? 600 : isTablet ? 800 : 1000 }}
         locale={{
           emptyText: !recordNameFilter
             ? "Please select a DTR Record Name from the dropdown above."
             : "No DTR logs found for the selected record.",
         }}
       />
+      </div>
     </>
   );
 };

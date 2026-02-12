@@ -1,7 +1,31 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, {
+  useEffect,
+  useState,
+  useRef,
+  useMemo,
+  useCallback,
+} from "react";
 import { useLocation } from "react-router-dom";
-import { Typography, Spin, Space, Button, Dropdown, Menu, Tag, Badge, App } from "antd";
-import { EyeOutlined, PrinterOutlined, MenuOutlined } from "@ant-design/icons";
+import {
+  Typography,
+  Spin,
+  Space,
+  Button,
+  Dropdown,
+  Menu,
+  Tag,
+  Badge,
+  App,
+  Tooltip,
+} from "antd";
+import {
+  EyeOutlined,
+  PrinterOutlined,
+  MenuOutlined,
+  ExclamationCircleOutlined,
+  UndoOutlined,
+  PlusSquareOutlined,
+} from "@ant-design/icons";
 import DTRFilters from "../DTRProcess/components/DTRFilters";
 import DTRTable from "../DTRProcess/components/DTRTable";
 import PrinterTrayDrawer from "../DTRProcess/components/DTRTrayDrawer";
@@ -12,6 +36,7 @@ import {
   generateDTRPdf,
   generateBatchDTRPdf,
 } from "../../../../../utils/generateDTRpdf";
+import { resolveTimePunches } from "../../../../../utils/resolveTimePunches";
 import "./dtr.css";
 import dayjs from "dayjs";
 import isSameOrBefore from "dayjs/plugin/isSameOrBefore";
@@ -20,6 +45,7 @@ import utc from "dayjs/plugin/utc";
 import timezone from "dayjs/plugin/timezone";
 import axiosInstance from "../../../../api/axiosInstance";
 import axios from "axios";
+import useLoading from "../../../../hooks/useLoading";
 
 const { Title } = Typography;
 
@@ -30,16 +56,48 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 const LOCAL_TZ = "Asia/Manila";
 
+const parseInLocalTz = (value) => {
+  if (!value) return dayjs.invalid();
+  if (dayjs.isDayjs && dayjs.isDayjs(value)) return value.tz(LOCAL_TZ);
+  if (value instanceof Date || typeof value === "number")
+    return dayjs(value).tz(LOCAL_TZ);
+  const s = String(value);
+  const hasZone = /([zZ]|[+-]\d{2}:\d{2})$/.test(s);
+  return hasZone ? dayjs(s).tz(LOCAL_TZ) : dayjs.tz(s, LOCAL_TZ);
+};
+
+const isNonEmptyTimeString = (v) => {
+  if (v == null) return false;
+  if (typeof v !== "string") return false;
+  const s = v.trim();
+  if (!s) return false;
+  if (s === "-" || s.toLowerCase() === "n/a") return false;
+  const d = dayjs(s, ["hh:mm A", "h:mm A", "HH:mm", "H:mm"], true);
+  return d.isValid();
+};
+
+const hasAnyPunches = (dayLogs) => {
+  if (!dayLogs || typeof dayLogs !== "object") return false;
+  for (const v of Object.values(dayLogs)) {
+    if (Array.isArray(v)) {
+      if (v.some(isNonEmptyTimeString)) return true;
+    } else if (isNonEmptyTimeString(v)) {
+      return true;
+    }
+  }
+  return false;
+};
+
 // States mapping for tooltip labels
 const STATE_LABELS = {
   // Common biometric states → normalized labels
   "C/In": "Time In",
   "Check In": "Time In",
-  "IN": "Time In",
+  IN: "Time In",
   In: "Time In",
   "C/Out": "Time Out",
   "Check Out": "Time Out",
-  "OUT": "Time Out",
+  OUT: "Time Out",
   Out: "Break Out",
   "Out Back": "Break In",
   "Break Out": "Break Out",
@@ -61,14 +119,17 @@ const parseEnvJson = (val, fallback = {}) => {
   }
 };
 
-const divisionAcronyms = parseEnvJson(import.meta.env.VITE_DIVISION_ACRONYMS, {});
+const divisionAcronyms = parseEnvJson(
+  import.meta.env.VITE_DIVISION_ACRONYMS,
+  {},
+);
 const sectionUnitAcronymsFlat = parseEnvJson(
   import.meta.env.VITE_SECTION_OR_UNIT_ACRONYMS,
-  {}
+  {},
 );
 const positionAcronymsMap = parseEnvJson(
   import.meta.env.VITE_POSITION_ACRONYMS,
-  {}
+  {},
 );
 const divisionColors = {
   "Clearance and Permitting Division": "#1f9cca", // blue
@@ -80,7 +141,8 @@ const divisionColors = {
 
 // (sectionUnitAcronyms will be loaded from env as a flat map below)
 // Helper: normalize position key lookup (env keys are uppercase in provided map)
-const normalizePositionKey = (s) => (typeof s === "string" ? s.trim().toUpperCase() : "");
+const normalizePositionKey = (s) =>
+  typeof s === "string" ? s.trim().toUpperCase() : "";
 
 // Compute an acronym for a position title, with a few sensible rules and fallbacks
 const computePositionAcronym = (position) => {
@@ -88,20 +150,29 @@ const computePositionAcronym = (position) => {
 
   const raw = position.trim();
 
-    const envHit = positionAcronymsMap[normalizePositionKey(raw)];
-    if (envHit) return envHit;
+  const envHit = positionAcronymsMap[normalizePositionKey(raw)];
+  if (envHit) return envHit;
 
   // Special-case Engineer roles → ENGR + rank (e.g., II)
   const upper = normalizePositionKey(raw);
   if (upper.startsWith("ENGINEER")) {
     const parts = raw.trim().split(/\s+/);
     const last = parts[parts.length - 1];
-    const rank = /^(?:[IVXLCM]+|\d+)$/.test(last) ? ` ${last.toUpperCase()}` : "";
+    const rank = /^(?:[IVXLCM]+|\d+)$/.test(last)
+      ? ` ${last.toUpperCase()}`
+      : "";
     return `ENGR${rank}`;
   }
 
   // Generic builder: take capital initials of significant words, keep trailing roman numeral/number
-  const stopWords = new Set(["of", "and", "the", "unit", "section", "division"]);
+  const stopWords = new Set([
+    "of",
+    "and",
+    "the",
+    "unit",
+    "section",
+    "division",
+  ]);
   const tokens = raw
     .replace(/[(),]/g, " ")
     .split(/[\s\-/]+/)
@@ -129,9 +200,11 @@ const computePositionAcronym = (position) => {
 
 const DTRProcess = ({ currentUser }) => {
   const { message: appMessage } = App.useApp();
+  const { withLoading } = useLoading();
   const [employees, setEmployees] = useState([]);
   const [filteredEmployees, setFilteredEmployees] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [employeesLoading, setEmployeesLoading] = useState(false);
+  const [dtrLogsLoading, setDtrLogsLoading] = useState(false);
   const [searchText, setSearchText] = useState("");
   const [empTypeFilter, setEmpTypeFilter] = useState("");
   const [sectionOrUnitFilter, setSectionOrUnitFilter] = useState("");
@@ -146,56 +219,80 @@ const DTRProcess = ({ currentUser }) => {
   const [holidaysPH, setHolidaysPH] = useState([]);
   const [localHolidays, setLocalHolidays] = useState([]);
   const [suspensions, setSuspensions] = useState([]);
+  const [viewActionLoadingKey, setViewActionLoadingKey] = useState(null);
+  const [trayActionLoadingKey, setTrayActionLoadingKey] = useState(null);
   const [employeeTrainings, setEmployeeTrainings] = useState({});
   const [trainingLoading, setTrainingLoading] = useState(false);
   const [selectedRowKeys, setSelectedRowKeys] = useState([]);
   const location = useLocation();
 
+  const getEmployeeUiKey = (emp) =>
+    emp?.stableKey || emp?._id || emp?.empId || emp?.empNo || emp?.name;
+
+  const runRowAction = async (setter, key, fn) => {
+    setter(key);
+    try {
+      await Promise.resolve(fn());
+    } finally {
+      // Small delay so the spinner is visible even for sync actions
+      setTimeout(() => setter(null), 250);
+    }
+  };
+
   const fetchEmployees = async () => {
     try {
-      setLoading(true);
+      setEmployeesLoading(true);
       const res = await axiosInstance.get(`/employees`);
       const sortedData = sortEmployees(res.data).map((emp, idx) => ({
         ...emp,
-        stableKey: emp._id || emp.empId || emp.empNo || `${emp.name || 'emp'}__${idx}`,
+        stableKey:
+          emp._id || emp.empId || emp.empNo || `${emp.name || "emp"}__${idx}`,
       }));
       setEmployees(sortedData);
       setFilteredEmployees(sortedData);
       // Defer DTR logs loading until a record is selected to reduce initial load
       // Apply deep-link empId filter if present in query params
       const params = new URLSearchParams(location.search);
-      const empIdParam = params.get('empId');
+      const empIdParam = params.get("empId");
       if (empIdParam) {
         setSearchText(empIdParam);
         setFilteredEmployees(
           sortedData.filter((e) =>
             [e.empId, e.empNo, e.name, e.normalizedName]
               .filter(Boolean)
-              .some((v) => String(v).toLowerCase().includes(empIdParam.toLowerCase()))
-          )
+              .some((v) =>
+                String(v).toLowerCase().includes(empIdParam.toLowerCase()),
+              ),
+          ),
         );
       }
     } catch (err) {
-  console.error("Failed to fetch employees:", err);
-  appMessage.error("Unable to load employees");
+      console.error("Failed to fetch employees:", err);
+      appMessage.error("Unable to load employees");
     } finally {
-      setLoading(false);
+      setEmployeesLoading(false);
     }
   };
 
   const fetchDtrLogs = async (employees) => {
     try {
-      setLoading(true);
+      setDtrLogsLoading(true);
 
-      const employeeNames = employees.map((emp) => emp.name).filter(Boolean);
-      const employeeEmpIds = employees.map((emp) => emp.empId).filter(Boolean);
+      // Keep query payload small: send only primary empIds. Server expands to alternateEmpIds.
+      const employeeEmpIds = Array.from(
+        new Set(
+          employees
+            .map((emp) => emp?.empId)
+            .filter(Boolean)
+            .map(String),
+        ),
+      );
 
       const startOfMonth = dayjs().startOf("month").format("YYYY-MM-DD");
       const endOfMonth = dayjs().endOf("month").format("YYYY-MM-DD");
 
       const res = await axiosInstance.get(`/dtrlogs/merged`, {
         params: {
-          names: employeeNames.join(","),
           empIds: employeeEmpIds.join(","),
           startDate: startOfMonth,
           endDate: endOfMonth,
@@ -207,31 +304,30 @@ const DTRProcess = ({ currentUser }) => {
         return;
       }
       const logs = logsPayload;
-      const logsByEmpDay = {};
-
+      // Collect raw logs per employee+date
+      const rawByEmpDay = {};
       logs.forEach((log) => {
         if (!log.empId) return;
-
         const empKey = log.empId;
-
         const dateKey = dayjs(log.time).tz(LOCAL_TZ).format("YYYY-MM-DD");
+        if (!rawByEmpDay[empKey]) rawByEmpDay[empKey] = {};
+        if (!rawByEmpDay[empKey][dateKey]) rawByEmpDay[empKey][dateKey] = [];
+        rawByEmpDay[empKey][dateKey].push(log);
+      });
 
-        if (!logsByEmpDay[empKey]) logsByEmpDay[empKey] = {};
-        if (!logsByEmpDay[empKey][dateKey]) {
+      // Resolve using chronological position-based detection
+      const logsByEmpDay = {};
+      Object.entries(rawByEmpDay).forEach(([empKey, dates]) => {
+        logsByEmpDay[empKey] = {};
+        Object.entries(dates).forEach(([dateKey, dayLogs]) => {
+          const resolved = resolveTimePunches(dayLogs, { format: "hh:mm A" });
           logsByEmpDay[empKey][dateKey] = {
-            "Time In": null,
-            "Break Out": null,
-            "Break In": null,
-            "Time Out": null,
+            "Time In": resolved.timeIn || null,
+            "Break Out": resolved.breakOut || null,
+            "Break In": resolved.breakIn || null,
+            "Time Out": resolved.timeOut || null,
           };
-        }
-
-        const stateLabel = STATE_LABELS[log.state];
-        if (stateLabel) {
-          logsByEmpDay[empKey][dateKey][stateLabel] = dayjs(log.time)
-            .tz(LOCAL_TZ)
-            .format("hh:mm A");
-        }
+        });
       });
 
       setDtrLogs(logsByEmpDay);
@@ -240,43 +336,76 @@ const DTRProcess = ({ currentUser }) => {
       appMessage.error("Error loading DTR logs");
       setDtrLogs({});
     } finally {
-      setLoading(false);
+      setDtrLogsLoading(false);
     }
   };
 
   // Fetch logs for a specific DTR record (handles pagination and robust candidate mapping)
   const fetchDtrLogsByRecord = async (selectedRecord, employees) => {
     try {
-      setLoading(true);
+      setDtrLogsLoading(true);
 
-      const employeeNames = employees.map((emp) => emp.name).filter(Boolean);
-      const employeeEmpIds = employees.map((emp) => emp.empId).filter(Boolean);
+      // Keep query payload small: send only primary empIds. Server expands to alternateEmpIds.
+      const employeeEmpIds = Array.from(
+        new Set(
+          employees
+            .map((emp) => emp?.empId)
+            .filter(Boolean)
+            .map(String),
+        ),
+      );
 
-      // Fetch all pages to avoid pagination truncation on server (max 500 per page)
-      const limit = 500;
-      let page = 1;
-      let total = 0;
-      let allLogs = [];
-      while (true) {
-        const res = await axiosInstance.get(`/dtrlogs/merged`, {
-          params: {
-            recordName: selectedRecord.DTR_Record_Name,
-            names: employeeNames.join(","),
-            empIds: employeeEmpIds.join(","),
-            page,
-            limit,
-          },
-        });
-        const payload = Array.isArray(res.data) ? res.data : res.data?.data;
-        const metaTotal = res.data?.total || 0;
-        total = Math.max(total, metaTotal);
-        const batch = Array.isArray(payload) ? payload : [];
-        allLogs = allLogs.concat(batch);
-        if (batch.length < limit) break;
-        if (allLogs.length >= total && total > 0) break;
-        page += 1;
-        if (page > 100) break; // safety guard
+      // Always fetch by cut-off date range; recordName filter can be too strict for ad-hoc cut-off records.
+      const cutStartParam = parseInLocalTz(
+        selectedRecord?.DTR_Cut_Off?.start,
+      ).format("YYYY-MM-DD");
+      const cutEndParam = parseInLocalTz(
+        selectedRecord?.DTR_Cut_Off?.end,
+      ).format("YYYY-MM-DD");
+
+      const fetchAllMergedLogs = async (baseParams) => {
+        const limit = 500;
+        let page = 1;
+        let total = 0;
+        let allLogs = [];
+        while (true) {
+          const res = await axiosInstance.get(`/dtrlogs/merged`, {
+            params: {
+              ...baseParams,
+              page,
+              limit,
+            },
+          });
+          const payload = Array.isArray(res.data) ? res.data : res.data?.data;
+          const metaTotal = res.data?.total || 0;
+          total = Math.max(total, metaTotal);
+          const batch = Array.isArray(payload) ? payload : [];
+          allLogs = allLogs.concat(batch);
+          if (batch.length < limit) break;
+          if (allLogs.length >= total && total > 0) break;
+          page += 1;
+          if (page > 100) break; // safety guard
+        }
+        return { allLogs, total };
+      };
+
+      const commonParams = {
+        empIds: employeeEmpIds.join(","),
+        startDate: cutStartParam,
+        endDate: cutEndParam,
+      };
+
+      // Attempt 1: include recordName (keeps behavior for logs tied to a DTR_ID)
+      let { allLogs, total } = await fetchAllMergedLogs({
+        ...commonParams,
+        recordName: selectedRecord.DTR_Record_Name,
+      });
+
+      // Fallback: if recordName yields nothing, refetch without recordName (date-range-only)
+      if ((!total || total === 0) && allLogs.length === 0) {
+        ({ allLogs, total } = await fetchAllMergedLogs(commonParams));
       }
+
       let logsPayload = allLogs;
       if (!logsPayload) {
         appMessage.error("Failed to load DTR logs");
@@ -286,8 +415,30 @@ const DTRProcess = ({ currentUser }) => {
 
       // Pre-filter logs to the selected record's cut-off window and to names matching our employees
       try {
-        const cutStart = dayjs.tz(selectedRecord.DTR_Cut_Off.start, LOCAL_TZ).startOf("day");
-        const cutEnd = dayjs.tz(selectedRecord.DTR_Cut_Off.end, LOCAL_TZ).endOf("day");
+        const cutStart = parseInLocalTz(
+          selectedRecord.DTR_Cut_Off.start,
+        ).startOf("day");
+        const cutEnd = parseInLocalTz(selectedRecord.DTR_Cut_Off.end).endOf(
+          "day",
+        );
+
+        const STOP_NAME_TOKENS = new Set([
+          "de",
+          "del",
+          "dela",
+          "la",
+          "las",
+          "los",
+          "da",
+          "dos",
+          "das",
+          "san",
+          "sta",
+          "sto",
+          "mr",
+          "ms",
+          "mrs",
+        ]);
 
         const normalizeTextLocal = (s) => {
           if (!s) return "";
@@ -317,21 +468,43 @@ const DTRProcess = ({ currentUser }) => {
               // fallback: match on any token (e.g., last name)
               const tokens = en.split(" ").filter(Boolean);
               for (const tk of tokens) {
-                if (tk && logName.includes(tk)) return true;
+                if (!tk) continue;
+                if (tk.length < 3) continue;
+                if (STOP_NAME_TOKENS.has(tk)) continue;
+                if (logName.includes(tk)) return true;
               }
             }
           }
 
           // If no name match, still keep logs that contain numeric identifiers matching employees (AC-No, empNo, cardNo)
-          const numeric = (v) => (v ? String(v).replace(/\D/g, "").replace(/^0+/, "") : "");
-          const fields = [log.acNo, log["AC-No"], log["AC No"], log.empNo, log.cardNo, log.badge, log.userid, log.userId];
+          const numeric = (v) =>
+            v ? String(v).replace(/\D/g, "").replace(/^0+/, "") : "";
+          const fields = [
+            log.acNo,
+            log["AC-No"],
+            log["AC No"],
+            log.empNo,
+            log.cardNo,
+            log.badge,
+            log.userid,
+            log.userId,
+          ];
           for (const f of fields) {
             if (!f) continue;
             const nf = numeric(f);
             if (!nf) continue;
             for (const emp of employees) {
               if (!emp) continue;
-              const cand = [emp.empId, emp.empNo, emp.acNo, emp.cardNo, emp.badge].filter(Boolean).map(numeric);
+              const cand = [
+                emp.empId,
+                ...(emp.alternateEmpIds || []),
+                emp.empNo,
+                emp.acNo,
+                emp.cardNo,
+                emp.badge,
+              ]
+                .filter(Boolean)
+                .map(numeric);
               if (cand.includes(nf)) return true;
             }
           }
@@ -342,10 +515,15 @@ const DTRProcess = ({ currentUser }) => {
         // Non-fatal: if anything goes wrong here, fall back to unfiltered payload
         console.warn("DTR pre-filter failed, using unfiltered logs:", e);
       }
+
+      // Yield to the browser so the UI stays responsive during heavy processing
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
       const logsByEmpDay = {};
 
       // Build robust client-side mapping from AC-No/name → empId
-      const normalizeDigits = (v) => (v ? String(v).replace(/\D/g, "").replace(/^0+/, "") : "");
+      const normalizeDigits = (v) =>
+        v ? String(v).replace(/\D/g, "").replace(/^0+/, "") : "";
       const normalizeText = (s) => {
         if (!s) return "";
         let t = String(s).toLowerCase().trim();
@@ -374,7 +552,8 @@ const DTRProcess = ({ currentUser }) => {
         const digits = normalizeDigits(s);
         if (digits) empIdByCandidate.set(digits, id);
         if (digits) {
-          if (!digitsToEmpIds.has(digits)) digitsToEmpIds.set(digits, new Set());
+          if (!digitsToEmpIds.has(digits))
+            digitsToEmpIds.set(digits, new Set());
           digitsToEmpIds.get(digits).add(id);
         }
         const lowered = s.toLowerCase().trim();
@@ -383,12 +562,10 @@ const DTRProcess = ({ currentUser }) => {
         if (compact) empIdByCandidate.set(compact, id);
       };
 
-      // Debug target (temporary): digits to watch for mapping issues
-      const DEBUG_TARGET_DIGITS = "1007";
-
       employees.forEach((emp) => {
         if (!emp) return;
         const primaryEmpId = emp.empId;
+        if (!primaryEmpId) return;
         const candidates = [
           emp.empId,
           emp.empNo,
@@ -446,18 +623,15 @@ const DTRProcess = ({ currentUser }) => {
               }
             }
           }
-          if (!found && d && empIdByCandidate.has(d)) found = empIdByCandidate.get(d);
+          if (!found && d && empIdByCandidate.has(d))
+            found = empIdByCandidate.get(d);
           const low = s.toLowerCase().trim();
-          if (!found && empIdByCandidate.has(low)) found = empIdByCandidate.get(low);
+          if (!found && empIdByCandidate.has(low))
+            found = empIdByCandidate.get(low);
           const compact = low.replace(/\s+/g, "");
-          if (!found && empIdByCandidate.has(compact)) found = empIdByCandidate.get(compact);
+          if (!found && empIdByCandidate.has(compact))
+            found = empIdByCandidate.get(compact);
 
-          // Debug logging when the lookup involves the target digits
-          try {
-            if (String(s).includes(DEBUG_TARGET_DIGITS) || (d && d.includes(DEBUG_TARGET_DIGITS))) {
-              console.debug("DTR_DEBUG tryLookup", { val: s, digits: d, found });
-            }
-          } catch (e) {}
           return found;
         };
 
@@ -506,11 +680,13 @@ const DTRProcess = ({ currentUser }) => {
           });
 
           if (score.size) {
-            // pick best candidate
+            // pick best candidate + check if it's a clear winner
             let best = null;
             let bestCount = 0;
+            let secondBestCount = 0;
             for (const [eid, cnt] of score.entries()) {
               if (cnt > bestCount) {
+                secondBestCount = bestCount;
                 best = eid;
                 bestCount = cnt;
               } else if (cnt === bestCount) {
@@ -518,20 +694,49 @@ const DTRProcess = ({ currentUser }) => {
                 const eidTokens = empTokensMap.get(eid) || [];
                 const bestTokens = empTokensMap.get(best) || [];
                 const lastLog = logTokens[logTokens.length - 1];
-                if (lastLog && eidTokens.includes(lastLog) && !bestTokens.includes(lastLog)) {
+                if (
+                  lastLog &&
+                  eidTokens.includes(lastLog) &&
+                  !bestTokens.includes(lastLog)
+                ) {
                   best = eid;
                 }
+                secondBestCount = Math.max(secondBestCount, cnt);
+              } else if (cnt > secondBestCount) {
+                secondBestCount = cnt;
               }
             }
 
-            // Apply threshold: require at least 2 token matches OR a clear unique single-token match of a longer token
-            if (best && (bestCount >= 2 || (bestCount === 1 && logTokens.some(t => t.length >= 4)))) {
+            // Accept only if:
+            // - at least 2 tokens match AND best is a clear winner, OR
+            // - a unique long token maps to exactly one employee (high confidence)
+            const hasUniqueLongToken = logTokens.some((t) => {
+              if (!t || t.length < 4) return false;
+              const set = nameTokensMap.get(t);
+              return set && set.size === 1 && set.has(best);
+            });
+
+            if (
+              best &&
+              ((bestCount >= 2 && bestCount > secondBestCount) ||
+                (bestCount === 1 && hasUniqueLongToken))
+            ) {
               empKey = best;
             }
             // If the empKey is still ambiguous but the log contains numeric identifiers that map strongly, prefer numeric
             if (!empKey) {
-              const numeric = (v) => (v ? String(v).replace(/\D/g, "").replace(/^0+/, "") : "");
-              const fields = [log.acNo, log["AC-No"], log["AC No"], log.empNo, log.cardNo, log.badge, log.userid, log.userId];
+              const numeric = (v) =>
+                v ? String(v).replace(/\D/g, "").replace(/^0+/, "") : "";
+              const fields = [
+                log.acNo,
+                log["AC-No"],
+                log["AC No"],
+                log.empNo,
+                log.cardNo,
+                log.badge,
+                log.userid,
+                log.userId,
+              ];
               for (const f of fields) {
                 if (!f) continue;
                 const nf = numeric(f);
@@ -564,47 +769,45 @@ const DTRProcess = ({ currentUser }) => {
         if (!logsByEmpDay[empKey]) logsByEmpDay[empKey] = {};
         if (!logsByEmpDay[empKey][dateKey]) {
           logsByEmpDay[empKey][dateKey] = {
-            "Time In": [],
-            "Break Out": [],
-            "Break In": [],
-            "Time Out": [],
-            // collect overtime punches separately so weekend OT can be shown
-            "OT In": [],
-            "OT Out": [],
+            _rawLogs: [],
           };
         }
 
-        const stateLabel = STATE_LABELS[log.state];
-        if (stateLabel) {
-          const t = dayjs(log.time).tz(LOCAL_TZ).format("hh:mm A");
-          let arr = logsByEmpDay[empKey][dateKey][stateLabel];
-          // normalize to array
-          if (!Array.isArray(arr)) {
-            arr = arr ? [arr] : [];
-          }
-          // avoid pushing duplicates
-          if (!arr.includes(t)) arr.push(t);
-          logsByEmpDay[empKey][dateKey][stateLabel] = arr;
-        }
+        // Collect raw log into the day bucket
+        logsByEmpDay[empKey][dateKey]._rawLogs.push(log);
       });
 
-      // Cleanup: sort and dedupe all time arrays (ensure consistent ordering and remove duplicates)
+      // Resolve each day using chronological position-based detection
       Object.keys(logsByEmpDay).forEach((empKey) => {
         Object.keys(logsByEmpDay[empKey]).forEach((dateKey) => {
           const dayObj = logsByEmpDay[empKey][dateKey];
-          Object.keys(dayObj).forEach((label) => {
-            const val = dayObj[label];
-            if (Array.isArray(val)) {
-              const unique = Array.from(new Set(val));
-              unique.sort((a, b) => {
-                const da = dayjs(a, "hh:mm A");
-                const db = dayjs(b, "hh:mm A");
-                if (da.isValid() && db.isValid()) return da.isBefore(db) ? -1 : 1;
-                return String(a).localeCompare(String(b));
-              });
-              dayObj[label] = unique;
-            }
+          const rawLogs = dayObj._rawLogs || [];
+          delete dayObj._rawLogs;
+
+          const resolved = resolveTimePunches(rawLogs, {
+            format: "hh:mm A",
+            defaultBreak: false,
           });
+          dayObj["Time In"] = resolved.timeIn ? [resolved.timeIn] : [];
+          dayObj["Break Out"] = resolved.breakOut ? [resolved.breakOut] : [];
+          dayObj["Break In"] = resolved.breakIn ? [resolved.breakIn] : [];
+          dayObj["Time Out"] = resolved.timeOut ? [resolved.timeOut] : [];
+
+          // Preserve OT punches (extracted by State since they're separate from normal punches)
+          const otInLogs = rawLogs.filter((l) => {
+            const st = l.state || l.State || "";
+            return st === "Overtime In" || st === "OT In";
+          });
+          const otOutLogs = rawLogs.filter((l) => {
+            const st = l.state || l.State || "";
+            return st === "Overtime Out" || st === "OT Out";
+          });
+          dayObj["OT In"] = otInLogs.map((l) =>
+            dayjs(l.time).tz(LOCAL_TZ).format("hh:mm A"),
+          );
+          dayObj["OT Out"] = otOutLogs.map((l) =>
+            dayjs(l.time).tz(LOCAL_TZ).format("hh:mm A"),
+          );
         });
       });
 
@@ -614,7 +817,7 @@ const DTRProcess = ({ currentUser }) => {
       appMessage.error("Error loading DTR logs for selected record");
       setDtrLogs({});
     } finally {
-      setLoading(false);
+      setDtrLogsLoading(false);
     }
   };
 
@@ -629,8 +832,8 @@ const DTRProcess = ({ currentUser }) => {
         const list = Array.isArray(res?.data?.data)
           ? res.data.data
           : Array.isArray(res?.data)
-          ? res.data
-          : [];
+            ? res.data
+            : [];
         setDtrRecords(list);
       } catch (err) {
         appMessage.error("Unable to load DTR records");
@@ -670,7 +873,7 @@ const DTRProcess = ({ currentUser }) => {
         (emp) =>
           emp.name?.toLowerCase().includes(searchText.toLowerCase()) ||
           emp.empNo?.toLowerCase().includes(searchText.toLowerCase()) ||
-          emp.empId?.toLowerCase().includes(searchText.toLowerCase())
+          emp.empId?.toLowerCase().includes(searchText.toLowerCase()),
       );
     }
 
@@ -682,7 +885,7 @@ const DTRProcess = ({ currentUser }) => {
       data = data.filter((emp) =>
         emp.sectionOrUnit
           ?.toLowerCase()
-          .includes(sectionOrUnitFilter.toLowerCase())
+          .includes(sectionOrUnitFilter.toLowerCase()),
       );
     }
 
@@ -690,44 +893,48 @@ const DTRProcess = ({ currentUser }) => {
   }, [searchText, empTypeFilter, sectionOrUnitFilter, employees]);
 
   const recordsSafe = Array.isArray(dtrRecords) ? dtrRecords : [];
-  const selectedRecord = recordsSafe.find(
-    (rec) => rec.DTR_Record_Name === selectedDtrRecord
+  const selectedRecord = useMemo(
+    () => recordsSafe.find((rec) => rec.DTR_Record_Name === selectedDtrRecord),
+    [recordsSafe, selectedDtrRecord],
   );
 
-  let dtrDays = [];
-
-  if (
-    selectedRecord &&
-    selectedRecord.DTR_Cut_Off?.start &&
-    selectedRecord.DTR_Cut_Off?.end
-  ) {
-    const start = dayjs.tz(selectedRecord.DTR_Cut_Off.start, LOCAL_TZ);
-    const end = dayjs.tz(selectedRecord.DTR_Cut_Off.end, LOCAL_TZ);
+  const dtrDays = useMemo(() => {
+    if (
+      !selectedRecord ||
+      !selectedRecord.DTR_Cut_Off?.start ||
+      !selectedRecord.DTR_Cut_Off?.end
+    ) {
+      return [];
+    }
+    const start = parseInLocalTz(selectedRecord.DTR_Cut_Off.start);
+    const end = parseInLocalTz(selectedRecord.DTR_Cut_Off.end);
 
     if (!start.isValid() || !end.isValid()) {
       console.error(
         "Invalid DTR_Cut_Off dates:",
         selectedRecord.DTR_Cut_Off.start,
-        selectedRecord.DTR_Cut_Off.end
+        selectedRecord.DTR_Cut_Off.end,
       );
-      dtrDays = [];
-    } else {
-      const recordName = selectedRecord.DTR_Record_Name || "";
-      if (recordName.includes("1-15")) {
-        dtrDays = Array.from({ length: 15 }, (_, i) => i + 1);
-      } else if (recordName.includes("16-")) {
-        const endOfMonth = start.endOf("month").date();
-        const numDays = endOfMonth - 16 + 1;
-        dtrDays = Array.from({ length: numDays }, (_, i) => i + 16);
-      } else {
-        let curr = start.clone();
-        while (curr.isSameOrBefore(end, "day")) {
-          dtrDays.push(curr.date());
-          curr = curr.add(1, "day");
-        }
-      }
+      return [];
     }
-  }
+
+    const recordName = selectedRecord.DTR_Record_Name || "";
+    if (recordName.includes("1-15")) {
+      return Array.from({ length: 15 }, (_, i) => i + 1);
+    } else if (recordName.includes("16-")) {
+      const endOfMonth = start.endOf("month").date();
+      const numDays = endOfMonth - 16 + 1;
+      return Array.from({ length: numDays }, (_, i) => i + 16);
+    } else {
+      const days = [];
+      let curr = start.clone();
+      while (curr.isSameOrBefore(end, "day")) {
+        days.push(curr.date());
+        curr = curr.add(1, "day");
+      }
+      return days;
+    }
+  }, [selectedRecord]);
 
   useEffect(() => {
     if (selectedRecord && employees.length) {
@@ -744,20 +951,35 @@ const DTRProcess = ({ currentUser }) => {
         selectedRecord.DTR_Cut_Off?.start &&
         selectedRecord.DTR_Cut_Off?.end
       ) {
-        const start = dayjs(selectedRecord.DTR_Cut_Off.start);
-        const end = dayjs(selectedRecord.DTR_Cut_Off.end);
-        const year = start.year();
-        const holidays = await fetchPhilippineHolidays(year);
+        const start = parseInLocalTz(selectedRecord.DTR_Cut_Off.start);
+        const end = parseInLocalTz(selectedRecord.DTR_Cut_Off.end);
+
+        if (!start.isValid() || !end.isValid()) {
+          setHolidaysPH([]);
+          setLocalHolidays([]);
+          setSuspensions([]);
+          return;
+        }
+
+        const years = Array.from(new Set([start.year(), end.year()])).filter(
+          (y) => Number.isFinite(y),
+        );
+        const yearHolidayLists = await Promise.all(
+          years.map((y) => fetchPhilippineHolidays(y)),
+        );
+
+        const holidays = yearHolidayLists.flat();
         const filtered = holidays
           .filter((h) => {
-            const hDate = dayjs(h.date);
+            const hDate = parseInLocalTz(h.date);
+            if (!hDate.isValid()) return false;
             return (
               hDate.isSameOrAfter(start, "day") &&
               hDate.isSameOrBefore(end, "day")
             );
           })
           .map((h) => ({
-            date: h.date,
+            date: parseInLocalTz(h.date).format("YYYY-MM-DD"),
             name: h.localName,
             type: h.type,
           }));
@@ -765,29 +987,55 @@ const DTRProcess = ({ currentUser }) => {
         // Fetch local holidays and suspensions in the same window
         try {
           const [lh, ss] = await Promise.all([
-            axiosInstance.get(`/local-holidays`, { params: { start: start.format('YYYY-MM-DD'), end: end.format('YYYY-MM-DD') } }),
-            axiosInstance.get(`/suspensions`, { params: { start: start.format('YYYY-MM-DD'), end: end.format('YYYY-MM-DD') } }),
+            axiosInstance.get(`/local-holidays`, {
+              params: {
+                start: start.format("YYYY-MM-DD"),
+                end: end.format("YYYY-MM-DD"),
+              },
+            }),
+            axiosInstance.get(`/suspensions`, {
+              params: {
+                start: start.format("YYYY-MM-DD"),
+                end: end.format("YYYY-MM-DD"),
+              },
+            }),
           ]);
-          setLocalHolidays((lh.data?.data||[]).map(h=>({
-            date: dayjs(h.date).format('YYYY-MM-DD'),
-            endDate: h.endDate ? dayjs(h.endDate).format('YYYY-MM-DD') : null,
-            name: h.name,
-            type: 'Local Holiday',
-            location: h.location,
-            notes: h.notes,
-          })));
-          setSuspensions((ss.data?.data||[]).map(s=>({
-            date: dayjs(s.date).format('YYYY-MM-DD'),
-            endDate: s.endDate ? dayjs(s.endDate).format('YYYY-MM-DD') : null,
-            name: s.title,
-            type: 'Suspension',
-            scope: s.scope,
-            location: s.location,
-            referenceType: s.referenceType,
-            referenceNo: s.referenceNo,
-            notes: s.notes,
-          })));
-        } catch(e) {
+          setLocalHolidays(
+            (lh.data?.data || []).map((h) => ({
+              date: parseInLocalTz(h.date).isValid()
+                ? parseInLocalTz(h.date).format("YYYY-MM-DD")
+                : dayjs(h.date).format("YYYY-MM-DD"),
+              endDate: h.endDate
+                ? parseInLocalTz(h.endDate).isValid()
+                  ? parseInLocalTz(h.endDate).format("YYYY-MM-DD")
+                  : dayjs(h.endDate).format("YYYY-MM-DD")
+                : null,
+              name: h.name,
+              type: "Local Holiday",
+              location: h.location,
+              notes: h.notes,
+            })),
+          );
+          setSuspensions(
+            (ss.data?.data || []).map((s) => ({
+              date: parseInLocalTz(s.date).isValid()
+                ? parseInLocalTz(s.date).format("YYYY-MM-DD")
+                : dayjs(s.date).format("YYYY-MM-DD"),
+              endDate: s.endDate
+                ? parseInLocalTz(s.endDate).isValid()
+                  ? parseInLocalTz(s.endDate).format("YYYY-MM-DD")
+                  : dayjs(s.endDate).format("YYYY-MM-DD")
+                : null,
+              name: s.title,
+              type: "Suspension",
+              scope: s.scope,
+              location: s.location,
+              referenceType: s.referenceType,
+              referenceNo: s.referenceNo,
+              notes: s.notes,
+            })),
+          );
+        } catch (e) {
           // Non-fatal
         }
       } else {
@@ -807,14 +1055,18 @@ const DTRProcess = ({ currentUser }) => {
       }
       try {
         setTrainingLoading(true);
-        const start = dayjs(selectedRecord.DTR_Cut_Off.start).format("YYYY-MM-DD");
+        const start = dayjs(selectedRecord.DTR_Cut_Off.start).format(
+          "YYYY-MM-DD",
+        );
         const end = dayjs(selectedRecord.DTR_Cut_Off.end).format("YYYY-MM-DD");
-        const res = await axiosInstance.get(`/trainings`, { params: { start, end } });
+        const res = await axiosInstance.get(`/trainings`, {
+          params: { start, end },
+        });
         const list = Array.isArray(res?.data?.data)
           ? res.data.data
           : Array.isArray(res?.data)
-          ? res.data
-          : [];
+            ? res.data
+            : [];
 
         // Filter to trainings overlapping the selected cut-off
         const startD = dayjs(selectedRecord.DTR_Cut_Off.start);
@@ -853,22 +1105,38 @@ const DTRProcess = ({ currentUser }) => {
   }, [employees, selectedRecord]);
 
   const hasAnyDTRLogs = (emp, dtrDays, dtrLogs, selectedRecord) => {
-    const empKey = emp.empId;
-    if (!dtrLogs[empKey]) return false;
+    const ids = [emp?.empId, ...(emp?.alternateEmpIds || [])]
+      .filter(Boolean)
+      .map(String);
+    if (!ids.length) return false;
 
     return dtrDays.some((dayNum) => {
-      const dateKey = dayjs(selectedRecord.DTR_Cut_Off.start)
-        .date(dayNum)
-        .format("YYYY-MM-DD");
-      const dayLogs = dtrLogs[empKey][dateKey];
-      if (!dayLogs) return false;
-      return Object.values(dayLogs).some((v) =>
-        Array.isArray(v) ? v.length > 0 : Boolean(v)
-      );
+      const cutStart = parseInLocalTz(selectedRecord?.DTR_Cut_Off?.start);
+      if (!cutStart.isValid()) return false;
+      const dateKey = cutStart.clone().date(dayNum).format("YYYY-MM-DD");
+      for (const id of ids) {
+        const dayLogs = dtrLogs?.[id]?.[dateKey];
+        if (hasAnyPunches(dayLogs)) return true;
+      }
+      return false;
     });
   };
 
-  const getDTRHeaderTitle = () => {
+  // Memoize the list of employees with missing DTR to avoid O(n×m) on every render
+  const missingDtrEmployees = useMemo(() => {
+    if (!selectedRecord || !dtrDays.length) return [];
+    return employees.filter(
+      (emp) => !hasAnyDTRLogs(emp, dtrDays, dtrLogs, selectedRecord),
+    );
+  }, [employees, dtrDays, dtrLogs, selectedRecord]);
+
+  // Memoize combined holidays to avoid creating new arrays on every render
+  const allHolidays = useMemo(
+    () => [...holidaysPH, ...localHolidays, ...suspensions],
+    [holidaysPH, localHolidays, suspensions],
+  );
+
+  const dtrHeaderTitle = useMemo(() => {
     if (
       selectedRecord &&
       selectedRecord.DTR_Cut_Off?.start &&
@@ -886,7 +1154,7 @@ const DTRProcess = ({ currentUser }) => {
       }
     }
     return "Daily Time Record";
-  };
+  }, [selectedRecord]);
 
   const handleViewDTR = (employee) => {
     setSelectedEmployee(employee);
@@ -897,7 +1165,7 @@ const DTRProcess = ({ currentUser }) => {
     if (!employee?.empId || !selectedRecord) return;
 
     const cutOff = `${dayjs(selectedRecord.DTR_Cut_Off.start).format(
-      "MMMM DD, YYYY"
+      "MMMM DD, YYYY",
     )}-${dayjs(selectedRecord.DTR_Cut_Off.end).format("MMMM DD, YYYY")}`;
 
     const payload = {
@@ -912,7 +1180,7 @@ const DTRProcess = ({ currentUser }) => {
 
     try {
       const existingRes = await axiosInstance.get(
-        `/employee-docs/by-employee/${employee.empId}`
+        `/employee-docs/by-employee/${employee.empId}`,
       );
 
       const existingDocs = existingRes.data?.data || [];
@@ -921,7 +1189,7 @@ const DTRProcess = ({ currentUser }) => {
         (doc) =>
           doc.docType === payload.docType &&
           doc.reference === payload.reference &&
-          doc.period === payload.period
+          doc.period === payload.period,
       );
 
       if (isDuplicate) {
@@ -937,7 +1205,7 @@ const DTRProcess = ({ currentUser }) => {
     } catch (err) {
       console.error(
         "Failed to log DTR record:",
-        err.response?.data || err.message
+        err.response?.data || err.message,
       );
     }
   };
@@ -949,54 +1217,69 @@ const DTRProcess = ({ currentUser }) => {
   const handleDownloadDTR = async (item) => {
     if (!item || !item.employee || !item.selectedRecord) return;
 
-    try {
-      const pdfBlob = await generateDTRPdf({ ...item, download: true });
+    await withLoading(async ({ updateProgress }) => {
+      try {
+        updateProgress(20, "Generating DTR PDF…");
+        const pdfBlob = await generateDTRPdf({ ...item, download: true });
 
-      const cutOff = `${dayjs(item.selectedRecord.DTR_Cut_Off.start).format(
-        "MMMM DD, YYYY"
-      )}-${dayjs(item.selectedRecord.DTR_Cut_Off.end).format("MMMM DD, YYYY")}`;
+        updateProgress(60, "Preparing download…");
+        const cutOff = `${dayjs(item.selectedRecord.DTR_Cut_Off.start).format(
+          "MMMM DD, YYYY",
+        )}-${dayjs(item.selectedRecord.DTR_Cut_Off.end).format("MMMM DD, YYYY")}`;
 
-      const link = document.createElement("a");
-      link.href = URL.createObjectURL(pdfBlob);
-      link.download = `DTR_${item.employee.name}_${cutOff}.pdf`;
-      link.click();
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(pdfBlob);
+        link.download = `DTR_${item.employee.name}_${cutOff}.pdf`;
+        link.click();
 
-      await logDTRRecord(item.employee, item.selectedRecord, currentUser);
-    } catch (err) {
-  console.error("Error downloading/logging DTR:", err);
-  appMessage.error("Failed to download or log DTR");
-    }
+        updateProgress(80, "Logging record…");
+        await logDTRRecord(item.employee, item.selectedRecord, currentUser);
+      } catch (err) {
+        console.error("Error downloading/logging DTR:", err);
+        appMessage.error("Failed to download or log DTR");
+      }
+    }, "Downloading DTR…");
   };
 
   const handleDownloadAllDTRs = async () => {
     if (!printerTray.length) {
-  appMessage.warning("Printer tray is empty");
+      appMessage.warning("Printer tray is empty");
       return;
     }
 
-    try {
-      await generateBatchDTRPdf(printerTray);
-  appMessage.success("Batch DTR PDF downloaded.");
+    await withLoading(async ({ updateProgress }) => {
+      try {
+        updateProgress(10, "Generating batch DTR PDF…");
+        await generateBatchDTRPdf(printerTray);
+        appMessage.success("Batch DTR PDF downloaded.");
 
-      for (const item of printerTray) {
-        const { employee, selectedRecord } = item;
-        if (!employee || !selectedRecord) continue;
+        const total = printerTray.length;
+        for (let i = 0; i < total; i++) {
+          const item = printerTray[i];
+          const { employee, selectedRecord } = item;
+          if (!employee || !selectedRecord) continue;
 
-        try {
-          await logDTRRecord(employee, selectedRecord, currentUser);
-        } catch (err) {
-          console.error(
-            `Failed to log DTR for ${employee.name}:`,
-            err.response?.data || err.message
+          updateProgress(
+            10 + Math.round(((i + 1) / total) * 80),
+            `Logging DTR ${i + 1} of ${total}…`,
           );
-        }
-      }
 
-  appMessage.success("All DTRs logged successfully.");
-    } catch (err) {
-      console.error("Failed to download or log batch DTRs:", err);
-  appMessage.error("Failed to download or log batch DTRs.");
-    }
+          try {
+            await logDTRRecord(employee, selectedRecord, currentUser);
+          } catch (err) {
+            console.error(
+              `Failed to log DTR for ${employee.name}:`,
+              err.response?.data || err.message,
+            );
+          }
+        }
+
+        appMessage.success("All DTRs logged successfully.");
+      } catch (err) {
+        console.error("Failed to download or log batch DTRs:", err);
+        appMessage.error("Failed to download or log batch DTRs.");
+      }
+    }, "Downloading all DTRs…");
   };
 
   const handlePrintSelected = async (item) => {
@@ -1026,8 +1309,8 @@ const DTRProcess = ({ currentUser }) => {
         await logDTRRecord(employee, selectedRecord, currentUser);
       };
     } catch (err) {
-  console.error("Failed to print/log DTR:", err);
-  appMessage.error("Failed to print DTR");
+      console.error("Failed to print/log DTR:", err);
+      appMessage.error("Failed to print DTR");
     }
   };
 
@@ -1036,7 +1319,8 @@ const DTRProcess = ({ currentUser }) => {
       const exists = prev.some(
         (item) =>
           item.employee.empId === employee.empId &&
-          item.selectedRecord.DTR_Record_Name === selectedRecord.DTR_Record_Name
+          item.selectedRecord.DTR_Record_Name ===
+            selectedRecord.DTR_Record_Name,
       );
       if (exists) return prev;
       return [
@@ -1050,18 +1334,20 @@ const DTRProcess = ({ currentUser }) => {
       ];
     });
 
-  appMessage.success(`${employee.name} DTR added to Printer Tray.`);
+    appMessage.success(`${employee.name} DTR added to Printer Tray.`);
   };
 
   const handleClearPrinterTray = () => {
-  setPrinterTray([]);
-  appMessage.success("Printer Tray cleared.");
+    setPrinterTray([]);
+    appMessage.success("Printer Tray cleared.");
   };
 
   const handleAddSelectedToTray = () => {
     const keySet = new Set(selectedRowKeys);
     const selectedEmployees = employees.filter((emp) =>
-      keySet.has(emp.stableKey || emp._id || emp.empId || emp.empNo || emp.name)
+      keySet.has(
+        emp.stableKey || emp._id || emp.empId || emp.empNo || emp.name,
+      ),
     );
 
     let newItemsCount = 0;
@@ -1072,7 +1358,7 @@ const DTRProcess = ({ currentUser }) => {
           (item) =>
             item.employee.empId === employee.empId &&
             item.selectedRecord.DTR_Record_Name ===
-              selectedRecord.DTR_Record_Name
+              selectedRecord.DTR_Record_Name,
         );
         if (!exists) {
           newItems.push({
@@ -1096,139 +1382,187 @@ const DTRProcess = ({ currentUser }) => {
     setSelectedRowKeys([]);
   };
 
-  const columnsBase = [
-    {
-      title: "Employee No / Type",
-      key: "empNoType",
-      width: 130,
-      render: (_, record) => {
-        const color = record.empType === "Regular" ? "#389e0d" : "#fa8c16";
-        return (
-          <div style={{ width: 150, minWidth: 150, maxWidth: 150 }}>
-            <div style={{ fontWeight: "bold", fontSize: "14px", color }}>
-              {record.empNo}
-            </div>
-            <div style={{ fontSize: "12px", color, fontWeight: 500 }}>
-              {record.empType}
-            </div>
-          </div>
-        );
-      },
-    },
-    {
-      title: "Name / Position",
-      key: "namePosition",
-      width: 270,
-      render: (_, record) => {
-        const divisionAcronym = divisionAcronyms[record.division] || record.division;
-        const sectionAcronym = sectionUnitAcronymsFlat[record.sectionOrUnit] || record.sectionOrUnit || "";
-
-  const posAcr = computePositionAcronym(record.position);
-  const showAcronym = record.empType === "Regular";
-  const positionDisplay = showAcronym ? (posAcr || record.position) : record.position;
-
-        return (
-          <div style={{ width: 250, minWidth: 250, maxWidth: 250 }}>
-            <strong>{record.name}</strong>
-            {record.position && (
-              <div style={{ fontSize: "12px", color: "#888" }} title={showAcronym ? record.position : undefined}>
-                {positionDisplay}
+  const columnsBase = useMemo(
+    () => [
+      {
+        title: "Employee No / Type",
+        key: "empNoType",
+        width: 100,
+        render: (_, record) => {
+          const color = record.empType === "Regular" ? "#389e0d" : "#fa8c16";
+          return (
+            <div style={{ width: 150, minWidth: 150, maxWidth: 150 }}>
+              <div style={{ fontWeight: "bold", fontSize: "14px", color }}>
+                {record.empNo}
               </div>
-            )}
-            {(record.division || record.sectionOrUnit) && (
-              <div style={{ fontSize: "12px", color: "#666" }}>
-                {divisionAcronym} {sectionAcronym && `| ${sectionAcronym}`}
+              <div style={{ fontSize: "12px", color, fontWeight: 500 }}>
+                {record.empType}
               </div>
-            )}
-          </div>
-        );
+            </div>
+          );
+        },
       },
-    },
-    {
-      title: "Employee ID",
-      dataIndex: "empId",
-      key: "empId",
-      width: 70,
-      align: "center",
-      render: (_, record) => {
-        const ids = [record.empId, ...(record.alternateEmpIds || [])]
-          .filter(Boolean)
-          .join(", ");
+      {
+        title: "Name / Position",
+        key: "namePosition",
+        width: 230,
+        render: (_, record) => {
+          const divisionAcronym =
+            divisionAcronyms[record.division] || record.division;
+          const sectionAcronym =
+            sectionUnitAcronymsFlat[record.sectionOrUnit] ||
+            record.sectionOrUnit ||
+            "";
 
-        return (
-          <div style={{ width: 70, minWidth: 70, maxWidth: 70 }}>{ids}</div>
-        );
+          const posAcr = computePositionAcronym(record.position);
+          const showAcronym = record.empType === "Regular";
+          const positionDisplay = showAcronym
+            ? posAcr || record.position
+            : record.position;
+
+          return (
+            <div style={{ width: 250, minWidth: 250, maxWidth: 250 }}>
+              <strong>{record.name}</strong>
+              {record.position && (
+                <div
+                  style={{ fontSize: "12px", color: "#888" }}
+                  title={showAcronym ? record.position : undefined}
+                >
+                  {positionDisplay}
+                </div>
+              )}
+              {(record.division || record.sectionOrUnit) && (
+                <div style={{ fontSize: "12px", color: "#666" }}>
+                  {divisionAcronym} {sectionAcronym && `| ${sectionAcronym}`}
+                </div>
+              )}
+            </div>
+          );
+        },
       },
-    },
-    {
-      title: getDTRHeaderTitle(),
-      key: "dailyTimeRecord",
-      width: 500,
-      render: (_, record) =>
-        dtrDays.length > 0 ? (
-          <DTRDayTiles
-            days={dtrDays}
-            emp={record}
-            selectedRecord={selectedRecord}
-            divisionColors={divisionColors}
-            divisionAcronyms={divisionAcronyms}
-            holidaysPH={[...holidaysPH, ...localHolidays, ...suspensions]}
-            trainingLoading={trainingLoading}
-            getEmployeeDayLogs={(emp, dateKey) => {
-              const empKey = emp.empId;
-              return dtrLogs[empKey]?.[dateKey] || null;
-            }}
-            getTrainingDetailsOnDay={(emp, dateKey) => {
-              const trainings = employeeTrainings[emp.empId] || [];
-              return trainings.find((t) => {
-                const d = dayjs(dateKey);
-                const start = dayjs(t.trainingDate?.[0]);
-                const end = dayjs(t.trainingDate?.[1]);
-                if (!start.isValid() || !end.isValid()) return false;
-                return d.isSameOrAfter(start, "day") && d.isSameOrBefore(end, "day");
-              });
-            }}
+      {
+        title: "Employee ID",
+        dataIndex: "empId",
+        key: "empId",
+        width: 70,
+        align: "center",
+        render: (_, record) => {
+          const ids = [record.empId, ...(record.alternateEmpIds || [])]
+            .filter(Boolean)
+            .join(", ");
+
+          return (
+            <div style={{ width: 70, minWidth: 70, maxWidth: 70 }}>{ids}</div>
+          );
+        },
+      },
+      {
+        title: dtrHeaderTitle,
+        key: "dailyTimeRecord",
+        width: 500,
+        render: (_, record) =>
+          dtrDays.length > 0 ? (
+            <DTRDayTiles
+              days={dtrDays}
+              emp={record}
+              selectedRecord={selectedRecord}
+              divisionColors={divisionColors}
+              divisionAcronyms={divisionAcronyms}
+              holidaysPH={allHolidays}
+              trainingLoading={trainingLoading}
+              getEmployeeDayLogs={(emp, dateKey) => {
+                const ids = [emp.empId, ...(emp.alternateEmpIds || [])].filter(
+                  Boolean,
+                );
+                for (const id of ids) {
+                  if (dtrLogs[id]?.[dateKey]) return dtrLogs[id][dateKey];
+                }
+                return null;
+              }}
+              getTrainingDetailsOnDay={(emp, dateKey) => {
+                const trainings = employeeTrainings[emp.empId] || [];
+                return trainings.find((t) => {
+                  const d = dayjs(dateKey);
+                  const start = dayjs(t.trainingDate?.[0]);
+                  const end = dayjs(t.trainingDate?.[1]);
+                  if (!start.isValid() || !end.isValid()) return false;
+                  return (
+                    d.isSameOrAfter(start, "day") &&
+                    d.isSameOrBefore(end, "day")
+                  );
+                });
+              }}
+            />
+          ) : (
+            <span style={{ color: "#888" }}>Select DTR Record</span>
+          ),
+      },
+    ],
+    [
+      dtrDays,
+      dtrLogs,
+      selectedRecord,
+      dtrHeaderTitle,
+      allHolidays,
+      employeeTrainings,
+      trainingLoading,
+    ],
+  );
+
+  const actionsColumn = useMemo(
+    () => ({
+      title: "Actions",
+      key: "actions",
+      width: 100,
+      render: (_, record) => (
+        <Space size="middle">
+          <Button
+            type="primary"
+            size="small"
+            icon={<EyeOutlined />}
+            loading={viewActionLoadingKey === getEmployeeUiKey(record)}
+            onClick={() =>
+              runRowAction(
+                setViewActionLoadingKey,
+                getEmployeeUiKey(record),
+                () => handleViewDTR(record),
+              )
+            }
+            style={{ fontSize: 12 }}
           />
-        ) : (
-          <span style={{ color: "#888" }}>Select DTR Record</span>
-        ),
-    },
-  ];
 
-  const actionsColumn = {
-    title: "Actions",
-    key: "actions",
-    width: 100,
-    render: (_, record) => (
-      <Space size="middle">
-        <Button
-          type="primary"
-          size="small"
-          icon={<EyeOutlined />}
-          onClick={() => handleViewDTR(record)}
-          style={{ fontSize: 12 }}
-        />
+          <Button
+            type="default"
+            size="small"
+            icon={<PrinterOutlined />}
+            loading={trayActionLoadingKey === getEmployeeUiKey(record)}
+            onClick={() =>
+              runRowAction(
+                setTrayActionLoadingKey,
+                getEmployeeUiKey(record),
+                () => handleAddToPrinterTray(record),
+              )
+            }
+            style={{ fontSize: 12 }}
+          />
+        </Space>
+      ),
+    }),
+    [viewActionLoadingKey, trayActionLoadingKey],
+  );
 
-        <Button
-          type="default"
-          size="small"
-          icon={<PrinterOutlined />}
-          onClick={() => handleAddToPrinterTray(record)}
-          style={{ fontSize: 12 }}
-        />
-      </Space>
-    ),
-  };
+  const columns = useMemo(
+    () => (selectedDtrRecord ? [...columnsBase, actionsColumn] : columnsBase),
+    [selectedDtrRecord, columnsBase, actionsColumn],
+  );
 
-  const columns = selectedDtrRecord
-    ? [...columnsBase, actionsColumn]
-    : columnsBase;
-
-  const empTypeOptions = [
-    ...new Set(employees.map((emp) => emp.empType).filter(Boolean)),
-  ]
-    .sort((a, b) => a.localeCompare(b))
-    .map((type) => ({ label: type, value: type }));
+  const empTypeOptions = useMemo(
+    () =>
+      [...new Set(employees.map((emp) => emp.empType).filter(Boolean))]
+        .sort((a, b) => a.localeCompare(b))
+        .map((type) => ({ label: type, value: type })),
+    [employees],
+  );
 
   const handlePreviewForm48 = (employee, record) => {
     generateDTRPdf({
@@ -1250,90 +1584,94 @@ const DTRProcess = ({ currentUser }) => {
 
   return (
     <div ref={containerRef} style={{ position: "relative" }}>
-      <Space
+      <Title level={3} style={{ marginBottom: 16 }}>
+        Process Daily Time Records
+      </Title>
+
+      <div
         style={{
-          marginBottom: 16,
+          display: "flex",
+          alignItems: "flex-start",
           justifyContent: "space-between",
-          width: "100%",
+          marginBottom: 16,
+          flexWrap: "wrap",
+          gap: 8,
         }}
       >
-        <Title level={3}>Process Daily Time Records</Title>
+        <DTRFilters
+          selectedDtrRecord={selectedDtrRecord}
+          setSelectedDtrRecord={setSelectedDtrRecord}
+          dtrRecords={dtrRecords}
+          searchText={searchText}
+          setSearchText={setSearchText}
+          empTypeFilter={empTypeFilter}
+          setEmpTypeFilter={setEmpTypeFilter}
+          empTypeOptions={empTypeOptions}
+          sectionOrUnitFilter={sectionOrUnitFilter}
+          setSectionOrUnitFilter={setSectionOrUnitFilter}
+          dtrLogsLoading={dtrLogsLoading}
+        />
 
-        <Badge count={printerTray.length} overflowCount={99}>
-          <Button
-            icon={<MenuOutlined />}
-            type="primary"
-            onClick={() => setDrawerVisible(true)}
-            disabled={printerTray.length === 0}
-          >
-            Printer Tray
-          </Button>
-        </Badge>
-      </Space>
-
-      <DTRFilters
-        selectedDtrRecord={selectedDtrRecord}
-        setSelectedDtrRecord={setSelectedDtrRecord}
-        dtrRecords={dtrRecords}
-        searchText={searchText}
-        setSearchText={setSearchText}
-        empTypeFilter={empTypeFilter}
-        setEmpTypeFilter={setEmpTypeFilter}
-        empTypeOptions={empTypeOptions}
-        sectionOrUnitFilter={sectionOrUnitFilter}
-        setSectionOrUnitFilter={setSectionOrUnitFilter}
-      />
-
-      {selectedDtrRecord && (
-        <Space style={{ marginBottom: 16 }}>
-          <Button
-            type="primary"
-            style={{ marginLeft: 8 }}
-            danger
-            onClick={() => {
-              if (!selectedRecord) return;
-              const missing = employees.filter(
-                (emp) => !hasAnyDTRLogs(emp, dtrDays, dtrLogs, selectedRecord)
-              );
-              setFilteredEmployees(missing);
-              appMessage.warning(
-                `Showing ${missing.length} employees with no DTR at all`
-              );
-            }}
-          >
-            No time records (
-            {
-              employees.filter(
-                (emp) => !hasAnyDTRLogs(emp, dtrDays, dtrLogs, selectedRecord)
-              ).length
-            }
-            )
-          </Button>
-          <Button
-            type="primary"
-            onClick={() => {
-              setFilteredEmployees(sortEmployees(employees));
-            }}
-          >
-            Reset Filter
-          </Button>
-
-          <Button
-            type="primary"
-            onClick={handleAddSelectedToTray}
-            disabled={!selectedRowKeys.length}
-          >
-            Add to Tray ({selectedRowKeys.length})
-          </Button>
+        <Space size={4}>
+          {selectedDtrRecord && (
+            <>
+              <Tooltip title="No time records">
+                <Button
+                  type="primary"
+                  danger
+                  icon={<ExclamationCircleOutlined />}
+                  onClick={() => {
+                    if (!selectedRecord) return;
+                    setFilteredEmployees(missingDtrEmployees);
+                    appMessage.warning(
+                      `Showing ${missingDtrEmployees.length} employees with no DTR at all`,
+                    );
+                  }}
+                >
+                  ({missingDtrEmployees.length})
+                </Button>
+              </Tooltip>
+              <Tooltip title="Reset Filter">
+                <Button
+                  type="primary"
+                  icon={<UndoOutlined />}
+                  onClick={() => {
+                    setFilteredEmployees(sortEmployees(employees));
+                  }}
+                />
+              </Tooltip>
+              <Tooltip title="Add to Tray">
+                <Button
+                  type="primary"
+                  icon={<PlusSquareOutlined />}
+                  onClick={handleAddSelectedToTray}
+                  disabled={!selectedRowKeys.length}
+                >
+                  ({selectedRowKeys.length})
+                </Button>
+              </Tooltip>
+            </>
+          )}
+          <Tooltip title="Printer Tray">
+            <Badge count={printerTray.length} overflowCount={99}>
+              <Button
+                icon={<MenuOutlined />}
+                type="primary"
+                onClick={() => setDrawerVisible(true)}
+                disabled={printerTray.length === 0}
+              />
+            </Badge>
+          </Tooltip>
         </Space>
-      )}
+      </div>
 
-      {loading ? (
-        <Spin size="large" />
+      {employeesLoading ? (
+        <Spin size="large" style={{ display: "block", margin: "48px auto" }} />
       ) : (
         <DTRTable
           columns={columns}
           dataSource={filteredEmployees}
+          loading={dtrLogsLoading}
           dtrDays={dtrDays}
           dtrLogs={dtrLogs}
           selectedRecord={selectedRecord}
@@ -1366,7 +1704,7 @@ const DTRProcess = ({ currentUser }) => {
           dtrDays={dtrDays}
           dtrLogs={dtrLogs}
           selectedRecord={selectedRecord}
-          holidaysPH={[...holidaysPH, ...localHolidays, ...suspensions]}
+          holidaysPH={allHolidays}
           trainings={employeeTrainings[selectedEmployee.empId] || []}
           trainingLoading={trainingLoading}
           onSaveToTray={handleAddToPrinterTray}

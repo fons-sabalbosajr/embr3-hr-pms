@@ -1,9 +1,25 @@
 /* HomePage.css */
 
-/* Header Styles */
+/* ─── Root Layout: fixed sider + scrolling inner area ──────────────── */
+.homepage-root-layout {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: row;
+  background: var(--app-content-bg, #f5f5f5);
+}
+
+/* Inner layout (Header + Content + Footer) fills remaining width and scrolls */
+.homepage-root-layout > .ant-layout {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  background: transparent;
+}
+
+/* Header Styles — fixed at top of inner layout */
 .header {
-  position: sticky;
-  top: 0;
+  flex-shrink: 0;
   z-index: 100;
   padding: 0 24px;
   display: flex;
@@ -15,17 +31,17 @@
   color: var(--app-header-fg, #000);
 }
 
-/* Sidebar (Sider) */
+/* Sidebar (Sider) — fixed full height */
 .sider {
-  /* Freeze the sider while content scrolls */
-  position: sticky;
+  position: fixed;
   top: 0;
+  left: 0;
   height: 100vh;
   background: var(--app-sider-bg, #001529);
-  z-index: 10;
+  z-index: 101;
   display: flex;
   flex-direction: column;
-  overflow: hidden; /* internal menu will scroll */
+  overflow: hidden;
 }
 
 /* Ensure sider internal wrapper is flex as well */
@@ -97,6 +113,7 @@
 
 /* Footer */
 .ant-layout-footer {
+  flex-shrink: 0;
   padding: 8px 16px;
   font-size: 13px;
   line-height: 1.2;
@@ -104,23 +121,19 @@
   color: var(--app-text-color, #141414);
 }
 
+/* Content area scrolls independently */
 .ant-layout-content { margin-bottom: 10px !important; }
 
-/* Make HomePage main layout fill viewport height so footer stays at bottom */
-.homepage-root-layout {
-  min-height: 100vh;
+/* Content scroll container: the area between header and footer */
+.homepage-content-scroll {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
-  background: var(--app-content-bg, #f5f5f5);
 }
-
-.homepage-root-layout > .ant-layout { /* inner layout (Header/Content/Footer) */
-  min-height: 100vh;
-  background: transparent; /* outer handles the bg */
-}
-
-.homepage-root-layout .ant-layout-content { flex: 1 0 auto; }
-.homepage-root-layout .ant-layout-footer { flex-shrink: 0; }
+.homepage-content-scroll > .ant-layout-content { flex: 1 0 auto; }
+.homepage-content-scroll > .ant-layout-footer { flex-shrink: 0; }
 
 /* Icon Button Container (Bell, Message, etc.) */
 .icon-container {
@@ -227,15 +240,19 @@
 }
 
 /* Developer Settings: always danger-styled */
+.ant-layout-sider .ant-menu .developer-menu-item,
+.ant-layout-sider .ant-menu-item.developer-menu-item,
 .developer-menu-item { font-weight: 600; color: #ff4d4f !important; }
 
 /* Hover: subtle red tint with red text */
+.ant-layout-sider .ant-menu .developer-menu-item:hover,
 .developer-menu-item:hover {
   background-color: rgba(255,77,79,0.15) !important;
   color: #ff4d4f !important;
 }
 
 /* Selected (active): stronger red tint with red text */
+.ant-layout-sider .ant-menu-item-selected.developer-menu-item,
 .ant-menu-item-selected.developer-menu-item {
   background-color: rgba(255,77,79,0.25) !important;
   color: #ff4d4f !important;
@@ -381,4 +398,25 @@
 html { -webkit-text-size-adjust: 100%; }
 img { display: block; max-width: 100%; }
 button { cursor: pointer; }
+
+/* ─── Main Content Area Responsive ──────────────────────────────────────────── */
+@media (max-width: 576px) {
+  .main-content { margin: 8px !important; }
+  .content-wrapper { padding: 8px !important; border-radius: 4px !important; }
+  .header { padding: 0 10px !important; height: 52px; gap: 6px; }
+  .header .icon-trigger { font-size: 16px; }
+  .logo-img { width: 32px; }
+  .logo-container { padding: 10px; }
+  .ant-layout-footer { padding: 6px 10px; font-size: 11px; }
+}
+
+@media (min-width: 577px) and (max-width: 767px) {
+  .main-content { margin: 10px !important; }
+  .content-wrapper { padding: 10px !important; }
+}
+
+@media (min-width: 768px) and (max-width: 1080px) {
+  .main-content { margin: 12px !important; }
+  .content-wrapper { padding: 14px !important; }
+}
 

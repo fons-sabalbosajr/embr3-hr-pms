@@ -171,3 +171,38 @@ body {
 .corp-toolbar .ant-tag {
 	margin-inline-end: 0;
 }
+
+/* ─── Global Responsive Helpers ──────────────────────────────────────────────── */
+
+/* Prevent horizontal page overflow */
+html, body, #root { overflow-x: hidden; }
+
+/* Ensure all Ant tables scroll horizontally when needed */
+.ant-table-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+/* All Ant modals: constrain to viewport on small screens */
+@media (max-width: 767px) {
+	.ant-modal { max-width: calc(100vw - 32px) !important; margin: 16px auto !important; }
+	.ant-modal-body { padding: 12px !important; }
+	.ant-modal-header { padding: 12px 16px !important; }
+	.ant-modal .ant-form-item { margin-bottom: 10px; }
+	/* Descriptions: stack labels above values */
+	.ant-descriptions-item-label,
+	.ant-descriptions-item-content { display: block !important; }
+}
+
+/* Cards: tighten on small screens */
+@media (max-width: 576px) {
+	.ant-card-head { padding: 8px 12px !important; }
+	.ant-card-body { padding: 10px !important; }
+	.ant-card-head-title { font-size: 14px !important; }
+	.corp-panel { border-radius: 4px; }
+	.corp-toolbar { gap: 4px; margin-bottom: 8px; }
+	.compact-table .ant-table-thead > tr > th { font-size: 11px; }
+	.compact-table .ant-table-tbody > tr > td { font-size: 11px; }
+}
+
+/* Tablet refinements */
+@media (min-width: 577px) and (max-width: 1080px) {
+	.ant-modal { max-width: calc(100vw - 48px) !important; }
+}

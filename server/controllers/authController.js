@@ -7,6 +7,9 @@ import {
   sendVerificationEmail,
   sendResetPasswordEmail,
   sendPasswordChangeVerificationEmail,
+  sendSignupApprovedEmail,
+  sendSignupRejectedEmail,
+  sendNewSignupNotificationEmail,
 } from "../utils/email.js";
 import { uploadToDrive } from "../utils/googleDrive.js";
 import fs from 'fs';
@@ -56,8 +59,29 @@ export const signup = async (req, res) => {
     const verificationLink = `${CLIENT_URL}/verify/${token}`;
     await sendVerificationEmail(email, name, verificationLink);
 
+    // Notify all developers and admins about the new pending signup
+    try {
+      const admins = await User.find({
+        $or: [
+          { userType: "developer" },
+          { isAdmin: true },
+          { canManageUsers: true },
+        ],
+        isVerified: true,
+      }).select("email name").lean();
+      const dashboardLink = `${CLIENT_URL}/settings/access`;
+      const emailPromises = admins.map((a) =>
+        sendNewSignupNotificationEmail(a.email, name, email, dashboardLink).catch((e) =>
+          console.warn(`[Signup Notify] Failed to notify ${a.email}:`, e.message)
+        )
+      );
+      await Promise.allSettled(emailPromises);
+    } catch (notifyErr) {
+      console.warn("[Signup Notify] Could not send admin notifications:", notifyErr.message);
+    }
+
     return res.status(201).json({
-      message: "Signup successful. A verification email has been sent.",
+      message: "Signup successful. A verification email has been sent. Your account is pending approval by an administrator.",
     });
   } catch (err) {
     console.error("[Signup Error]", err);
@@ -295,6 +319,36 @@ export const login = async (req, res) => {
       } else {
         return res.status(403).json({ message: "Email not verified" });
       }
+    }
+
+    // Check signup approval status
+    // Legacy users (created before approval system) won't have this field — auto-approve them
+    let approvalStatus = user.approvalStatus;
+    if (!approvalStatus) {
+      // Legacy user without approval field — auto-approve in DB
+      await User.updateOne(
+        { _id: user._id },
+        { $set: { approvalStatus: "approved", approvedAt: new Date() } },
+        { runValidators: false }
+      );
+      approvalStatus = "approved";
+    }
+    if (approvalStatus === "pending") {
+      // Allow developers to bypass in non-production
+      const devBypass =
+        String(process.env.NODE_ENV || "development").toLowerCase() !== "production" &&
+        String(process.env.DEV_LOGIN_BYPASS).toLowerCase() === "true";
+      if (!devBypass) {
+        return res.status(403).json({
+          message: "Your account is pending approval. An administrator will review your registration.",
+          code: "PENDING_APPROVAL",
+        });
+      }
+    } else if (approvalStatus === "rejected") {
+      return res.status(403).json({
+        message: "Your account registration has been declined. Please contact an administrator.",
+        code: "REJECTED",
+      });
     }
 
     // Mark online without triggering full validation on legacy docs
@@ -1004,6 +1058,25 @@ export const updateUserAccess = async (req, res) => {
     const { userId } = req.params; // Correctly get userId from params
     const updates = req.body;
 
+    // Only privileged callers can change user access
+    try {
+      const callerId = req.user?.id || req.user?._id;
+      const caller = callerId
+        ? await User.findById(callerId)
+            .select('isAdmin canManageUsers userType canAccessDeveloper canSeeDev')
+            .lean()
+        : null;
+      const allowed = Boolean(
+        caller &&
+          (caller.isAdmin || caller.canManageUsers || caller.userType === 'developer' || caller.canAccessDeveloper || caller.canSeeDev)
+      );
+      if (!allowed) {
+        return res.status(403).json({ success: false, message: 'Forbidden: insufficient permissions' });
+      }
+    } catch (_) {
+      return res.status(403).json({ success: false, message: 'Forbidden: insufficient permissions' });
+    }
+
     // Find the user first
     const user = await User.findById(userId);
     if (!user) {
@@ -1052,6 +1125,15 @@ export const updateUserAccess = async (req, res) => {
     const userObject = updatedUser.toObject();
     delete userObject.password;
 
+    // Notify the affected user (all active sessions) so changes apply immediately
+    try {
+      const { emitToUser } = await import('../socket.js');
+      emitToUser(String(userId), 'user-access-updated', {
+        userId: String(userId),
+        user: userObject,
+      });
+    } catch (_) {}
+
     res.json({ success: true, data: userObject });
   } catch (error) {
     console.error("Error updating user access:", error);
@@ -1086,5 +1168,129 @@ export const logout = async (req, res) => {
   } catch (error) {
     console.error("[Logout Error]", error);
     res.status(500).json({ message: "Logout failed." });
+  }
+};
+
+// ── Signup Approval Endpoints ───────────────────────────────────────────────
+
+export const getPendingSignups = async (req, res) => {
+  try {
+    const status = req.query.status || "pending";
+    // Only show users who have NOT verified their email
+    let filter = { isVerified: false };
+    if (status !== "all") {
+      filter.approvalStatus = status;
+    }
+    const users = await User.find(filter)
+      .select("-password")
+      .sort({ createdAt: -1 })
+      .lean();
+    res.json({ success: true, data: users });
+  } catch (error) {
+    console.error("[getPendingSignups Error]", error);
+    res.status(500).json({ success: false, message: "Failed to fetch signups" });
+  }
+};
+
+export const approveSignup = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const callerId = req.user?.id || req.user?._id;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+    if (user.approvalStatus === "approved") {
+      return res.status(400).json({ success: false, message: "User is already approved" });
+    }
+
+    user.approvalStatus = "approved";
+    user.approvedBy = callerId;
+    user.approvedAt = new Date();
+    user.rejectedBy = undefined;
+    user.rejectedAt = undefined;
+    user.rejectionReason = undefined;
+    await user.save();
+
+    // Send approval email
+    const loginLink = `${CLIENT_URL}/auth`;
+    try {
+      await sendSignupApprovedEmail(user.email, user.name, loginLink);
+    } catch (emailErr) {
+      console.warn("[approveSignup] Failed to send approval email:", emailErr.message);
+    }
+
+    // Emit socket event for real-time update
+    try {
+      const io = getSocketInstance();
+      if (io) io.emit("signup-status-changed", { userId, status: "approved" });
+    } catch (_) {}
+
+    const updated = await User.findById(userId).select("-password").lean();
+    res.json({ success: true, data: updated, message: "User approved successfully" });
+  } catch (error) {
+    console.error("[approveSignup Error]", error);
+    res.status(500).json({ success: false, message: "Failed to approve user" });
+  }
+};
+
+export const rejectSignup = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { reason } = req.body;
+    const callerId = req.user?.id || req.user?._id;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    user.approvalStatus = "rejected";
+    user.rejectedBy = callerId;
+    user.rejectedAt = new Date();
+    user.rejectionReason = reason || "";
+    user.approvedBy = undefined;
+    user.approvedAt = undefined;
+    await user.save();
+
+    // Send rejection email
+    try {
+      await sendSignupRejectedEmail(user.email, user.name, reason);
+    } catch (emailErr) {
+      console.warn("[rejectSignup] Failed to send rejection email:", emailErr.message);
+    }
+
+    try {
+      const io = getSocketInstance();
+      if (io) io.emit("signup-status-changed", { userId, status: "rejected" });
+    } catch (_) {}
+
+    const updated = await User.findById(userId).select("-password").lean();
+    res.json({ success: true, data: updated, message: "User rejected" });
+  } catch (error) {
+    console.error("[rejectSignup Error]", error);
+    res.status(500).json({ success: false, message: "Failed to reject user" });
+  }
+};
+
+export const deleteUser = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+    await User.deleteOne({ _id: userId });
+
+    try {
+      const io = getSocketInstance();
+      if (io) io.emit("user-deleted", { userId });
+    } catch (_) {}
+
+    res.json({ success: true, message: "User deleted successfully" });
+  } catch (error) {
+    console.error("[deleteUser Error]", error);
+    res.status(500).json({ success: false, message: "Failed to delete user" });
   }
 };

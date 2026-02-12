@@ -13,9 +13,25 @@
 
 .salaryinfo-table {
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
-/* Optional: Adjust table cell padding for better readability */
-.ant-table-cell {
+/* Scoped to salary table only to avoid global bleed */
+.salaryinfo-table .ant-table-cell {
   padding: 10px 8px !important;
+}
+
+/* ─── Responsive ─── */
+@media (max-width: 767px) {
+  .salaryinfo-header h2 { font-size: 16px; }
+  .salaryinfo-filters { flex-direction: column; gap: 6px; }
+  .salaryinfo-filters > * { width: 100%; }
+  .salaryinfo-filters .filters-left { width: 100%; }
+  .salaryinfo-table .ant-table-cell { padding: 4px 6px !important; font-size: 11px; }
+  .salaryinfo-table .ant-table-content { overflow-x: auto !important; }
+  .salaryinfo-table { margin: 0 -10px; padding: 0 10px; }
+}
+@media (min-width: 768px) and (max-width: 1080px) {
+  .salaryinfo-table .ant-table-cell { padding: 6px !important; font-size: 12px; }
+  .salaryinfo-table .ant-table-content { overflow-x: auto !important; }
 }

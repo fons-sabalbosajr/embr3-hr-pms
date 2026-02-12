@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { Table, Input, Select, DatePicker, Space, Button, Tag, Modal, Form, message, Popconfirm } from "antd";
+import { Table, Input, Select, DatePicker, Space, Button, Tag, Modal, Form, message, Popconfirm, Grid } from "antd";
 import useDemoMode from "../../../../hooks/useDemoMode";
 import dayjs from "dayjs";
 import { getEmployeeDocs, updateEmployeeDoc, deleteEmployeeDoc } from "../../../../api/employeeAPI"; // Adjust path as needed
@@ -11,6 +11,8 @@ const { RangePicker } = DatePicker;
 const { Option } = Select;
 
 const SystemReport = () => {
+  const screens = Grid.useBreakpoint();
+  const isMobile = !screens.md;
   const [reports, setReports] = useState([]);
   const [users, setUsers] = useState([]); // State to store users
   const [loading, setLoading] = useState(false);
@@ -246,12 +248,14 @@ const SystemReport = () => {
       title: "Document Type",
       dataIndex: "docType",
       key: "docType",
+      width: isMobile ? 100 : undefined,
       render: (docType) => <Tag color="blue">{docType}</Tag>,
       sorter: (a, b) => a.docType.localeCompare(b.docType),
     },
     {
       title: "Employee",
       key: "employeeInfo",
+      width: isMobile ? 120 : undefined,
       render: (text, record) => (
         <>
           <div>{record.employee?.name || "N/A"}</div>
@@ -261,12 +265,16 @@ const SystemReport = () => {
       sorter: (a, b) =>
         (a.employee?.name || "").localeCompare(b.employee?.name || ""),
     },
-    {
-      title: "Description",
-      dataIndex: "description",
-      key: "description",
-      render: (text) => <div style={{ whiteSpace: "pre-wrap" }}>{text}</div>,
-    },
+    ...(!isMobile
+      ? [
+          {
+            title: "Description",
+            dataIndex: "description",
+            key: "description",
+            render: (text) => <div style={{ whiteSpace: "pre-wrap" }}>{text}</div>,
+          },
+        ]
+      : []),
     {
       title: "Period",
       dataIndex: "period",
@@ -342,22 +350,22 @@ const SystemReport = () => {
       {!shouldHideInDemo('ui.dtr.reports.generate') && (
         <h2 style={{ marginTop: 0, fontSize: 18 }}>System Generated Reports</h2>
       )}
-      <Space style={{ marginBottom: 16, flexWrap: "wrap" }}>
+      <Space style={{ marginBottom: 16, flexWrap: "wrap", width: '100%' }}>
         <Input
           placeholder="Search Employee ID"
           value={filters.empId}
           onChange={(e) => handleFilterChange("empId", e.target.value)}
-          style={{ width: 180 }}
+          style={{ width: isMobile ? '100%' : 180 }}
         />
         <Input
           placeholder="Search Employee Name"
           value={filters.employeeName}
           onChange={(e) => handleFilterChange("employeeName", e.target.value)}
-          style={{ width: 180 }}
+          style={{ width: isMobile ? '100%' : 180 }}
         />
         <Select
           placeholder="Select Document Type"
-          style={{ width: 180 }}
+          style={{ width: isMobile ? '100%' : 180 }}
           onChange={(value) => handleFilterChange("docType", value)}
           value={filters.docType}
           allowClear

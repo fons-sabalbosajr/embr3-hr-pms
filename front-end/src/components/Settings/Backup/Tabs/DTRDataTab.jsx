@@ -6,8 +6,6 @@ import {
   Space,
   Input,
   message,
-  Row,
-  Col,
   Modal,
   Form,
   DatePicker,
@@ -43,16 +41,59 @@ const DTRDataTab = () => {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewPage, setPreviewPage] = useState(1);
   const [previewPageSize, setPreviewPageSize] = useState(5);
-  const [deletingJobId, setDeletingJobId] = useState(null);
   const [deleteProgress, setDeleteProgress] = useState(null);
   const deletePollRef = React.useRef(null);
+  const [editLogs, setEditLogs] = useState([]);
+  const [editLogsLoading, setEditLogsLoading] = useState(false);
+  const [editLogsPage, setEditLogsPage] = useState(1);
+  const [editLogsPageSize, setEditLogsPageSize] = useState(10);
+  const [editLogsTotal, setEditLogsTotal] = useState(0);
+
+  const watchedRecordName = Form.useWatch("DTR_Record_Name", form);
+  const watchedCutOff = Form.useWatch("DTR_Cut_Off", form);
 
   useEffect(() => {
     fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const safeIso = (d) => {
+    if (!d) return undefined;
+    const dd = dayjs(d);
+    return dd.isValid() ? dd.toISOString() : undefined;
+  };
+
+  const getCutoffFromValue = (val) => {
+    if (!Array.isArray(val) || !val[0] || !val[1]) return { startDate: undefined, endDate: undefined };
+    return {
+      startDate: safeIso(val[0]),
+      endDate: safeIso(val[1]),
+    };
+  };
+
+  const fetchMergedLogs = async ({
+    recordName,
+    cutOff,
+    page: p,
+    limit,
+  }) => {
+    const rn = (recordName || "").toString().trim();
+    const { startDate, endDate } = getCutoffFromValue(cutOff);
+    const res = await axiosInstance.get("/dtrlogs/merged", {
+      params: {
+        recordName: rn || undefined,
+        startDate,
+        endDate,
+        page: p,
+        limit,
+      },
+    });
+    return res?.data;
+  };
 
   // when fetching
   const fetchData = async (range = dateRange) => {
+    setLoading(true);
     try {
       const params = {};
       if (Array.isArray(range) && range[0] && range[1]) {
@@ -62,8 +103,10 @@ const DTRDataTab = () => {
       const res = await axiosInstance.get("/dtrdatas", { params });
       const rows = res.data?.data ?? res.data ?? [];
       setData(rows);
-    } catch (err) {
+    } catch {
       message.error("Failed to load DTR data");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -73,13 +116,13 @@ const DTRDataTab = () => {
     const results = (data || []).filter((d) =>
       JSON.stringify(d || {})
         .toLowerCase()
-        .includes(lowered)
+        .includes(lowered),
     );
     setFiltered(results);
     setPage(1);
   }, [searchText, data]);
 
-  const openEdit = (record) => {
+  const openEdit = async (record) => {
     setEditing(record);
     form.setFieldsValue({
       DTR_Record_Name: record.DTR_Record_Name,
@@ -89,25 +132,73 @@ const DTRDataTab = () => {
       ],
     });
     setEditModalOpen(true);
+
+    // Reset preview table state; actual fetch happens in the watcher effect below.
+    setEditLogs([]);
+    setEditLogsTotal(0);
+    setEditLogsPage(1);
+    setEditLogsPageSize(10);
   };
+
+  const loadEditLogs = async (p = editLogsPage, ps = editLogsPageSize) => {
+    if (!editModalOpen) return;
+    const rn = watchedRecordName ?? editing?.DTR_Record_Name;
+    const co = watchedCutOff ?? (editing?.DTR_Cut_Off ? [dayjs(editing.DTR_Cut_Off.start), dayjs(editing.DTR_Cut_Off.end)] : null);
+
+    try {
+      setEditLogsLoading(true);
+      const dataRes = await fetchMergedLogs({
+        recordName: rn,
+        cutOff: co,
+        page: p,
+        limit: ps,
+      });
+
+      if (dataRes && dataRes.success) {
+        setEditLogs(dataRes.data || []);
+        setEditLogsTotal(
+          typeof dataRes.total === "number" ? dataRes.total : (dataRes.data || []).length,
+        );
+      } else {
+        setEditLogs([]);
+        setEditLogsTotal(0);
+      }
+    } catch (err) {
+      console.error("Failed to fetch DTR logs for edit modal", err);
+      setEditLogs([]);
+      setEditLogsTotal(0);
+    } finally {
+      setEditLogsLoading(false);
+    }
+  };
+
+  // Keep preview in sync with the current form values (Record Name / Cut Off)
+  useEffect(() => {
+    if (!editModalOpen || !editing) return;
+    setEditLogsPage(1);
+    loadEditLogs(1, editLogsPageSize);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editModalOpen, editing?._id, watchedRecordName, watchedCutOff]);
 
   const saveEdit = async () => {
     try {
       const values = await form.validateFields();
       const payload = {
-        DTR_Record_Name: values.DTR_Record_Name,
+        DTR_Record_Name: (values.DTR_Record_Name || "").toString().trim(),
         DTR_Cut_Off: {
-          start: values.DTR_Cut_Off[0].toDate(),
-          end: values.DTR_Cut_Off[1].toDate(),
+          start: values.DTR_Cut_Off[0].toDate().toISOString(),
+          end: values.DTR_Cut_Off[1].toDate().toISOString(),
         },
       };
-      await axiosInstance.put(`/dtrdata/${editing._id}`, payload);
+
+      await axiosInstance.put(`/dtrdatas/${editing._id}`, payload);
       message.success("Updated");
       setEditModalOpen(false);
       setEditing(null);
       fetchData();
     } catch (err) {
-      message.error("Update failed");
+      const msg = err?.response?.data?.message;
+      message.error(msg ? `Update failed: ${msg}` : "Update failed");
     }
   };
 
@@ -117,30 +208,30 @@ const DTRDataTab = () => {
     if (!rec) return message.error("Record not found");
     setPreviewRecord(rec);
     setPreviewModalOpen(true);
+
+    // Reset pagination when switching records
+    setPreviewPage(1);
+    setPreviewPageSize(5);
+    setPreviewSample([]);
+    setPreviewTotal(0);
+
     // fetch sample logs via merged endpoint (pageable)
     try {
       setPreviewLoading(true);
-      const startDate = rec?.DTR_Cut_Off?.start
-        ? dayjs(rec.DTR_Cut_Off.start).format()
-        : undefined;
-      const endDate = rec?.DTR_Cut_Off?.end
-        ? dayjs(rec.DTR_Cut_Off.end).format()
-        : undefined;
-      const res = await axiosInstance.get("/dtrlogs/merged", {
-        params: {
-          recordName: rec.DTR_Record_Name,
-          startDate,
-          endDate,
-          page: previewPage,
-          limit: previewPageSize,
-        },
+      const dataRes = await fetchMergedLogs({
+        recordName: rec.DTR_Record_Name,
+        cutOff: rec?.DTR_Cut_Off
+          ? [dayjs(rec.DTR_Cut_Off.start), dayjs(rec.DTR_Cut_Off.end)]
+          : null,
+        page: 1,
+        limit: 5,
       });
-      if (res.data && res.data.success) {
-        setPreviewSample(res.data.data || []);
+      if (dataRes && dataRes.success) {
+        setPreviewSample(dataRes.data || []);
         setPreviewTotal(
-          typeof res.data.total === "number"
-            ? res.data.total
-            : (res.data.data || []).length
+          typeof dataRes.total === "number"
+            ? dataRes.total
+            : (dataRes.data || []).length,
         );
       } else {
         setPreviewSample([]);
@@ -161,13 +252,12 @@ const DTRDataTab = () => {
     try {
       const res = await axiosInstance.delete(`/dtrdatas/${previewRecord._id}`);
       if (res.data && res.data.success && res.data.jobId) {
-        setDeletingJobId(res.data.jobId);
         setDeleteProgress({ status: "queued", total: 0, deleted: 0 });
         // start polling
         deletePollRef.current = setInterval(async () => {
           try {
             const p = await axiosInstance.get(
-              `/dtrdatas/delete-progress/${res.data.jobId}`
+              `/dtrdatas/delete-progress/${res.data.jobId}`,
             );
             if (p.data && p.data.success) {
               setDeleteProgress(p.data.data || null);
@@ -180,14 +270,13 @@ const DTRDataTab = () => {
                 deletePollRef.current = null;
                 setTimeout(() => {
                   setPreviewModalOpen(false);
-                  setDeletingJobId(null);
                 }, 600);
                 fetchData();
                 if (p.data.data.status === "done")
                   message.success(`Deleted ${p.data.data.deleted} logs`);
                 else
                   message.error(
-                    `Delete failed: ${p.data.data.message || "error"}`
+                    `Delete failed: ${p.data.data.message || "error"}`,
                   );
               }
             }
@@ -247,7 +336,7 @@ const DTRDataTab = () => {
       render: (r) =>
         r?.DTR_Cut_Off
           ? `${dayjs(r.DTR_Cut_Off.start).format("YYYY-MM-DD")} → ${dayjs(
-              r.DTR_Cut_Off.end
+              r.DTR_Cut_Off.end,
             ).format("YYYY-MM-DD")}`
           : "-",
     },
@@ -403,7 +492,7 @@ const DTRDataTab = () => {
                   percent={
                     deleteProgress.total > 0
                       ? Math.round(
-                          (deleteProgress.deleted / deleteProgress.total) * 100
+                          (deleteProgress.deleted / deleteProgress.total) * 100,
                         )
                       : 0
                   }
@@ -411,8 +500,8 @@ const DTRDataTab = () => {
                     deleteProgress.status === "error"
                       ? "exception"
                       : deleteProgress.status === "done"
-                      ? "success"
-                      : "active"
+                        ? "success"
+                        : "active"
                   }
                 />
                 <div style={{ marginTop: 6 }}>
@@ -430,33 +519,30 @@ const DTRDataTab = () => {
                 pageSize: previewPageSize,
                 total: previewTotal,
                 onChange: async (p, ps) => {
-                  setPreviewPage(p);
+                  const nextPage = ps !== previewPageSize ? 1 : p;
+                  setPreviewPage(nextPage);
                   setPreviewPageSize(ps);
                   // refetch sample for new page/size
                   if (previewRecord) {
                     try {
                       setPreviewLoading(true);
-                      const startDate = previewRecord?.DTR_Cut_Off?.start
-                        ? dayjs(previewRecord.DTR_Cut_Off.start).format()
-                        : undefined;
-                      const endDate = previewRecord?.DTR_Cut_Off?.end
-                        ? dayjs(previewRecord.DTR_Cut_Off.end).format()
-                        : undefined;
-                      const res = await axiosInstance.get("/dtrlogs/merged", {
-                        params: {
-                          recordName: previewRecord.DTR_Record_Name,
-                          startDate,
-                          endDate,
-                          page: p,
-                          limit: ps,
-                        },
+                      const dataRes = await fetchMergedLogs({
+                        recordName: previewRecord.DTR_Record_Name,
+                        cutOff: previewRecord?.DTR_Cut_Off
+                          ? [
+                              dayjs(previewRecord.DTR_Cut_Off.start),
+                              dayjs(previewRecord.DTR_Cut_Off.end),
+                            ]
+                          : null,
+                        page: nextPage,
+                        limit: ps,
                       });
-                      if (res.data && res.data.success) {
-                        setPreviewSample(res.data.data || []);
+                      if (dataRes && dataRes.success) {
+                        setPreviewSample(dataRes.data || []);
                         setPreviewTotal(
-                          typeof res.data.total === "number"
-                            ? res.data.total
-                            : (res.data.data || []).length
+                          typeof dataRes.total === "number"
+                            ? dataRes.total
+                            : (dataRes.data || []).length,
                         );
                       } else {
                         setPreviewSample([]);
@@ -489,7 +575,7 @@ const DTRDataTab = () => {
                     const emp = row.employeeName || row.name || "";
                     const acLooksAlpha = /[A-Za-z\s]/.test(String(ac));
                     const empLooksDigits = /^\d+$/.test(
-                      String(emp).replace(/\D/g, "")
+                      String(emp).replace(/\D/g, ""),
                     );
                     if ((ac === "" || acLooksAlpha) && empLooksDigits)
                       return emp;
@@ -524,11 +610,12 @@ const DTRDataTab = () => {
       </Modal>
 
       <Modal
-        title="Edit DTR Data"
+        title={`Edit DTR Data${editing ? `: ${editing.DTR_Record_Name}` : ""}`}
         open={editModalOpen}
         onCancel={() => setEditModalOpen(false)}
         onOk={saveEdit}
         okText="Save"
+        width={900}
       >
         <Form layout="vertical" form={form}>
           <Form.Item
@@ -546,6 +633,49 @@ const DTRDataTab = () => {
             <DatePicker.RangePicker />
           </Form.Item>
         </Form>
+
+        {/* DTR Logs Table */}
+        <div style={{ marginTop: 24 }}>
+          <h4>DTR Records Preview</h4>
+          <Table
+            dataSource={editLogs}
+            size="small"
+            rowKey={(r) => r.no || r.empId || JSON.stringify(r)}
+            loading={editLogsLoading}
+            pagination={{
+              current: editLogsPage,
+              pageSize: editLogsPageSize,
+              total: editLogsTotal,
+              showSizeChanger: true,
+              pageSizeOptions: ["5", "10", "20"],
+              onChange: async (p, ps) => {
+                const nextPage = ps !== editLogsPageSize ? 1 : p;
+                setEditLogsPage(nextPage);
+                setEditLogsPageSize(ps);
+                await loadEditLogs(nextPage, ps);
+              },
+            }}
+            columns={[
+              {
+                title: "Time",
+                dataIndex: "time",
+                key: "time",
+                render: (t) => (t ? dayjs(t).format("YYYY-MM-DD HH:mm") : "-"),
+              },
+              {
+                title: "AC-No",
+                key: "acNo",
+                render: (_, row) => row.acNo || row.empId || "-",
+              },
+              { title: "State", dataIndex: "state", key: "state" },
+              {
+                title: "Employee",
+                dataIndex: "employeeName",
+                key: "employeeName",
+              },
+            ]}
+          />
+        </div>
       </Modal>
     </Card>
   );

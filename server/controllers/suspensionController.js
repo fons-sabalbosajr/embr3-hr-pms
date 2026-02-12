@@ -11,7 +11,7 @@ export const list = async (req, res) => {
       ];
     }
     // By default exclude inactive unless explicitly requested
-    if (!includeInactive || includeInactive === 'false') {
+    if (!includeInactive || includeInactive === "false") {
       query.active = { $ne: false };
     }
     const docs = await Suspension.find(query).sort({ date: 1 });
@@ -33,9 +33,22 @@ export const create = async (req, res) => {
 export const update = async (req, res) => {
   try {
     const { id } = req.params;
-    const allowed = ["title","date","endDate","scope","location","referenceType","referenceNo","attachmentUrl","notes","active"];
+    const allowed = [
+      "title",
+      "date",
+      "endDate",
+      "scope",
+      "location",
+      "referenceType",
+      "referenceNo",
+      "attachmentUrl",
+      "notes",
+      "active",
+    ];
     const payload = {};
-    Object.entries(req.body || {}).forEach(([k,v])=>{ if (allowed.includes(k)) payload[k]=v; });
+    Object.entries(req.body || {}).forEach(([k, v]) => {
+      if (allowed.includes(k)) payload[k] = v;
+    });
     const doc = await Suspension.findByIdAndUpdate(id, payload, { new: true });
     res.json({ success: true, data: doc });
   } catch (e) {

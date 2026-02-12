@@ -28,6 +28,7 @@ import dayjs from "dayjs";
 import { generatePaySlipPreview } from "../../../../../../utils/generatePaySlipContract.js";
 import { generatePaySlipPreviewRegular } from "../../../../../../utils/generatePaySlipRegular.js";
 import useDemoMode from "../../../../../hooks/useDemoMode.js";
+import useLoading from "../../../../../hooks/useLoading.js";
 import axiosInstance from "../../../../../api/axiosInstance.js";
 
 const DeductionRow = ({
@@ -182,6 +183,7 @@ const GeneratePayslipModal = ({
   const [payslipNumber, setPayslipNumber] = useState(null);
   const [deductionTypes, setDeductionTypes] = useState([]);
   const { isDemoActive, isDemoUser } = useDemoMode();
+  const { withLoading } = useLoading();
   const [filteredDeductionTypes, setFilteredDeductionTypes] = useState([]);
   // --- New state for Send Payslip workflow ---
   const [isSendModalOpen, setIsSendModalOpen] = useState(false);
@@ -615,59 +617,65 @@ const GeneratePayslipModal = ({
       return;
     }
     setIsSendingEmail(true);
-    try {
-      // 1. Ensure a PayslipRequest exists (create if not yet)
-      let requestId = createdRequestId;
-      if (!requestId) {
-        const createRes = await axiosInstance.post("/payslip-requests", {
-          employeeId: selectedEmployee?.empId,
-          period: periodDisplay || dayjs().format("YYYY-MM"),
-          email: sendEmail,
-        });
-        if (!createRes.data?.data?._id) throw new Error("Failed to create payslip request record");
-        requestId = createRes.data.data._id;
-        setCreatedRequestId(requestId);
-      }
+    await withLoading(async ({ updateProgress }) => {
+      try {
+        updateProgress(10, "Preparing payslip email…");
+        // 1. Ensure a PayslipRequest exists (create if not yet)
+        let requestId = createdRequestId;
+        if (!requestId) {
+          const createRes = await axiosInstance.post("/payslip-requests", {
+            employeeId: selectedEmployee?.empId,
+            period: periodDisplay || dayjs().format("YYYY-MM"),
+            email: sendEmail,
+          });
+          if (!createRes.data?.data?._id) throw new Error("Failed to create payslip request record");
+          requestId = createRes.data.data._id;
+          setCreatedRequestId(requestId);
+        }
 
-      // 2. Send email with PDF base64 (use preview URI)
-      const subject = `Payslip ${periodDisplay}`;
-      const bodyHtml = buildHtmlBody();
-      const sendRes = await axiosInstance.post(`/payslip-requests/${requestId}/send-email`, {
-        pdfBase64: (pdfPreview || '').split('#')[0], // strip any #toolbar from data URI
-        filename: `payslip_${selectedEmployee?.empId || "employee"}.pdf`,
-        subject,
-        bodyHtml,
-      });
+        updateProgress(40, "Sending email…");
+        // 2. Send email with PDF base64 (use preview URI)
+        const subject = `Payslip ${periodDisplay}`;
+        const bodyHtml = buildHtmlBody();
+        const sendRes = await axiosInstance.post(`/payslip-requests/${requestId}/send-email`, {
+          pdfBase64: (pdfPreview || '').split('#')[0], // strip any #toolbar from data URI
+          filename: `payslip_${selectedEmployee?.empId || "employee"}.pdf`,
+          subject,
+          bodyHtml,
+        });
 
-      if (sendRes.data?.success) {
-        const isSimulated = !!sendRes.data?.simulated;
-        const wasAlreadySent = !!sendRes.data?.alreadySent; // backward compatibility
-        const resendCount = sendRes.data?.resendCount ?? 0;
-        notification.success({
-          message: isSimulated ? "Payslip email simulated" : wasAlreadySent ? "Already emailed" : (resendCount > 0 ? `Payslip re-sent (${resendCount}/5)` : "Payslip email sent"),
-          description: isSimulated
-            ? `Email capture logged server-side. SMTP not configured; no email delivered.`
-            : wasAlreadySent
-            ? `This payslip was already emailed earlier. No duplicate email was sent.`
-            : `Email dispatched to ${sendEmail}`,
-        });
-        setIsSendModalOpen(false);
-      } else {
-        throw new Error(sendRes.data?.message || "Unknown send error");
+        updateProgress(90, "Finalising…");
+
+        if (sendRes.data?.success) {
+          const isSimulated = !!sendRes.data?.simulated;
+          const wasAlreadySent = !!sendRes.data?.alreadySent; // backward compatibility
+          const resendCount = sendRes.data?.resendCount ?? 0;
+          notification.success({
+            message: isSimulated ? "Payslip email simulated" : wasAlreadySent ? "Already emailed" : (resendCount > 0 ? `Payslip re-sent (${resendCount}/5)` : "Payslip email sent"),
+            description: isSimulated
+              ? `Email capture logged server-side. SMTP not configured; no email delivered.`
+              : wasAlreadySent
+              ? `This payslip was already emailed earlier. No duplicate email was sent.`
+              : `Email dispatched to ${sendEmail}`,
+          });
+          setIsSendModalOpen(false);
+        } else {
+          throw new Error(sendRes.data?.message || "Unknown send error");
+        }
+      } catch (e) {
+        const code = e?.response?.data?.code;
+        if (code === 'RESEND_LIMIT_REACHED') {
+          notification.warning({
+            message: 'Resend limit reached',
+            description: e?.response?.data?.message || 'You have reached the maximum number of resends for this payslip.',
+          });
+        } else {
+          notification.error({ message: "Failed to send", description: e.message });
+        }
+      } finally {
+        setIsSendingEmail(false);
       }
-    } catch (e) {
-      const code = e?.response?.data?.code;
-      if (code === 'RESEND_LIMIT_REACHED') {
-        notification.warning({
-          message: 'Resend limit reached',
-          description: e?.response?.data?.message || 'You have reached the maximum number of resends for this payslip.',
-        });
-      } else {
-        notification.error({ message: "Failed to send", description: e.message });
-      }
-    } finally {
-      setIsSendingEmail(false);
-    }
+    }, "Sending payslip email…");
   };
 
   const menu = (

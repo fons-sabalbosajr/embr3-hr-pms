@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Card,
   Typography,
@@ -8,19 +8,21 @@ import {
   DatePicker,
   message,
   Modal,
-  Table,
-  Space,
-  Skeleton,
   AutoComplete,
   ConfigProvider,
+  Grid,
+  Result,
   theme,
 } from "antd";
 import { Link } from "react-router-dom";
-import { CalendarOutlined, FieldTimeOutlined } from "@ant-design/icons";
+import {
+  CalendarOutlined,
+  FieldTimeOutlined,
+  CheckCircleOutlined,
+  CloseCircleOutlined,
+} from "@ant-design/icons";
 import bgImage from "../../assets/bgemb.webp";
 import axiosInstance from "../../api/axiosInstance";
-import { generateDTRPdf } from "../../../utils/generateDTRpdf";
-import { fetchPhilippineHolidays } from "../../api/holidayPH";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc";
 import timezone from "dayjs/plugin/timezone";
@@ -33,15 +35,12 @@ const { Title, Text } = Typography;
 
 const RequestDTRClient = () => {
   const [form] = Form.useForm();
-  const [previewOpen, setPreviewOpen] = useState(false);
-  const [previewRows, setPreviewRows] = useState([]);
-  const [previewMeta, setPreviewMeta] = useState({
-    employee: null,
-    startDate: null,
-    endDate: null,
-    selectedRecord: null,
-  });
-  const [previewLoading, setPreviewLoading] = useState(false);
+  const screens = Grid.useBreakpoint();
+  const isMobile = !screens.md;
+  const [submitting, setSubmitting] = useState(false);
+  const [resultOpen, setResultOpen] = useState(false);
+  const [resultStatus, setResultStatus] = useState("success"); // "success" | "unavailable"
+  const [resultMonth, setResultMonth] = useState("");
   const [cutoffs, setCutoffs] = useState([]);
   const [cutoffsLoading, setCutoffsLoading] = useState(true);
   const [empOptions, setEmpOptions] = useState([]);
@@ -75,7 +74,7 @@ const RequestDTRClient = () => {
     empSearchRef.current = setTimeout(async () => {
       try {
         setEmpSearching(true);
-        const { data } = await axiosInstance.get(`/employees/search-emp-id`, {
+        const { data } = await axiosInstance.get(`/employees/public/search`, {
           params: { q: value },
         });
         const rows = data?.data || [];
@@ -89,12 +88,18 @@ const RequestDTRClient = () => {
         } else {
           const variants = buildEmpIdVariants(value);
           setEmpOptions(
-            variants.map((v) => ({ value: v, label: `Try: ${v}` }))
+            variants.length
+              ? variants.map((v) => ({ value: v, label: `Try: ${v}` }))
+              : []
           );
         }
       } catch (_) {
         const variants = buildEmpIdVariants(value);
-        setEmpOptions(variants.map((v) => ({ value: v, label: `Try: ${v}` })));
+        setEmpOptions(
+          variants.length
+            ? variants.map((v) => ({ value: v, label: `Try: ${v}` }))
+            : []
+        );
       } finally {
         setEmpSearching(false);
       }
@@ -107,7 +112,7 @@ const RequestDTRClient = () => {
     const load = async () => {
       try {
         setCutoffsLoading(true);
-        const { data } = await axiosInstance.get("/dtrdatas");
+        const { data } = await axiosInstance.get("/dtrdatas/public");
         const list = data?.data || [];
         if (!mounted) return;
         // Sort by start descending for display
@@ -129,356 +134,69 @@ const RequestDTRClient = () => {
     };
   }, []);
 
-  const columns = useMemo(
-    () => [
-      {
-        title: "Date",
-        dataIndex: "date",
-        key: "date",
-        width: 90,
-        onCell: () => ({ className: "date-cell" }),
-      },
-      {
-        title: "Time In",
-        dataIndex: "timeIn",
-        key: "timeIn",
-        width: 70,
-        render: (value, record) =>
-          record.isMergeRow ? record.status || "" : value,
-        onCell: (record) =>
-          record.isMergeRow
-            ? {
-                colSpan: 5, // span across Break Out, Break In, Time Out, Work Status
-                style: {
-                  background: "#f5f5f5",
-                  textAlign: "center",
-                  fontWeight: 500,
-                },
-              }
-            : { className: "time-cell" },
-      },
-      {
-        title: "Break Out",
-        dataIndex: "breakOut",
-        key: "breakOut",
-        width: 70,
-        onCell: (record) =>
-          record.isMergeRow ? { colSpan: 0 } : { className: "time-cell" },
-      },
-      {
-        title: "Break In",
-        dataIndex: "breakIn",
-        key: "breakIn",
-        width: 70,
-        onCell: (record) =>
-          record.isMergeRow ? { colSpan: 0 } : { className: "time-cell" },
-      },
-      {
-        title: "Time Out",
-        dataIndex: "timeOut",
-        key: "timeOut",
-        width: 70,
-        onCell: (record) =>
-          record.isMergeRow ? { colSpan: 0 } : { className: "time-cell" },
-      },
-      {
-        title: "Work Status",
-        dataIndex: "status",
-        key: "status",
-        width: 160,
-        onCell: (record) => (record.isMergeRow ? { colSpan: 0 } : {}),
-      },
-    ],
-    []
-  );
-
   const onFinish = async (values) => {
+    if (submitting) return;
+    setSubmitting(true);
     try {
-      // Open modal immediately with a loading indicator
-      setPreviewRows([]);
-      setPreviewMeta({
-        employee: null,
-        startDate: null,
-        endDate: null,
-        selectedRecord: null,
-      });
-      setPreviewLoading(true);
-      setPreviewOpen(true);
+      const startDate = values.month.startOf("month");
+      const endDate = values.month.endOf("month");
+      const monthLabel = values.month.format("MMMM YYYY");
 
-      const [startDate, endDate] = values.dateRange;
+      // Extract empId from display string ("03-0946 — Name" → "03-0946")
+      const rawEmpId = (values.employeeId || "").split("\u2014")[0].trim();
+      const employeeId = rawEmpId || values.employeeId;
 
-      // 1. Check for DTR data/logs availability (graceful fallback on error)
-      let isAvailable = true;
+      // 1. Check DTR data availability for the selected month
+      let isAvailable = false;
       try {
-        const checkResponse = await axiosInstance.get("/dtrdatas/check", {
+        const checkResponse = await axiosInstance.get("/dtrdatas/public/check", {
           params: {
             startDate: startDate.format("YYYY-MM-DD"),
             endDate: endDate.format("YYYY-MM-DD"),
-            empId: values.employeeId,
+            empId: employeeId,
           },
         });
         const d = checkResponse?.data?.data || {};
         isAvailable = !!d.available;
-      } catch (e) {
-        // Proceed anyway; we'll use the requested range as the selected record
-        isAvailable = true;
-        // Non-blocking notice for admins; suppressed for public UX
-        try {
-          message.warning(
-            "Couldn't verify DTR cutoff, proceeding with selected range."
-          );
-        } catch (_) {}
+      } catch (_) {
+        isAvailable = false;
       }
 
       if (!isAvailable) {
-        setPreviewOpen(false);
-        setPreviewLoading(false);
-        message.error("DTR for that cut off is not yet available.");
+        setResultMonth(monthLabel);
+        setResultStatus("unavailable");
+        setResultOpen(true);
         return;
       }
 
-      // Use the user's requested range as the selected cut-off to ensure the PDF reflects it,
-      // regardless of how DTRData records are segmented (e.g., 1-15 and 16-30).
-      const selectedRecord = {
-        DTR_Cut_Off: {
-          // Store as date-only to avoid timezone drift in PDF
-          start: startDate.format("YYYY-MM-DD"),
-          end: endDate.format("YYYY-MM-DD"),
-        },
-      };
-
-      // 2. Fetch employee data
-      const employeeResponse = await axiosInstance.get(
-        `/employees/by-emp-id/${encodeURIComponent(values.employeeId)}`
-      );
-      const employee = employeeResponse.data.data;
-
-      // 3. Fetch DTR logs for the selected employee and date range
-      const dtrLogsResponse = await axiosInstance.get(`/dtrlogs/merged`, {
-        params: {
-          startDate: startDate.format("YYYY-MM-DD"),
-          endDate: endDate.format("YYYY-MM-DD"),
-          empIds: employee.empId,
-        },
-      });
-      const dtrLogs = dtrLogsResponse.data?.data || [];
-
-      // Group logs by date (Asia/Manila)
-      const logsByDate = dtrLogs.reduce((acc, log) => {
-        const dateKey = dayjs(log.time).tz("Asia/Manila").format("YYYY-MM-DD");
-        if (!acc[dateKey]) acc[dateKey] = [];
-        acc[dateKey].push(log);
-        return acc;
-      }, {});
-
-      // 3.5 Fetch Holidays (PH + Local), Suspensions, Trainings
-      let trainings = [];
-      try {
-        const res = await axiosInstance.get(
-          `/trainings/public/by-employee/${encodeURIComponent(employee.empId)}`
-        );
-        trainings = res.data?.data || [];
-      } catch (_) {
-        trainings = [];
-      }
-      const startStr = startDate.format("YYYY-MM-DD");
-      const endStr = endDate.format("YYYY-MM-DD");
-      let localHolidays = [];
-      let suspensions = [];
-      try {
-        const [lhRes, sRes] = await Promise.all([
-          axiosInstance.get(`/local-holidays/public`, {
-            params: { start: startStr, end: endStr },
-          }),
-          axiosInstance.get(`/suspensions/public`, {
-            params: { start: startStr, end: endStr },
-          }),
-        ]);
-        localHolidays = (lhRes.data?.data || []).map((h) => ({
-          date: dayjs(h.date).format("YYYY-MM-DD"),
-          endDate: h.endDate ? dayjs(h.endDate).format("YYYY-MM-DD") : null,
-          name: h.name,
-          type: "Local Holiday",
-        }));
-        suspensions = (sRes.data?.data || []).map((s) => ({
-          date: dayjs(s.date).format("YYYY-MM-DD"),
-          endDate: s.endDate ? dayjs(s.endDate).format("YYYY-MM-DD") : null,
-          name: s.title,
-          type: "Suspension",
-        }));
-      } catch (_) {}
-
-      const yearStart = startDate.year();
-      const yearEnd = endDate.year();
-      let holidaysPH = [];
-      try {
-        const h1 = await fetchPhilippineHolidays(yearStart);
-        holidaysPH = h1 || [];
-        if (yearEnd !== yearStart) {
-          const h2 = await fetchPhilippineHolidays(yearEnd);
-          holidaysPH = [...holidaysPH, ...(h2 || [])];
-        }
-      } catch (_) {
-        holidaysPH = [];
-      }
-      const allHolidays = [
-        ...holidaysPH.map((h) => ({
-          date: h.date,
-          name: h.localName,
-          type: h.type,
-        })),
-        ...localHolidays,
-        ...suspensions,
-      ];
-
-      const hasHolidayOn = (dateKey) =>
-        allHolidays.some((h) => {
-          const start = h.date || null;
-          const end = h.endDate || null;
-          if (start && end) {
-            return (
-              dayjs(dateKey).isSameOrAfter(start, "day") &&
-              dayjs(dateKey).isSameOrBefore(end, "day")
-            );
-          }
-          return start === dateKey;
-        });
-
-      const getHolidayName = (dateKey) => {
-        const found = allHolidays.find((h) => {
-          const start = h.date || null;
-          const end = h.endDate || null;
-          if (start && end) {
-            return (
-              dayjs(dateKey).isSameOrAfter(start, "day") &&
-              dayjs(dateKey).isSameOrBefore(end, "day")
-            );
-          }
-          return start === dateKey;
-        });
-        if (!found) return "";
-        return found.type === "Suspension"
-          ? `Suspension: ${found.name}`
-          : found.name || "Holiday";
-      };
-
-      const getTrainingOnDay = (dateKey) => {
-        return trainings.find((t) => {
-          if (!t.trainingDate || t.trainingDate.length < 2) return false;
-          const start = dayjs(t.trainingDate[0]).format("YYYY-MM-DD");
-          const end = dayjs(t.trainingDate[1]).format("YYYY-MM-DD");
-          return (
-            dayjs(dateKey).isSameOrAfter(start, "day") &&
-            dayjs(dateKey).isSameOrBefore(end, "day")
-          );
-        });
-      };
-
-      // Build full date rows for the selected range
-      const totalDays =
-        endDate.startOf("day").diff(startDate.startOf("day"), "day") + 1;
-      const rows = Array.from({ length: totalDays }).map((_, idx) => {
-        const date = startDate.startOf("day").add(idx, "day");
-        const key = date.tz("Asia/Manila").format("YYYY-MM-DD");
-        const dayLogs = (logsByDate[key] || []).map((l) => ({
-          time: dayjs(l.time).tz("Asia/Manila"),
-          state: l.state,
-        }));
-        const dayOfWeek = date.tz("Asia/Manila").day();
-        const training = getTrainingOnDay(key);
-        const holidayName = getHolidayName(key);
-
-        // Selection rules
-        const timeInCandidates = dayLogs
-          .filter((l) => l.state === "C/In" && l.time.hour() < 12)
-          .sort((a, b) => a.time.valueOf() - b.time.valueOf());
-
-        const timeOutCandidates = dayLogs
-          .filter((l) => l.state === "C/Out" && l.time.hour() >= 12)
-          .sort((a, b) => a.time.valueOf() - b.time.valueOf());
-
-        const breakOutCandidates = dayLogs
-          .filter(
-            (l) =>
-              l.state === "Out" && l.time.hour() >= 12 && l.time.hour() < 13
-          )
-          .sort((a, b) => a.time.valueOf() - b.time.valueOf());
-
-        const breakInCandidates = dayLogs
-          .filter(
-            (l) =>
-              l.state === "Out Back" &&
-              l.time.hour() >= 12 &&
-              l.time.hour() < 14
-          )
-          .sort((a, b) => a.time.valueOf() - b.time.valueOf());
-
-        let timeIn = timeInCandidates.length
-          ? timeInCandidates[0].time.format("h:mm")
-          : "";
-        let timeOut = timeOutCandidates.length
-          ? timeOutCandidates[timeOutCandidates.length - 1].time.format("h:mm")
-          : "";
-        let breakOut = breakOutCandidates.length
-          ? breakOutCandidates[0].time.format("h:mm")
-          : "";
-        let breakIn = breakInCandidates.length
-          ? breakInCandidates[0].time.format("h:mm")
-          : "";
-
-        // Default lunch if Time In and Time Out exist but no break times
-        if (timeIn && timeOut && !breakOut && !breakIn) {
-          breakOut = "12:00";
-          breakIn = "1:00";
-        }
-
-        let status = "";
-        if (training)
-          status = `${training.name}${
-            training.iisTransaction ? ` (${training.iisTransaction})` : ""
-          }`;
-        else if (holidayName) status = holidayName;
-        else if (dayOfWeek === 0) status = "Sunday";
-        else if (dayOfWeek === 6) status = "Saturday";
-
-        const hasLogs = Boolean(timeIn || timeOut || breakOut || breakIn);
-        const isMergeRow = !hasLogs && Boolean(status);
-
-        return {
-          key,
-          date: date.format("MM/DD/YYYY"),
-          timeIn: timeIn || "---",
-          breakOut: breakOut || "---",
-          breakIn: breakIn || "---",
-          timeOut: timeOut || "---",
-          status,
-          hasLogs,
-          isMergeRow,
-        };
+      // 2. Submit DTR request to the server so HR/admin receives the notification
+      await axiosInstance.post("/dtr-requests", {
+        employeeId: employeeId,
+        startDate: startDate.format("YYYY-MM-DD"),
+        endDate: endDate.format("YYYY-MM-DD"),
+        email: values.email,
       });
 
-      const hasAnyBiometrics = Object.keys(logsByDate).length > 0;
-
-      if (!hasAnyBiometrics) {
-        setPreviewOpen(false);
-        setPreviewLoading(false);
-        Modal.info({
-          title: "No Biometrics Found",
-          content:
-            "There is no biometrics encoded yet for the selected period.",
-        });
-        return;
-      }
-
-      // Open preview modal in DTR style
-      setPreviewRows(rows);
-      setPreviewMeta({ employee, startDate, endDate, selectedRecord });
-      setPreviewLoading(false);
+      // 3. Show success modal with instructions
+      setResultMonth(monthLabel);
+      setResultStatus("success");
+      setResultOpen(true);
+      form.resetFields();
     } catch (error) {
-      setPreviewOpen(false);
-      setPreviewLoading(false);
-      message.error("An error occurred while processing your request.");
+      if (
+        error.response?.status === 429 ||
+        error.response?.data?.code === "REQUEST_LIMIT_REACHED"
+      ) {
+        message.warning(
+          error.response?.data?.message ||
+            "You already have pending requests. Please wait for HR to process them."
+        );
+      } else {
+        message.error("An error occurred while submitting your request.");
+      }
       console.error("DTR request error:", error);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -563,14 +281,17 @@ const RequestDTRClient = () => {
 
           <Form form={form} layout="vertical" onFinish={onFinish}>
             <Form.Item
-              label="Employee ID"
+              label="Employee ID or Name"
               name="employeeId"
               rules={[{ required: true, message: "Employee ID is required" }]}
             >
               <AutoComplete
                 options={empOptions}
                 onSearch={handleEmpSearch}
-                placeholder="Enter your Employee ID (e.g. 03-0946)"
+                onSelect={(val, option) => {
+                  form.setFieldValue("employeeId", option.label || val);
+                }}
+                placeholder="Search by ID or name (e.g. 03-0946 or Juan)"
                 allowClear
                 notFoundContent={empSearching ? "Searching…" : "No matches"}
                 filterOption={false}
@@ -579,18 +300,18 @@ const RequestDTRClient = () => {
             </Form.Item>
 
             <Form.Item
-              label="Date Range"
-              name="dateRange"
+              label="DTR Month"
+              name="month"
               rules={[
-                { required: true, message: "Please select a date range" },
+                { required: true, message: "Please select a month" },
               ]}
-              className="responsive-range-picker-item"
+              className="responsive-month-picker-item"
             >
-              <DatePicker.RangePicker
+              <DatePicker
+                picker="month"
                 style={{ width: "100%" }}
-                placeholder={["Start date", "End date"]}
-                getPopupContainer={(trigger) => trigger.parentNode}
-                popupClassName="mobile-friendly-range-picker"
+                allowClear
+                placeholder="Select DTR month"
                 placement="bottomLeft"
                 inputReadOnly
               />
@@ -615,99 +336,73 @@ const RequestDTRClient = () => {
                 type="primary"
                 htmlType="submit"
                 block
+                loading={submitting}
+                disabled={submitting}
                 className="fixed-primary-btn"
               >
-                Submit Request
+                {submitting ? "Submitting…" : "Submit Request"}
               </Button>
             </Form.Item>
           </Form>
 
           <Modal
-            title={
-              previewMeta?.employee
-                ? `DTR Preview - ${previewMeta.employee.name} (${previewMeta.employee.empId})`
-                : "DTR Preview"
-            }
-            open={previewOpen}
-            onCancel={() => setPreviewOpen(false)}
-            className="dtr-preview-modal"
+            open={resultOpen}
+            onCancel={() => setResultOpen(false)}
             footer={[
-              <Button key="close" onClick={() => setPreviewOpen(false)}>
-                Close
-              </Button>,
               <Button
-                key="download"
+                key="ok"
                 type="primary"
-                disabled={previewLoading}
-                onClick={async () => {
-                  try {
-                    const { employee, startDate, endDate, selectedRecord } =
-                      previewMeta || {};
-                    // Reconstruct dtrLogs map for PDF util from previewRows
-                    const map = {};
-                    previewRows.forEach((r) => {
-                      const k = dayjs(r.date, "MM/DD/YYYY").format(
-                        "YYYY-MM-DD"
-                      );
-                      map[k] = {
-                        "Time In": r.timeIn !== "---" ? r.timeIn : undefined,
-                        "Break Out":
-                          r.breakOut !== "---" ? r.breakOut : undefined,
-                        "Break In": r.breakIn !== "---" ? r.breakIn : undefined,
-                        "Time Out": r.timeOut !== "---" ? r.timeOut : undefined,
-                      };
-                    });
-                    const dtrLogsForPdf = { [employee.empId]: map };
-                    await generateDTRPdf({
-                      employee,
-                      dtrLogs: dtrLogsForPdf,
-                      selectedRecord,
-                    });
-                    // Log generation and notify (best-effort)
-                    try {
-                      await axiosInstance.post("/dtr/log-generation", {
-                        employeeId: employee.empId,
-                        period: `${startDate.format(
-                          "YYYY-MM-DD"
-                        )} to ${endDate.format("YYYY-MM-DD")}`,
-                        generatedBy: form.getFieldValue("email"),
-                      });
-                    } catch (_) {}
-                    message.success("DTR generated successfully!");
-                  } catch (e) {
-                    message.error("Failed to generate DTR PDF");
-                  }
-                }}
+                onClick={() => setResultOpen(false)}
               >
-                Download PDF
+                Got it
               </Button>,
             ]}
-            width={640}
+            width={isMobile ? "95vw" : 480}
           >
-            {previewLoading ? (
-              <div style={{ padding: 16 }}>
-                <Skeleton active paragraph={{ rows: 6 }} />
-              </div>
+            {resultStatus === "success" ? (
+              <Result
+                icon={<CheckCircleOutlined style={{ color: "#52c41a" }} />}
+                title="Request Submitted!"
+                subTitle={`Your DTR request for ${resultMonth} has been sent to HR.`}
+                extra={
+                  <div style={{ textAlign: "left", maxWidth: 380, margin: "0 auto" }}>
+                    <Typography.Title level={5} style={{ marginBottom: 8 }}>
+                      What happens next?
+                    </Typography.Title>
+                    <ol style={{ paddingLeft: 20, margin: 0, lineHeight: 2 }}>
+                      <li>HR will review and verify your request.</li>
+                      <li>
+                        A PDF copy of your DTR will be sent to the email address
+                        you provided.
+                      </li>
+                      <li>
+                        Please allow <strong>1–3 working days</strong> for
+                        processing.
+                      </li>
+                    </ol>
+                    <Typography.Text
+                      type="secondary"
+                      style={{ display: "block", marginTop: 12, fontSize: 12 }}
+                    >
+                      If you don't receive your DTR within the expected time,
+                      please contact the HR office directly.
+                    </Typography.Text>
+                  </div>
+                }
+              />
             ) : (
-              <Space direction="vertical" style={{ width: "100%" }}>
-                <div>
-                  <strong>Period: </strong>
-                  {previewMeta.startDate && previewMeta.endDate
-                    ? `${previewMeta.startDate.format(
-                        "MM/DD/YYYY"
-                      )} - ${previewMeta.endDate.format("MM/DD/YYYY")}`
-                    : ""}
-                </div>
-                <Table
-                  size="small"
-                  className="dtr-table-compact"
-                  columns={columns}
-                  dataSource={previewRows}
-                  pagination={false}
-                  bordered
-                  style={{ fontSize: 10 }}
-                />
-              </Space>
+              <Result
+                icon={<CloseCircleOutlined style={{ color: "#ff4d4f" }} />}
+                title="DTR Not Yet Available"
+                subTitle={`The DTR data for ${resultMonth} has not been encoded yet.`}
+                extra={
+                  <Typography.Text type="secondary">
+                    Please try again once the biometrics for this period have
+                    been uploaded. You can check the "Encoded biometrics
+                    cut-offs" banner above for the latest coverage.
+                  </Typography.Text>
+                }
+              />
             )}
           </Modal>
 

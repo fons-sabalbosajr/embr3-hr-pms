@@ -14,6 +14,7 @@ import {
 } from "react-icons/fa";
 import axiosInstance from "../../../../../api/axiosInstance";
 import { fetchPhilippineHolidays } from "../../../../../api/holidayPH";
+import { resolveTimePunches } from "../../../../../../utils/resolveTimePunches";
 import useDemoMode from "../../../../../hooks/useDemoMode";
 import DailyLogsTable from "./DailyLogsTable";
 import "./WorkCalendar.css";
@@ -131,30 +132,22 @@ const WorkCalendar = ({ employee }) => {
     fetchSuspensions();
   }, []);
 
-  // Helper to group logs by day and compute summary (with default break times when Time In exists)
+  // Helper to group logs by day and compute summary using chronological position
   const getDailySummary = (date) => {
     const target = dayjs(date).tz("Asia/Manila").format("YYYY-MM-DD");
     const dailyLogs = logs.filter(
       (l) => dayjs(l.time).tz("Asia/Manila").format("YYYY-MM-DD") === target
     );
 
-    const fmt = (t) => dayjs(t).tz("Asia/Manila").format("h:mm A");
-    const firstByState = (state) => {
-      const found = dailyLogs.find((l) => l.state === state);
-      return found ? fmt(found.time) : null;
+    const resolved = resolveTimePunches(dailyLogs, { format: "h:mm A" });
+
+    return {
+      timeIn: resolved.timeIn || null,
+      breakOut: resolved.breakOut || null,
+      breakIn: resolved.breakIn || null,
+      timeOut: resolved.timeOut || null,
+      rawLogs: dailyLogs,
     };
-
-    const timeIn = firstByState("C/In");
-    let breakOut = firstByState("Out");
-    let breakIn = firstByState("Out Back");
-    const timeOut = firstByState("C/Out");
-
-    if (timeIn) {
-      if (!breakOut) breakOut = "12:00 PM";
-      if (!breakIn) breakIn = "1:00 PM";
-    }
-
-    return { timeIn, breakOut, breakIn, timeOut, rawLogs: dailyLogs };
   };
 
   // Build events for calendar

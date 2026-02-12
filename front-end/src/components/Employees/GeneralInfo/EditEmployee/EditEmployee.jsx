@@ -426,7 +426,7 @@ const EditEmployee = ({ employee, onClose, onUpdated }) => {
       >
         <Select placeholder="Select employee type">
           <Option value="Regular">Regular</Option>
-          <Option value="Contractual">Contractual</Option>
+          <Option value="Contract of Service">Contract of Service</Option>
         </Select>
       </Form.Item>
 

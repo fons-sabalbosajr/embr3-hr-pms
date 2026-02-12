@@ -26,10 +26,12 @@ import devRoutes from "./routes/devRoutes.js";
 import localHolidayRoutes from "./routes/localHolidayRoutes.js";
 import suspensionRoutes from "./routes/suspensionRoutes.js";
 import notificationRoutes from "./routes/notificationRoutes.js";
+import announcementRoutes from "./routes/announcementRoutes.js";
 import uploadRoutes from "./routes/uploadRoutes.js";
 import publicRoutes from "./routes/publicRoutes.js";
 import featureRoutes from "./routes/features.js";
 import bugReportRoutes from "./routes/bugReportRoutes.js";
+import messageRoutes from "./routes/messageRoutes.js";
 import demoEnforcement from "./middleware/demoEnforcement.js";
 
 dotenv.config();
@@ -89,8 +91,8 @@ app.use("/api/public", publicRoutes);
 app.use("/api/protected", protectedRoutes);
 app.use("/api/employees", employeeRoutes);
 app.use("/api/dtr", dtrRoutes);
-app.use("/api/dtrlogs", dtrGenerationLogRoutes);
 app.use("/api/dtrlogs", dtrLogRoutes);
+app.use("/api/dtrlogs", dtrGenerationLogRoutes);
 app.use("/api/dtrdatas", dtrDataRoutes);
 app.use("/api/trainings", trainingRoutes);
 app.use("/api/employee-docs", employeeDocRoutes);
@@ -104,9 +106,11 @@ app.use("/api/dev", devRoutes);
 app.use("/api/local-holidays", localHolidayRoutes);
 app.use("/api/suspensions", suspensionRoutes);
 app.use("/api/notifications", notificationRoutes);
+app.use("/api/announcements", announcementRoutes);
 app.use("/api/uploads", uploadRoutes);
 app.use("/api/features", featureRoutes);
 app.use("/api/bug-report", bugReportRoutes);
+app.use("/api/messages", messageRoutes);
 
 // Basic health endpoint for platform probes
 app.get("/healthz", (req, res) => {

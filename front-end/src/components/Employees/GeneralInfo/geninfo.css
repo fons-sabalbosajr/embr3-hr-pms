@@ -38,6 +38,11 @@
   font-size: 13px;
 }
 
+.geninfo-table {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 .geninfo-table .ant-table {
   font-size: 12px; /* Adjust as needed (10px–14px range recommended) */
 }
@@ -50,6 +55,60 @@
 .geninfo-table .ant-table-tbody > tr > td {
   font-size: 12px;
   padding: 8px;
+}
+
+.geninfo-resigned-banner {
+  margin: 8px 0 12px;
+}
+
+.geninfo-row--resigned td {
+  opacity: 0.88;
+}
+
+/* Green "Generate Report" button (theme-safe; uses Ant vars with fallbacks) */
+.ant-btn-primary.geninfo-btn--report {
+  background-color: var(--ant-color-success, #52c41a);
+  border-color: var(--ant-color-success, #52c41a);
+}
+
+.ant-btn-primary.geninfo-btn--report:hover {
+  background-color: var(--ant-color-success-hover, #73d13d) !important;
+  border-color: var(--ant-color-success-hover, #73d13d) !important;
+}
+
+.ant-btn-primary.geninfo-btn--report:active {
+  background-color: var(--ant-color-success-active, #389e0d) !important;
+  border-color: var(--ant-color-success-active, #389e0d) !important;
+}
+
+.ant-btn-primary.geninfo-btn--report:disabled,
+.ant-btn-primary.geninfo-btn--report.ant-btn-disabled {
+  background-color: var(--ant-color-success, #52c41a);
+  border-color: var(--ant-color-success, #52c41a);
+  opacity: 0.55;
+}
+
+/* Green "Restore" button */
+.ant-btn-primary.geninfo-btn--restore {
+  background-color: var(--ant-color-success, #52c41a);
+  border-color: var(--ant-color-success, #52c41a);
+}
+
+.ant-btn-primary.geninfo-btn--restore:hover {
+  background-color: var(--ant-color-success-hover, #73d13d) !important;
+  border-color: var(--ant-color-success-hover, #73d13d) !important;
+}
+
+.ant-btn-primary.geninfo-btn--restore:active {
+  background-color: var(--ant-color-success-active, #389e0d) !important;
+  border-color: var(--ant-color-success-active, #389e0d) !important;
+}
+
+.ant-btn-primary.geninfo-btn--restore:disabled,
+.ant-btn-primary.geninfo-btn--restore.ant-btn-disabled {
+  background-color: var(--ant-color-success, #52c41a);
+  border-color: var(--ant-color-success, #52c41a);
+  opacity: 0.55;
 }
 
 
@@ -127,6 +186,26 @@
 .assignment-label.division {
   color: #8c8c8c;
   font-size: 10px;
+}
+
+/* ─── Responsive ─── */
+@media (max-width: 767px) {
+  .content-wrapper { padding: 10px !important; }
+  .geninfo-header h2 { font-size: 16px; }
+  .geninfo-filters { flex-direction: column; gap: 6px; }
+  .filters-left { width: 100%; flex-direction: column; }
+  .filters-left > * { flex: 1 1 100%; min-width: 0; }
+  .geninfo-table .ant-table-thead > tr > th,
+  .geninfo-table .ant-table-tbody > tr > td { padding: 4px 6px; font-size: 11px; }
+  /* Ensure horizontal scroll indicator */
+  .geninfo-table { margin: 0 -10px; padding: 0 10px; }
+  .geninfo-table .ant-table-content { overflow-x: auto !important; }
+}
+@media (min-width: 768px) and (max-width: 1080px) {
+  .geninfo-header h2 { font-size: 18px; }
+  .geninfo-table .ant-table-thead > tr > th,
+  .geninfo-table .ant-table-tbody > tr > td { padding: 6px; font-size: 11px; }
+  .geninfo-table .ant-table-content { overflow-x: auto !important; }
 }
 
 

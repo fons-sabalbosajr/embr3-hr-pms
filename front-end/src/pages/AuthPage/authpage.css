@@ -18,11 +18,10 @@
   
 }
 
-
-
 /* Card styling */
 .auth-card {
   width: 450px;
+  max-width: calc(100vw - 32px);
   backdrop-filter: blur(4px);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
   animation: slideUp 0.6s ease-in-out;

@@ -78,7 +78,7 @@ const EmployeeStatsCards = ({
                 }
                 return `Present as of ${lastAttendanceDate || "-"}`;
               })()}
-              value={`${presentCount} / ${totalEmployees}`}
+              value={`${presentCount}/${totalEmployees}`}
               prefix={<CalendarOutlined className="stats-icon stats-icon-present" />}
             />
           )}

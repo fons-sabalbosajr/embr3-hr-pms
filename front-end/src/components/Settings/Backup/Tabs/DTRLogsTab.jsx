@@ -40,7 +40,12 @@ const DTRLogTab = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const fetchData = async (p = page, limit = pageSize, q = searchText, dr = dateRange) => {
+  const fetchData = async (
+    p = page,
+    limit = pageSize,
+    q = searchText,
+    dr = dateRange,
+  ) => {
     setLoading(true);
     try {
       const res = await axiosInstance.get("/dtrlogs/merged", {
@@ -48,7 +53,8 @@ const DTRLogTab = () => {
           page: p,
           limit,
           q: q && q.trim() ? q.trim() : undefined,
-          startDate: Array.isArray(dr) && dr[0] ? dr[0].toISOString() : undefined,
+          startDate:
+            Array.isArray(dr) && dr[0] ? dr[0].toISOString() : undefined,
           endDate: Array.isArray(dr) && dr[1] ? dr[1].toISOString() : undefined,
         },
       });
@@ -132,7 +138,11 @@ const DTRLogTab = () => {
       title: "Actions",
       render: (_, record) => (
         <Space>
-          <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(record)}>
+          <Button
+            size="small"
+            icon={<EditOutlined />}
+            onClick={() => openEdit(record)}
+          >
             Edit
           </Button>
           <Popconfirm
@@ -150,7 +160,16 @@ const DTRLogTab = () => {
 
   return (
     <Card className="compact-table">
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 8,
+          flexWrap: "wrap",
+          marginBottom: 12,
+        }}
+      >
         <Space size={8} wrap align="center">
           <Input
             size="small"
@@ -158,7 +177,9 @@ const DTRLogTab = () => {
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             onPressEnter={() => fetchData(1, pageSize, searchText, dateRange)}
-            onBlur={() => {/* no-op */}}
+            onBlur={() => {
+              /* no-op */
+            }}
             prefix={<SearchOutlined />}
             allowClear
             style={{ minWidth: 220 }}

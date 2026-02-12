@@ -81,6 +81,37 @@ export const initSocket = (server) => {
       io.emit("user-status-changed", { userId, status: "offline" });
     });
 
+    // ─── Messaging events ────────────────────────────────────────────────
+    // Join a conversation room for real-time updates
+    socket.on("join-conversation", (conversationId) => {
+      if (conversationId) socket.join(`conv:${conversationId}`);
+    });
+
+    socket.on("leave-conversation", (conversationId) => {
+      if (conversationId) socket.leave(`conv:${conversationId}`);
+    });
+
+    // Typing indicators
+    socket.on("typing", ({ conversationId, userId, userName }) => {
+      if (conversationId) {
+        socket.to(`conv:${conversationId}`).emit("user-typing", {
+          conversationId,
+          userId,
+          userName,
+        });
+      }
+    });
+
+    socket.on("stop-typing", ({ conversationId, userId }) => {
+      if (conversationId) {
+        socket.to(`conv:${conversationId}`).emit("user-stop-typing", {
+          conversationId,
+          userId,
+        });
+      }
+    });
+    // ─── End messaging events ────────────────────────────────────────────
+
     // Handle disconnect
     socket.on("disconnect", async () => {
       let userIdToDelete;
@@ -111,4 +142,25 @@ export const getSocketInstance = () => {
     throw new Error("Socket.IO not initialized!");
   }
   return io;
+};
+
+// Emit an event to all sockets currently associated with a given userId.
+// Falls back to a no-op if socket has not been initialized.
+export const emitToUser = (userId, event, payload) => {
+  try {
+    if (!io) return;
+    const id = String(userId || "");
+    if (!id) return;
+    const sockets = userSockets.get(id);
+    if (!sockets || sockets.size === 0) return;
+    for (const socketId of sockets) {
+      try {
+        io.to(socketId).emit(event, payload);
+      } catch (_) {
+        // ignore per-socket failures
+      }
+    }
+  } catch (_) {
+    // ignore
+  }
 };

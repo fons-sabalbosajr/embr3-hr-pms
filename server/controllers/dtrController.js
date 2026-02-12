@@ -5,6 +5,7 @@ import DTRLog from "../models/DTRLog.js";
 import Employee from "../models/Employee.js";
 import DTRGenerationLog from "../models/DTRGenerationLog.js";
 import { getSocketInstance } from "../socket.js";
+import { resolveTimePunches } from "../utils/resolveTimePunches.js";
 
 
 export const uploadDTR = async (req, res) => {
@@ -106,28 +107,7 @@ export const getRecentAttendance = async (req, res) => {
     // 🔹 Fetch logs
     const logs = await DTRLog.find(filter).sort({ Time: 1 }).lean();
 
-    // 🔹 Map state → human-readable
-    const mappedLogs = logs.map((log) => {
-      let stateLabel;
-      switch (log.State) {
-        case "C/In": stateLabel = "Time In"; break;
-        case "C/Out": stateLabel = "Time Out"; break;
-        case "Out": stateLabel = "Break Out"; break;
-        case "Out Back": stateLabel = "Break In"; break;
-        case "Overtime In": stateLabel = "OT In"; break;
-        case "Overtime Out": stateLabel = "OT Out"; break;
-        default: stateLabel = log.State;
-      }
-
-      return {
-        acNo: log["AC-No"] || "-",
-        name: log.Name,
-        time: log.Time,
-        state: stateLabel,
-      };
-    });
-
-    // 🔹 Enrich with Employee data and group logs
+    // 🔹 Enrich with Employee data and group raw logs by employee+date
     const employeeMap = new Map();
     const employees = await Employee.find({}).lean();
     for (const emp of employees) {
@@ -137,57 +117,49 @@ export const getRecentAttendance = async (req, res) => {
       }
     }
 
-    const grouped = {};
-    mappedLogs.forEach((log) => {
-      // Normalize AC-No and try to match employees. Accept both dashed and non-dashed formats.
-      if (!log.acNo) return;
-      const normalizedAcNo = String(log.acNo).replace(/-/g, "").replace(/^0+/, "");
+    // Collect raw logs per employee-date key
+    const rawByKey = {};
+    logs.forEach((log) => {
+      const acNo = log["AC-No"] || "-";
+      if (!acNo || acNo === "-") return;
+      const normalizedAcNo = String(acNo).replace(/-/g, "").replace(/^0+/, "");
       if (!normalizedAcNo) return;
       const employee = employeeMap.get(normalizedAcNo);
+      if (!employee) return;
 
-      if (employee) { // Only process logs that have a matching employee
-        const dateKey = dayjs(log.time).format("YYYY-MM-DD");
-        const key = `${log.acNo}-${dateKey}`;
+      const dateKey = dayjs(log.Time).format("YYYY-MM-DD");
+      const key = `${acNo}-${dateKey}`;
 
-        if (!grouped[key]) {
-          grouped[key] = {
-            empId: employee.empId,
-            name: employee.name,
-            position: employee.position || "N/A",
-            sectionOrUnit: employee.sectionOrUnit || "N/A",
-            division: employee.division || "N/A",
-            acNo: log.acNo,
-            date: dateKey,
-            timeIn: "---",
-            breakOut: "---",
-            breakIn: "---",
-            timeOut: "---",
-            otIn: "---",
-            otOut: "---",
-          };
-        }
-
-        switch (log.state) {
-          case "Time In":
-            if (grouped[key].timeIn === "---") grouped[key].timeIn = log.time;
-            break;
-          case "Break Out":
-            if (grouped[key].breakOut === "---") grouped[key].breakOut = log.time;
-            break;
-          case "Break In":
-            grouped[key].breakIn = log.time; // last one wins
-            break;
-          case "Time Out":
-            grouped[key].timeOut = log.time; // last one wins
-            break;
-          case "OT In":
-            if (grouped[key].otIn === "---") grouped[key].otIn = log.time;
-            break;
-          case "OT Out":
-            grouped[key].otOut = log.time; // last one wins
-            break;
-        }
+      if (!rawByKey[key]) {
+        rawByKey[key] = {
+          employee,
+          acNo,
+          dateKey,
+          logs: [],
+        };
       }
+      rawByKey[key].logs.push(log);
+    });
+
+    // Resolve each day using chronological position-based detection
+    const grouped = {};
+    Object.entries(rawByKey).forEach(([key, { employee, acNo, dateKey, logs: dayLogs }]) => {
+      const resolved = resolveTimePunches(dayLogs);
+      grouped[key] = {
+        empId: employee.empId,
+        name: employee.name,
+        position: employee.position || "N/A",
+        sectionOrUnit: employee.sectionOrUnit || "N/A",
+        division: employee.division || "N/A",
+        acNo,
+        date: dateKey,
+        timeIn: resolved.timeIn || "---",
+        breakOut: resolved.breakOut || "---",
+        breakIn: resolved.breakIn || "---",
+        timeOut: resolved.timeOut || "---",
+        otIn: "---",
+        otOut: "---",
+      };
     });
 
     let result = Object.values(grouped);

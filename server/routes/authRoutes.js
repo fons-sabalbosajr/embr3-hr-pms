@@ -17,6 +17,10 @@ import {
   updateUserAccess,
   devResetPassword,
   uploadAvatar,
+  getPendingSignups,
+  approveSignup,
+  rejectSignup,
+  deleteUser,
 } from '../controllers/authController.js';
 import verifyToken from '../middleware/authMiddleware.js';
 import multer from 'multer';
@@ -57,8 +61,13 @@ router.put('/preferences', verifyToken, updateUserPreferences);
 // Avatar upload
 router.post('/avatar', verifyToken, upload.single('avatar'), uploadAvatar);
 router.get('/', verifyToken, getAllUsers);
+// Signup approval management (must be before /:id to avoid matching "signups" as an ObjectId)
+router.get('/signups', verifyToken, getPendingSignups);
 router.get('/:id', verifyToken, getUserById);
 router.post('/logout', logout);
 router.put('/:userId/access', verifyToken, updateUserAccess);
+router.put('/:userId/approve', verifyToken, approveSignup);
+router.put('/:userId/reject', verifyToken, rejectSignup);
+router.delete('/:userId', verifyToken, deleteUser);
 
 export default router;

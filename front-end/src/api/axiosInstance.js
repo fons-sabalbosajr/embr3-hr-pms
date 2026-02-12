@@ -1,6 +1,6 @@
 import axios from "axios";
 import { message } from "antd";
-import { secureRetrieve, secureRemove, secureStore, secureGet, secureSessionGet } from "../../utils/secureStorage";
+import { secureRetrieve, secureRemove, secureStore, secureGet, secureSessionGet, secureSessionRemove } from "../../utils/secureStorage";
 import demoActions from "../utils/demoActionsRegistry";
 
 // Prefer explicit API base via VITE_API_URL; fall back to Vite dev proxy path '/api' for local dev
@@ -72,12 +72,43 @@ axiosInstance.interceptors.request.use(
 axiosInstance.interceptors.response.use(
   (response) => response,
   (error) => {
+    if (error.response && error.response.status === 403) {
+      // Permission revoked or insufficient access
+      const base = (import.meta.env.BASE_URL || "/").replace(/\/$/, "");
+      const currentPath = (window.location.pathname || "").replace(base, "") || "/";
+      const isPublicRoute = (
+        currentPath === "/" ||
+        currentPath === "/auth" ||
+        currentPath === "/requests" ||
+        currentPath === "/payslip" ||
+        currentPath === "/dtr-employee-request" ||
+        currentPath.startsWith("/verify/") ||
+        currentPath.startsWith("/reset-password")
+      );
+
+      if (!window.__FORBIDDEN_SHOWN__) {
+        window.__FORBIDDEN_SHOWN__ = true;
+        message.error("You don’t have permission to access this.");
+        setTimeout(() => {
+          window.__FORBIDDEN_SHOWN__ = false;
+        }, 3000);
+      }
+
+      const unauthorizedPath = `${base}/unauthorized` || "/unauthorized";
+      const alreadyOnUnauthorized = window.location.pathname.endsWith("/unauthorized");
+
+      if (!isPublicRoute && !alreadyOnUnauthorized) {
+        setTimeout(() => {
+          window.location.replace(unauthorizedPath);
+        }, 200);
+      }
+    }
     if (error.response && error.response.status === 401) {
       // Clear token on any 401 (session first, then legacy local)
   try { secureRemove("token"); } catch {}
   try { secureRemove("user"); } catch {}
-  try { window.sessionStorage && window.sessionStorage.removeItem("token"); } catch {}
-  try { window.sessionStorage && window.sessionStorage.removeItem("user"); } catch {}
+  try { secureSessionRemove("token"); } catch {}
+  try { secureSessionRemove("user"); } catch {}
   // Proactively harden any lingering plaintext values migrated mid-session
   try { secureStore('__last401', Date.now()); } catch(_){}
 

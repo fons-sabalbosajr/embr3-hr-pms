@@ -44,7 +44,25 @@ const AuthPage = () => {
       await login(values);
       navigate("/", { replace: true }); // goes to HomePage
     } catch (err) {
-      message.error(err.response?.data?.message || "Login failed");
+      const code = err.response?.data?.code;
+      const msg = err.response?.data?.message || "Login failed";
+      if (code === "PENDING_APPROVAL") {
+        Swal.fire({
+          title: "Account Pending Approval",
+          text: msg,
+          icon: "info",
+          confirmButtonText: "OK",
+        });
+      } else if (code === "REJECTED") {
+        Swal.fire({
+          title: "Account Not Approved",
+          text: msg,
+          icon: "error",
+          confirmButtonText: "OK",
+        });
+      } else {
+        message.error(msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -62,7 +80,7 @@ const AuthPage = () => {
 
       Swal.fire({
         title: "Signup Successful!",
-        text: "A verification email has been sent. Please check your inbox.",
+        text: "A verification email has been sent. Your account is pending approval by an administrator. You will be notified once approved.",
         icon: "success",
         confirmButtonText: "OK",
       }).then(() => {

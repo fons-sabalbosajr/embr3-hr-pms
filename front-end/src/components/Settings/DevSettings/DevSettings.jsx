@@ -26,6 +26,8 @@ import {
   Table,
   Modal,
   Checkbox,
+  Layout,
+  Menu,
 } from "antd";
 import dayjs from "dayjs";
 import useAuth from "../../../hooks/useAuth";
@@ -33,11 +35,44 @@ import { NotificationsContext } from "../../../context/NotificationsContext";
 import SecureStorageDiagnostics from "./SecureStorageDiagnostics";
 import axiosInstance from "../../../api/axiosInstance";
 import DemoModeSettings from "./DemoModeSettings";
-import { secureStore, secureSessionGet, secureRetrieve } from "../../../../utils/secureStorage";
+import { secureStore, secureSessionGet, secureSessionStore, secureRetrieve } from "../../../../utils/secureStorage";
 import socket from "../../../../utils/socket";
-import { EyeOutlined, DownloadOutlined, DeleteOutlined, LinkOutlined, CalendarOutlined } from "@ant-design/icons";
+import "./DevSettings.css";
+import {
+  EyeOutlined,
+  DownloadOutlined,
+  DeleteOutlined,
+  LinkOutlined,
+  CalendarOutlined,
+  ReloadOutlined,
+  AppstoreOutlined,
+  DatabaseOutlined,
+  MailOutlined,
+  CloudOutlined,
+  ApiOutlined,
+  DesktopOutlined,
+  InfoCircleOutlined,
+  CheckCircleOutlined,
+  CloseCircleOutlined,
+  DashboardOutlined,
+  TeamOutlined,
+  FieldTimeOutlined,
+  SafetyOutlined,
+  BugOutlined,
+  BellOutlined,
+  LockOutlined,
+  ToolOutlined,
+  InboxOutlined,
+  SettingOutlined,
+  MessageOutlined,
+  ExperimentOutlined,
+  FileSearchOutlined,
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
+} from "@ant-design/icons";
 
 const { Title, Text } = Typography;
+const { Sider, Content } = Layout;
 
 // Lightweight color mapping for document types (for nicer tags)
 const docTagColor = (t) => {
@@ -72,6 +107,7 @@ const DevSettings = () => {
   const [settings, setSettings] = useState(null);
   const [form] = Form.useForm();
   const [activeTab, setActiveTab] = useState("runtime");
+  const [siderCollapsed, setSiderCollapsed] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const [didInitFromUrl, setDidInitFromUrl] = useState(false);
   const { message } = AntApp.useApp();
@@ -129,6 +165,8 @@ const DevSettings = () => {
   // Backup jobs filters
   const [jobStatusFilter, setJobStatusFilter] = useState("all");
   const [jobCollectionFilter, setJobCollectionFilter] = useState("all");
+  const [jobsPage, setJobsPage] = useState(1);
+  const [jobsPageSize, setJobsPageSize] = useState(5);
   // Derived collections from jobs for filter options (must be before any early returns)
   const jobCollections = useMemo(() => {
     const names = (backupJobs || []).map((j) => j?.collection).filter(Boolean);
@@ -146,6 +184,10 @@ const DevSettings = () => {
       return statusOk && collOk;
     });
   }, [backupJobs, jobStatusFilter, jobCollectionFilter]);
+
+  useEffect(() => {
+    setJobsPage(1);
+  }, [jobStatusFilter, jobCollectionFilter]);
   const [maintenanceLoading, setMaintenanceLoading] = useState(false);
   const [maintenanceRange, setMaintenanceRange] = useState(() => {
     const m = settings?.maintenance;
@@ -160,6 +202,65 @@ const DevSettings = () => {
     () => settings?.maintenance?.enabled || false
   );
   const [isMaintPreviewOpen, setIsMaintPreviewOpen] = useState(false);
+
+  // Per-feature maintenance
+  const [featureMaintenanceMap, setFeatureMaintenanceMap] = useState(() => {
+    const fm = settings?.featureMaintenance;
+    if (fm && typeof fm === "object") {
+      // Convert Map-like or plain object
+      const obj = {};
+      if (fm.forEach) fm.forEach((v, k) => { obj[k] = v; });
+      else Object.entries(fm).forEach(([k, v]) => { obj[k] = v; });
+      return obj;
+    }
+    return {};
+  });
+  const [featureMaintSaving, setFeatureMaintSaving] = useState(false);
+
+  // All features that can be toggled
+  const FEATURE_LIST = [
+    { key: "/", label: "Dashboard / Overview" },
+    { key: "employees", label: "Personnel (all)" },
+    { key: "/employeeinfo", label: "Employee Profile" },
+    { key: "/trainings", label: "Training Records" },
+    { key: "/benefitsinfo", label: "Compensation" },
+    { key: "dtr", label: "Timekeeping (all)" },
+    { key: "/dtr/logs", label: "Biometric Logs" },
+    { key: "/dtr/process", label: "Generate DTR" },
+    { key: "/dtr/reports", label: "DTR Reports" },
+    { key: "/dtr/holidays", label: "Holidays & Suspensions" },
+    { key: "messaging", label: "Messaging (all)" },
+    { key: "/messaging/inbox", label: "Inbox" },
+    { key: "/messaging/sent", label: "Sent Messages" },
+    { key: "/messaging/drafts", label: "Drafts" },
+    { key: "settings", label: "Administration (all)" },
+    { key: "/settings/account", label: "Account Preferences" },
+    { key: "/settings/deductions", label: "Deductions" },
+    { key: "/settings/access", label: "User Access" },
+    { key: "/settings/backup", label: "Backup" },
+    { key: "/settings/announcements", label: "Announcements" },
+  ];
+
+  const updateFeatureMaint = (featureKey, field, value) => {
+    setFeatureMaintenanceMap((prev) => ({
+      ...prev,
+      [featureKey]: { ...(prev[featureKey] || { enabled: false, message: "", hidden: false }), [field]: value },
+    }));
+  };
+
+  const saveFeatureMaintenance = async () => {
+    try {
+      setFeatureMaintSaving(true);
+      const payload = { ...(settings || {}), featureMaintenance: featureMaintenanceMap };
+      const res = await axiosInstance.put("/settings", payload);
+      setSettings(res.data);
+      message.success("Feature maintenance settings saved");
+    } catch {
+      message.error("Failed to save feature maintenance settings");
+    } finally {
+      setFeatureMaintSaving(false);
+    }
+  };
 
   // Audit logs and Notifications state
   const [auditLogs, setAuditLogs] = useState([]);
@@ -198,6 +299,8 @@ const DevSettings = () => {
   const [driveLoading, setDriveLoading] = useState(false);
   const [driveFiles, setDriveFiles] = useState([]);
   const [drivePath, setDrivePath] = useState(""); // local uploads subdir
+  const [drivePage, setDrivePage] = useState(1);
+  const [drivePageSize, setDrivePageSize] = useState(5);
   const fetchDriveFiles = async (nextPath) => {
     try {
       setDriveLoading(true);
@@ -205,6 +308,7 @@ const DevSettings = () => {
       const res = await axiosInstance.get("/uploads", { params: pathToUse ? { path: pathToUse } : {} });
       const rows = res?.data?.data || res?.data || [];
       setDriveFiles(Array.isArray(rows) ? rows : []);
+      setDrivePage(1);
       if (typeof nextPath === 'string') setDrivePath(nextPath);
     } catch (e) {
       message.error(e?.response?.data?.message || "Failed to load Drive files");
@@ -245,12 +349,32 @@ const DevSettings = () => {
   const [empFilterSection, setEmpFilterSection] = useState("all");
   const [empFilterType, setEmpFilterType] = useState("all");
   const [empFilterStatus, setEmpFilterStatus] = useState("all");
+  const [employeesPage, setEmployeesPage] = useState(1);
+  const [employeesPageSize, setEmployeesPageSize] = useState(10);
+
+  useEffect(() => {
+    setEmployeesPage(1);
+  }, [
+    empFilterName,
+    empFilterEmpId,
+    empFilterEmpNo,
+    empFilterDivision,
+    empFilterSection,
+    empFilterType,
+    empFilterStatus,
+  ]);
 
   // Demo users management (per-user demo flag)
   const [demoUsers, setDemoUsers] = useState([]);
   const [demoUsersLoading, setDemoUsersLoading] = useState(false);
   const [showOnlyDemoUsers, setShowOnlyDemoUsers] = useState(false);
   const [savingDemoIds, setSavingDemoIds] = useState(new Set());
+  const [demoUsersPage, setDemoUsersPage] = useState(1);
+  const [demoUsersPageSize, setDemoUsersPageSize] = useState(8);
+
+  useEffect(() => {
+    setDemoUsersPage(1);
+  }, [showOnlyDemoUsers]);
 
   const fetchDemoUsers = async () => {
     try {
@@ -1270,6 +1394,13 @@ const DevSettings = () => {
 
   const runtimeCardStyle = { height: "100%" };
   const cardBodySmall = { padding: 12 };
+  const descCommon = {
+    size: "small",
+    column: 1,
+    bordered: true,
+    labelStyle: { fontSize: 12, width: 140 },
+    contentStyle: { fontSize: 12 },
+  };
 
   // Client session/runtime monitoring
   const [clientRuntime, setClientRuntime] = useState(() => {
@@ -1278,10 +1409,10 @@ const DevSettings = () => {
     // Generate per-tab id once and keep in sessionStorage
     let tabId = null;
     try {
-      tabId = window.sessionStorage.getItem("__tab_id");
+      tabId = secureSessionGet("__tab_id");
       if (!tabId) {
         tabId = `tab-${Math.random().toString(36).slice(2, 10)}`;
-        window.sessionStorage.setItem("__tab_id", tabId);
+        secureSessionStore("__tab_id", tabId);
       }
     } catch {}
     return {
@@ -1329,36 +1460,33 @@ const DevSettings = () => {
         <Col xs={24} md={12}>
           <Card
             size="small"
-            title="Application"
+            title={
+              <Space size={8} align="center">
+                <AppstoreOutlined />
+                <span>Application</span>
+              </Space>
+            }
             style={runtimeCardStyle}
             bodyStyle={cardBodySmall}
             extra={
-              <Button size="small" onClick={() => window.location.reload()}>
-                Reload
-              </Button>
+              <Space size={8} wrap>
+                {loading || !devInfo ? null : (
+                  <Tag>{String(devInfo.app.env || "").toUpperCase() || "ENV"}</Tag>
+                )}
+                <Button size="small" icon={<ReloadOutlined />} onClick={() => window.location.reload()}>
+                  Reload
+                </Button>
+              </Space>
             }
           >
             {loading || !devInfo ? (
               <Card loading size="small" />
             ) : (
-              <Descriptions
-                size="small"
-                column={1}
-                labelStyle={{ fontSize: 12 }}
-                contentStyle={{ fontSize: 12 }}
-              >
-                <Descriptions.Item label="Node">
-                  {devInfo.app.node}
-                </Descriptions.Item>
-                <Descriptions.Item label="Env">
-                  {devInfo.app.env}
-                </Descriptions.Item>
-                <Descriptions.Item label="Server Host">
-                  {devInfo.app.serverHost}
-                </Descriptions.Item>
-                <Descriptions.Item label="Server Port">
-                  {devInfo.app.serverPort}
-                </Descriptions.Item>
+              <Descriptions {...descCommon}>
+                <Descriptions.Item label="Node">{devInfo.app.node}</Descriptions.Item>
+                <Descriptions.Item label="Env">{devInfo.app.env}</Descriptions.Item>
+                <Descriptions.Item label="Server Host">{devInfo.app.serverHost}</Descriptions.Item>
+                <Descriptions.Item label="Server Port">{devInfo.app.serverPort}</Descriptions.Item>
                 <Descriptions.Item label="Client Origin">
                   {devInfo.app.clientOrigin || <Tag>not set</Tag>}
                 </Descriptions.Item>
@@ -1369,7 +1497,12 @@ const DevSettings = () => {
         <Col xs={24} md={12}>
           <Card
             size="small"
-            title="Database"
+            title={
+              <Space size={8} align="center">
+                <DatabaseOutlined />
+                <span>Database</span>
+              </Space>
+            }
             style={runtimeCardStyle}
             bodyStyle={cardBodySmall}
             extra={
@@ -1383,12 +1516,7 @@ const DevSettings = () => {
             {loading || !devInfo ? (
               <Card loading size="small" />
             ) : (
-              <Descriptions
-                size="small"
-                column={1}
-                labelStyle={{ fontSize: 12 }}
-                contentStyle={{ fontSize: 12 }}
-              >
+              <Descriptions {...descCommon}>
                 <Descriptions.Item label="Name">
                   {devInfo.db.name || <Tag>unknown</Tag>}
                 </Descriptions.Item>
@@ -1402,14 +1530,18 @@ const DevSettings = () => {
             )}
           </Card>
         </Col>
-        
       </Row>
 
       <Row gutter={[12, 12]}>
         <Col xs={24} md={12}>
           <Card
             size="small"
-            title="Email (SMTP)"
+            title={
+              <Space size={8} align="center">
+                <MailOutlined />
+                <span>Email (SMTP)</span>
+              </Space>
+            }
             style={runtimeCardStyle}
             bodyStyle={cardBodySmall}
           >
@@ -1548,20 +1680,31 @@ const DevSettings = () => {
         <Col xs={24} md={12}>
           <Card
             size="small"
-            title="Google Drive"
+            title={
+              <Space size={8} align="center">
+                <CloudOutlined />
+                <span>Google Drive</span>
+              </Space>
+            }
             style={runtimeCardStyle}
             bodyStyle={cardBodySmall}
+            extra={
+              loading || !devInfo ? null : devInfo.google.configured ? (
+                <Tag icon={<CheckCircleOutlined />} color="green">
+                  Configured
+                </Tag>
+              ) : (
+                <Tag icon={<CloseCircleOutlined />} color="red">
+                  Not Configured
+                </Tag>
+              )
+            }
           >
             {loading || !devInfo ? (
               <Card loading size="small" />
             ) : (
               <>
-                <Descriptions
-                  size="small"
-                  column={1}
-                  labelStyle={{ fontSize: 12 }}
-                  contentStyle={{ fontSize: 12 }}
-                >
+                <Descriptions {...descCommon}>
                   <Descriptions.Item label="Service Account Key">
                     {devInfo.google.serviceAccountKey || <Tag>not set</Tag>}
                   </Descriptions.Item>
@@ -1606,9 +1749,17 @@ const DevSettings = () => {
                   loading={driveLoading}
                   rowKey={(r) => r.id || r._id || r.localPath || r.name}
                   pagination={{
-                    pageSize: 5,
+                    current: drivePage,
+                    pageSize: drivePageSize,
+                    total: (driveFiles || []).length,
                     showSizeChanger: true,
                     pageSizeOptions: [5, 10, 20, 50],
+                    onChange: (page, pageSize) => {
+                      const nextSize = pageSize || drivePageSize;
+                      const sizeChanged = nextSize !== drivePageSize;
+                      setDrivePageSize(nextSize);
+                      setDrivePage(sizeChanged ? 1 : page);
+                    },
                   }}
                   columns={[
                     {
@@ -1713,19 +1864,19 @@ const DevSettings = () => {
         <Col xs={24} md={12}>
           <Card
             size="small"
-            title="Socket.IO"
+            title={
+              <Space size={8} align="center">
+                <ApiOutlined />
+                <span>Socket.IO</span>
+              </Space>
+            }
             style={runtimeCardStyle}
             bodyStyle={cardBodySmall}
           >
             {loading || !devInfo ? (
               <Card loading size="small" />
             ) : (
-              <Descriptions
-                size="small"
-                column={1}
-                labelStyle={{ fontSize: 12 }}
-                contentStyle={{ fontSize: 12 }}
-              >
+              <Descriptions {...descCommon}>
                 <Descriptions.Item label="Path">
                   {devInfo.socket.path}
                 </Descriptions.Item>
@@ -1745,16 +1896,21 @@ const DevSettings = () => {
         <Col xs={24} md={12}>
           <Card
             size="small"
-            title="Client Session"
+            title={
+              <Space size={8} align="center">
+                <DesktopOutlined />
+                <span>Client Session</span>
+              </Space>
+            }
             style={runtimeCardStyle}
             bodyStyle={cardBodySmall}
+            extra={
+              <Tag color={clientRuntime.socketConnected ? "green" : "red"}>
+                Socket {clientRuntime.socketConnected ? "Connected" : "Disconnected"}
+              </Tag>
+            }
           >
-            <Descriptions
-              size="small"
-              column={1}
-              labelStyle={{ fontSize: 12 }}
-              contentStyle={{ fontSize: 12 }}
-            >
+            <Descriptions {...descCommon}>
               <Descriptions.Item label="Auth Storage">
                 {clientRuntime.storage}
               </Descriptions.Item>
@@ -1779,15 +1935,26 @@ const DevSettings = () => {
         <Col xs={24} md={24}>
           <Card
             size="small"
-            title="Notes"
+            title={
+              <Space size={8} align="center">
+                <InfoCircleOutlined />
+                <span>Notes</span>
+              </Space>
+            }
             style={runtimeCardStyle}
             bodyStyle={cardBodySmall}
           >
             <Space direction="vertical" style={{ width: "100%" }}>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                Tip: sensitive values (passwords, tokens, URIs) are
-                intentionally omitted here.
-              </Text>
+              <Alert
+                type="info"
+                showIcon
+                message="Sensitive values are intentionally omitted"
+                description={
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    Passwords, tokens, and full URIs are not shown in this view.
+                  </Text>
+                }
+              />
               <Button size="small" onClick={() => setDeploymentModalOpen(true)}>
                 Deployment (UAT) Notes
               </Button>
@@ -1915,8 +2082,15 @@ const DevSettings = () => {
       const res = await axiosInstance.put("/settings", payload);
       setSettings(res.data);
       message.success("Developer override updated");
+
+      // Trigger global refresh listeners (ThemeContext, Dashboard, etc.)
+      try {
+        window.dispatchEvent(new Event("app-settings-updated"));
+      } catch (_) {}
     } catch (err) {
-      message.error("Failed to update settings");
+      message.error(
+        err?.response?.data?.message || "Failed to update settings"
+      );
     } finally {
       setSettingsLoading(false);
     }
@@ -1949,7 +2123,10 @@ const DevSettings = () => {
               <Input
                 placeholder="Filter by employee name"
                 value={attendanceNameFilter}
-                onChange={(e) => setAttendanceNameFilter(e.target.value)}
+                onChange={(e) => {
+                  setAttendanceNameFilter(e.target.value);
+                  setAttendancePage(1);
+                }}
                 style={{ width: 220 }}
                 allowClear
               />
@@ -1997,17 +2174,15 @@ const DevSettings = () => {
             pagination={{
               current: attendancePage,
               pageSize: attendancePageSize,
-              total: (filteredAttendance || []).length,
+              total: attendanceTotal,
               showSizeChanger: true,
               pageSizeOptions: [5, 10, 20, 50],
               onChange: (page, pageSize) => {
-                setAttendancePage(page);
-                setAttendancePageSize(pageSize);
+                const nextSize = pageSize || attendancePageSize;
+                const sizeChanged = nextSize !== attendancePageSize;
+                setAttendancePageSize(nextSize);
+                setAttendancePage(sizeChanged ? 1 : page);
               },
-            }}
-            onChange={(pagination) => {
-              if (pagination?.current) setAttendancePage(pagination.current);
-              if (pagination?.pageSize) setAttendancePageSize(pagination.pageSize);
             }}
           />
         </Space>
@@ -2441,7 +2616,10 @@ const DevSettings = () => {
                   <Select
                     size="small"
                     value={jobStatusFilter}
-                    onChange={setJobStatusFilter}
+                    onChange={(v) => {
+                      setJobStatusFilter(v);
+                      setJobsPage(1);
+                    }}
                     options={[
                       { label: "All Statuses", value: "all" },
                       { label: "Queued", value: "queued" },
@@ -2456,7 +2634,10 @@ const DevSettings = () => {
                   <Select
                     size="small"
                     value={jobCollectionFilter}
-                    onChange={setJobCollectionFilter}
+                    onChange={(v) => {
+                      setJobCollectionFilter(v);
+                      setJobsPage(1);
+                    }}
                     options={[
                       { label: "All Collections", value: "all" },
                       ...jobCollections.map((c) => ({ label: c, value: c })),
@@ -2473,9 +2654,17 @@ const DevSettings = () => {
                 loading={jobsLoading}
                 rowKey={(r) => r._id}
                 pagination={{
-                  pageSize: 5,
+                  current: jobsPage,
+                  pageSize: jobsPageSize,
+                    total: (filteredJobs || []).length,
                   showSizeChanger: true,
                   pageSizeOptions: [5, 10, 20, 50],
+                    onChange: (page, pageSize) => {
+                      const nextSize = pageSize || jobsPageSize;
+                      const sizeChanged = nextSize !== jobsPageSize;
+                      setJobsPageSize(nextSize);
+                      setJobsPage(sizeChanged ? 1 : page);
+                    },
                 }}
                 columns={[
                   {
@@ -3270,9 +3459,17 @@ const DevSettings = () => {
           dataSource={filteredEmployees}
           rowKey={(r) => r._id}
           pagination={{
-            pageSize: 10,
+            current: employeesPage,
+            pageSize: employeesPageSize,
+            total: (filteredEmployees || []).length,
             showSizeChanger: true,
             pageSizeOptions: [5, 10, 20, 50],
+            onChange: (page, pageSize) => {
+              const nextSize = pageSize || employeesPageSize;
+              const sizeChanged = nextSize !== employeesPageSize;
+              setEmployeesPageSize(nextSize);
+              setEmployeesPage(sizeChanged ? 1 : page);
+            },
           }}
           columns={[
             { title: "Emp ID", dataIndex: "empId", key: "empId" },
@@ -3493,65 +3690,166 @@ const DevSettings = () => {
     </>
   );
 
-  return (
-    <Space direction="vertical" style={{ width: "100%" }}>
-      <Title level={3}>
-        Developer Settings {isDemoUser && <Tag color="blue">Demo User</Tag>}
-      </Title>
-      {!canSeeDev && (
-        <Alert
-          type="warning"
-          message="Insufficient permissions"
-          description="You don't have access to Developer Settings."
-          showIcon
-        />
-      )}
-      {error && (
-        <Alert
-          type="error"
-          message="Failed to load runtime info"
-          description={error}
-          showIcon
-        />
-      )}
+  // ── Sider menu items for Developer Settings ──────────────────────────
+  const devSiderItems = [
+    { key: "runtime", icon: <DashboardOutlined />, label: "Runtime" },
+    { key: "employees", icon: <TeamOutlined />, label: "Employees" },
+    { key: "attendance-preview", icon: <FieldTimeOutlined />, label: "Attendance" },
+    { key: "db-maintenance", icon: <DatabaseOutlined />, label: "Database" },
+    { key: "app-settings", icon: <SettingOutlined />, label: "App Settings" },
+    { key: "feature-maintenance", icon: <ToolOutlined />, label: "Feature Maint." },
+    { key: "demo-mode", icon: <ExperimentOutlined />, label: "Demo Mode" },
+    { key: "inbox-settings", icon: <InboxOutlined />, label: "Inbox Settings" },
+    { key: "secure-storage", icon: <LockOutlined />, label: "Secure Storage" },
+    { key: "audit-logs", icon: <FileSearchOutlined />, label: "Audit Logs" },
+    { key: "notifications", icon: <BellOutlined />, label: "Notifications" },
+    { key: "bug-reports", icon: <BugOutlined />, label: "Bug Reports" },
+  ];
 
-      <Tabs
-        activeKey={activeTab}
-        onChange={setActiveTab}
-        items={[
+  // ── Feature Maintenance Tab content ──────────────────────────────────
+  const featureMaintenanceTab = (
+    <Section title="Per-Feature Maintenance" extra={
+      <Button type="primary" size="small" onClick={saveFeatureMaintenance} loading={featureMaintSaving}>
+        Save All
+      </Button>
+    }>
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 16 }}
+        message="Control individual features without taking the entire system offline."
+        description="Enable = shows 'Maintenance' tag and disables the menu item. Hidden = removes the menu item entirely. Developers always see everything."
+      />
+      <Table
+        className="compact-table"
+        size="small"
+        dataSource={FEATURE_LIST}
+        rowKey="key"
+        pagination={false}
+        columns={[
           {
-            key: "runtime",
-            label: "Runtime",
-            children: runtimeTab,
+            title: "Feature",
+            dataIndex: "label",
+            key: "label",
+            render: (label, r) => (
+              <span>
+                {label}
+                <Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }}>({r.key})</Text>
+              </span>
+            ),
           },
           {
-            key: "employees",
-            label: "Employees",
-            children: employeesTab,
-            forceRender: true,
+            title: "Enabled",
+            key: "enabled",
+            width: 80,
+            render: (_, r) => (
+              <Switch
+                size="small"
+                checked={!!featureMaintenanceMap[r.key]?.enabled}
+                onChange={(v) => updateFeatureMaint(r.key, "enabled", v)}
+              />
+            ),
           },
           {
-            key: "attendance-preview",
-            label: "Attendance Preview",
-            children: attendanceTab,
-            forceRender: true,
+            title: "Hidden",
+            key: "hidden",
+            width: 80,
+            render: (_, r) => (
+              <Switch
+                size="small"
+                checked={!!featureMaintenanceMap[r.key]?.hidden}
+                onChange={(v) => updateFeatureMaint(r.key, "hidden", v)}
+                disabled={!featureMaintenanceMap[r.key]?.enabled}
+              />
+            ),
           },
           {
-            key: "db-maintenance",
-            label: "Database & Maintenance",
-            children: dbMaintenanceTab,
-            forceRender: true,
+            title: "Message",
+            key: "message",
+            render: (_, r) => (
+              <Input
+                size="small"
+                placeholder="Custom maintenance message"
+                value={featureMaintenanceMap[r.key]?.message || ""}
+                onChange={(e) => updateFeatureMaint(r.key, "message", e.target.value)}
+                disabled={!featureMaintenanceMap[r.key]?.enabled}
+              />
+            ),
           },
-          {
-            key: "app-settings",
-            label: "Application Settings",
-            children: appSettingsTab,
-            forceRender: true,
-          },
-          {
-            key: "demo-mode",
-            label: "Demo Mode",
-            children: (
+        ]}
+      />
+    </Section>
+  );
+
+  // ── Inbox Settings Tab content ───────────────────────────────────────
+  const inboxSettingsTab = (
+    <Space direction="vertical" style={{ width: "100%" }} size={16}>
+      <Section title="Messaging Configuration">
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="Configure messaging and inbox settings for the system."
+        />
+        <Descriptions size="small" column={1} bordered>
+          <Descriptions.Item label="Encryption">
+            <Tag color="green">AES-256-GCM</Tag>
+            <Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
+              Messages are encrypted at rest using server-side key
+            </Text>
+          </Descriptions.Item>
+          <Descriptions.Item label="Email Notifications">
+            <Tag color={settings?.smtp?.host ? "green" : "orange"}>
+              {settings?.smtp?.host ? "Configured" : "Not configured"}
+            </Tag>
+            <Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
+              Offline users receive email when they get a new message
+            </Text>
+          </Descriptions.Item>
+          <Descriptions.Item label="Real-time Delivery">
+            <Tag color="green">Socket.IO</Tag>
+            <Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
+              Messages delivered in real-time via WebSocket
+            </Text>
+          </Descriptions.Item>
+        </Descriptions>
+      </Section>
+      <Section title="SMTP / Email Transport">
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="Email settings are configured in Application Settings tab. Messages will use these SMTP settings for offline notifications."
+        />
+        <Descriptions size="small" column={1}>
+          <Descriptions.Item label="SMTP Host">
+            {settings?.smtp?.host || <Text type="secondary">Not set</Text>}
+          </Descriptions.Item>
+          <Descriptions.Item label="Port">
+            {settings?.smtp?.port || <Text type="secondary">Not set</Text>}
+          </Descriptions.Item>
+          <Descriptions.Item label="From Email">
+            {settings?.smtp?.fromEmail || <Text type="secondary">Not set</Text>}
+          </Descriptions.Item>
+          <Descriptions.Item label="From Name">
+            {settings?.smtp?.fromName || <Text type="secondary">Not set</Text>}
+          </Descriptions.Item>
+        </Descriptions>
+      </Section>
+    </Space>
+  );
+
+  // ── Render active panel content ──────────────────────────────────────
+  const renderActivePanel = () => {
+    switch (activeTab) {
+      case "runtime": return runtimeTab;
+      case "employees": return employeesTab;
+      case "attendance-preview": return attendanceTab;
+      case "db-maintenance": return dbMaintenanceTab;
+      case "app-settings": return appSettingsTab;
+      case "feature-maintenance": return featureMaintenanceTab;
+      case "inbox-settings": return inboxSettingsTab;
+      case "demo-mode": return (
               <Space direction="vertical" style={{ width: "100%" }} size={16}>
                 <Section
                   title="Demo Mode Configuration"
@@ -3607,9 +3905,19 @@ const DevSettings = () => {
                       (r) => !showOnlyDemoUsers || r.isDemo
                     )}
                     pagination={{
-                      pageSize: 8,
+                      current: demoUsersPage,
+                      pageSize: demoUsersPageSize,
+                      total: (demoUsers || []).filter(
+                        (r) => !showOnlyDemoUsers || r.isDemo
+                      ).length,
                       showSizeChanger: true,
                       pageSizeOptions: [5, 8, 15, 30],
+                      onChange: (page, pageSize) => {
+                        const nextSize = pageSize || demoUsersPageSize;
+                        const sizeChanged = nextSize !== demoUsersPageSize;
+                        setDemoUsersPageSize(nextSize);
+                        setDemoUsersPage(sizeChanged ? 1 : page);
+                      },
                     }}
                     columns={[
                       {
@@ -3653,637 +3961,241 @@ const DevSettings = () => {
                   />
                 </Section>
               </Space>
-            ),
-            forceRender: true,
-          },
-          {
-            key: "secure-storage",
-            label: "Secure Storage",
-            children: (
-              <Section title="Secure Storage Diagnostics">
-                <SecureStorageDiagnostics />
-              </Section>
-            ),
-            forceRender: true,
-          },
-          {
-            key: "audit-logs",
-            label: "Audit Logs",
-            children: (
-              <Section title="Audit Logs">
-                <Space wrap size={8} style={{ marginBottom: 8 }}>
-                  <Button
-                    onClick={() => fetchAuditLogs(1, auditPageSize)}
-                    loading={auditLoading}
-                  >
-                    Refresh
-                  </Button>
-                  <Button onClick={exportAuditCsv}>Export Current Page</Button>
-                  <Button onClick={() => exportAuditCsvServer()}>
-                    Export CSV (All/Filtered)
-                  </Button>
-                  <Select
-                    mode="multiple"
-                    allowClear
-                    placeholder="Actions"
-                    size="small"
-                    value={auditActionsFilter}
-                    onChange={(vals) => {
-                      setAuditActionsFilter(vals);
-                      fetchAuditLogs(1, auditPageSize, { actions: vals });
-                    }}
-                    options={auditActionOptions}
-                    style={{ minWidth: 240 }}
-                  />
-                  <Select
-                    size="small"
-                    value={auditUserFilter}
-                    onChange={(v) => {
-                      setAuditUserFilter(v);
-                      fetchAuditLogs(1, auditPageSize, { user: v });
-                    }}
-                    options={auditUserOptions}
-                    style={{ minWidth: 180 }}
-                  />
-                  <Input.Search
-                    allowClear
-                    size="small"
-                    placeholder="Search in details…"
-                    value={auditDetailsQuery}
-                    onChange={(e) => setAuditDetailsQuery(e.target.value)}
-                    onSearch={(val) => {
-                      setAuditDetailsQuery(val);
-                      fetchAuditLogs(1, auditPageSize, {
-                        detailsFragment: val,
-                      });
-                    }}
-                    style={{ width: 220 }}
-                  />
-                  <DatePicker.RangePicker
-                    size="small"
-                    value={auditDateRange}
-                    onChange={(vals) => {
-                      setAuditDateRange(vals);
-                      fetchAuditLogs(1, auditPageSize, { dateRange: vals });
-                    }}
-                    showTime={{ format: "HH:mm" }}
-                  />
-                  <Button
-                    size="small"
-                    onClick={() => {
-                      setAuditActionsFilter([]);
-                      setAuditUserFilter("all");
-                      setAuditDateRange(null);
-                      setAuditDetailsQuery("");
-                      fetchAuditLogs(1, auditPageSize, {
-                        actions: [],
-                        user: "all",
-                        dateRange: null,
-                        detailsFragment: "",
-                      });
-                    }}
-                  >
-                    Reset Filters
-                  </Button>
+      );
+      case "secure-storage": return (
+        <Section title="Secure Storage Diagnostics">
+          <SecureStorageDiagnostics />
+        </Section>
+      );
+      case "audit-logs": return (
+        <Section title="Audit Logs">
+          <Space wrap size={8} style={{ marginBottom: 8 }}>
+            <Button onClick={() => fetchAuditLogs(1, auditPageSize)} loading={auditLoading}>Refresh</Button>
+            <Button onClick={exportAuditCsv}>Export Current Page</Button>
+            <Button onClick={() => exportAuditCsvServer()}>Export CSV (All/Filtered)</Button>
+            <Select mode="multiple" allowClear placeholder="Actions" size="small" value={auditActionsFilter}
+              onChange={(vals) => { setAuditActionsFilter(vals); fetchAuditLogs(1, auditPageSize, { actions: vals }); }}
+              options={auditActionOptions} style={{ minWidth: 240 }} />
+            <Select size="small" value={auditUserFilter}
+              onChange={(v) => { setAuditUserFilter(v); fetchAuditLogs(1, auditPageSize, { user: v }); }}
+              options={auditUserOptions} style={{ minWidth: 180 }} />
+            <Input.Search allowClear size="small" placeholder="Search in details…" value={auditDetailsQuery}
+              onChange={(e) => setAuditDetailsQuery(e.target.value)}
+              onSearch={(val) => { setAuditDetailsQuery(val); fetchAuditLogs(1, auditPageSize, { detailsFragment: val }); }}
+              style={{ width: 220 }} />
+            <DatePicker.RangePicker size="small" value={auditDateRange}
+              onChange={(vals) => { setAuditDateRange(vals); fetchAuditLogs(1, auditPageSize, { dateRange: vals }); }}
+              showTime={{ format: "HH:mm" }} />
+            <Button size="small" onClick={() => {
+              setAuditActionsFilter([]); setAuditUserFilter("all"); setAuditDateRange(null); setAuditDetailsQuery("");
+              fetchAuditLogs(1, auditPageSize, { actions: [], user: "all", dateRange: null, detailsFragment: "" });
+            }}>Reset Filters</Button>
+          </Space>
+          <Table className="compact-table" size="small" dataSource={filteredAuditLogs} loading={auditLoading}
+            rowKey={(r) => r._id}
+            pagination={{
+              current: auditPage, pageSize: auditPageSize, total: auditTotal || filteredAuditLogs.length,
+              showSizeChanger: true, pageSizeOptions: [10, 20, 50, 100],
+              showTotal: (total, range) => `${range[0]}-${range[1]} of ${total}`,
+              onShowSizeChange: (p, s) => { if (s !== auditPageSize) { setAuditPageSize(s); fetchAuditLogs(1, s); } },
+              onChange: (p, s) => { if (s !== auditPageSize) { setAuditPageSize(s); fetchAuditLogs(1, s); } else { fetchAuditLogs(p, s); } },
+            }}
+            onChange={(_, __, sorter) => {
+              const sb = sorter?.field || sorter?.columnKey || "createdAt";
+              const so = sorter?.order || "descend";
+              setAuditSortBy(sb); setAuditSortOrder(so);
+              fetchAuditLogs(1, auditPageSize, { sortBy: sb, sortOrder: so });
+            }}
+            columns={[
+              { title: "Action", dataIndex: "action", key: "action", sorter: true, sortOrder: auditSortBy === "action" ? auditSortOrder : null, render: (v) => <Tag color={tagColorForAction(v)}>{v}</Tag> },
+              { title: "By", dataIndex: "performedByName", key: "performedByName", sorter: true, sortOrder: auditSortBy === "performedByName" ? auditSortOrder : null },
+              { title: "When", dataIndex: "createdAt", key: "createdAt", sorter: true, sortOrder: auditSortBy === "createdAt" ? auditSortOrder : null, render: (v) => v ? dayjs(v).format("MM/DD/YYYY HH:mm") : "" },
+              { title: "Details", dataIndex: "details", key: "details", render: (d) => (
+                <Space>
+                  <code style={{ fontSize: 11, maxWidth: 320 }}>{JSON.stringify(d).slice(0, 60)}{JSON.stringify(d).length > 60 ? "…" : ""}</code>
+                  <Button size="small" onClick={() => { setAuditDetailObj(d || {}); setAuditDetailOpen(true); }}>View</Button>
                 </Space>
-                <Table
-                  className="compact-table"
-                  size="small"
-                  dataSource={filteredAuditLogs}
-                  loading={auditLoading}
-                  rowKey={(r) => r._id}
-                  pagination={{
-                    current: auditPage,
-                    pageSize: auditPageSize,
-                    total: auditTotal || filteredAuditLogs.length,
-                    showSizeChanger: true,
-                    pageSizeOptions: [10, 20, 50, 100],
-                    showTotal: (total, range) =>
-                      `${range[0]}-${range[1]} of ${total}`,
-                    onShowSizeChange: (p, s) => {
-                      // Explicitly handle page size changes (some AntD versions only call this)
-                      if (s !== auditPageSize) {
-                        setAuditPageSize(s);
-                        fetchAuditLogs(1, s);
-                      }
-                    },
-                    onChange: (p, s) => {
-                      if (s !== auditPageSize) {
-                        setAuditPageSize(s);
-                        fetchAuditLogs(1, s);
-                      } else {
-                        fetchAuditLogs(p, s);
-                      }
-                    },
-                  }}
-                  onChange={(_, __, sorter) => {
-                    const sb =
-                      sorter?.field || sorter?.columnKey || "createdAt";
-                    const so = sorter?.order || "descend";
-                    setAuditSortBy(sb);
-                    setAuditSortOrder(so);
-                    fetchAuditLogs(1, auditPageSize, {
-                      sortBy: sb,
-                      sortOrder: so,
-                    });
-                  }}
-                  columns={[
-                    {
-                      title: "Action",
-                      dataIndex: "action",
-                      key: "action",
-                      sorter: true,
-                      sortOrder:
-                        auditSortBy === "action" ? auditSortOrder : null,
-                      render: (v) => (
-                        <Tag color={tagColorForAction(v)}>{v}</Tag>
-                      ),
-                    },
-                    {
-                      title: "By",
-                      dataIndex: "performedByName",
-                      key: "performedByName",
-                      sorter: true,
-                      sortOrder:
-                        auditSortBy === "performedByName"
-                          ? auditSortOrder
-                          : null,
-                    },
-                    {
-                      title: "When",
-                      dataIndex: "createdAt",
-                      key: "createdAt",
-                      sorter: true,
-                      sortOrder:
-                        auditSortBy === "createdAt" ? auditSortOrder : null,
-                      render: (v) =>
-                        v ? dayjs(v).format("MM/DD/YYYY HH:mm") : "",
-                    },
-                    {
-                      title: "Details",
-                      dataIndex: "details",
-                      key: "details",
-                      render: (d, row) => (
-                        <Space>
-                          <code style={{ fontSize: 11, maxWidth: 320 }}>
-                            {JSON.stringify(d).slice(0, 60)}
-                            {JSON.stringify(d).length > 60 ? "…" : ""}
-                          </code>
-                          <Button
-                            size="small"
-                            onClick={() => {
-                              setAuditDetailObj(d || {});
-                              setAuditDetailOpen(true);
-                            }}
-                          >
-                            View
-                          </Button>
-                        </Space>
-                      ),
-                    },
-                  ]}
-                />
-                <Modal
-                  open={auditDetailOpen}
-                  onCancel={() => setAuditDetailOpen(false)}
-                  footer={null}
-                  width={720}
-                  title="Audit Details"
-                >
-                  <pre
-                    style={{
-                      whiteSpace: "pre-wrap",
-                      wordBreak: "break-word",
-                      fontSize: 12,
-                      background: "var(--ant-color-bg-container)",
-                      border: "1px solid var(--ant-color-border)",
-                      borderRadius: 8,
-                      padding: 12,
-                    }}
-                  >
-                    {auditDetailObj
-                      ? JSON.stringify(auditDetailObj, null, 2)
-                      : ""}
-                  </pre>
-                </Modal>
-              </Section>
-            ),
-            forceRender: true,
-          },
-          {
-            key: "notifications",
-            label: "Notifications",
-            children: (
-              <Section title="Notifications">
-                <Space style={{ marginBottom: 12 }}>
-                  <Button onClick={fetchNotifications}>Refresh</Button>
+              )},
+            ]}
+          />
+          <Modal open={auditDetailOpen} onCancel={() => setAuditDetailOpen(false)} footer={null} width={720} title="Audit Details">
+            <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 12, background: "var(--ant-color-bg-container)", border: "1px solid var(--ant-color-border)", borderRadius: 8, padding: 12 }}>
+              {auditDetailObj ? JSON.stringify(auditDetailObj, null, 2) : ""}
+            </pre>
+          </Modal>
+        </Section>
+      );
+      case "notifications": return (
+        <Section title="Notifications">
+          <Space style={{ marginBottom: 12 }}><Button onClick={fetchNotifications}>Refresh</Button></Space>
+          <Table className="compact-table" size="small" dataSource={notifications} loading={notifLoading} rowKey={(r) => r._id}
+            pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: [5, 10, 20, 50] }}
+            columns={[
+              { title: "Title", dataIndex: "title", key: "title", render: (t, r) => t || r.title || "" },
+              { title: "Body", dataIndex: "body", key: "body", render: (b, r) => {
+                if (r._source === "dev") { if (r.dataVisible === false) return <Text type="secondary">[hidden]</Text>; }
+                const text = b || r.body || ""; return text.length > 100 ? text.slice(0, 100) + "..." : text;
+              }},
+              { title: "Visible", dataIndex: "dataVisible", key: "dataVisible", render: (v, r) => {
+                if (r._source === "dev") return <Switch checked={!!r.dataVisible} onChange={() => toggleDataVisibility(r)} disabled={!canSeeDev} />;
+                return <Switch checked={!r.hidden} onChange={() => toggleNotificationHidden(r)} disabled={!canSeeDev} />;
+              }},
+              { title: "Source", dataIndex: "_source", key: "_source", render: (s) => s || "dev" },
+              { title: "Created", dataIndex: "createdAt", key: "createdAt", render: (v) => v ? dayjs(v).format("MM/DD/YYYY HH:mm") : "" },
+              {},
+              { title: "Action", key: "action", render: (_, row) => (
+                <Space>
+                  {row._source === "dev" && (<>
+                    <Button size="small" onClick={() => toggleNotificationHidden(row)}>{row.hidden ? "Show" : "Hide"}</Button>
+                    <Button size="small" onClick={() => openEditModal(row)}>Edit</Button>
+                    <Button size="small" danger onClick={() => removeNotification(row)}>Delete</Button>
+                  </>)}
+                  {(row._source === "payslip" || row._source === "dtr") && (<>
+                    <Button size="small" onClick={() => markDataRequestRead(row)} disabled={row.read}>Mark read</Button>
+                    <Button size="small" danger onClick={async () => {
+                      try {
+                        if (row._source === "payslip") await axiosInstance.delete(`/payslip-requests/${row._id || row.id}`);
+                        else if (row._source === "dtr") await axiosInstance.delete(`/dtr-requests/${row._id || row.id}`);
+                        message.success("Deleted"); fetchNotifications();
+                      } catch { message.error("Failed to delete"); }
+                    }} disabled={!canSeeDev}>Delete</Button>
+                  </>)}
                 </Space>
-                <Table
-                  className="compact-table"
-                  size="small"
-                  dataSource={notifications}
-                  loading={notifLoading}
-                  rowKey={(r) => r._id}
-                  pagination={{
-                    pageSize: 10,
-                    showSizeChanger: true,
-                    pageSizeOptions: [5, 10, 20, 50],
-                  }}
-                  columns={[
-                    {
-                      title: "Title",
-                      dataIndex: "title",
-                      key: "title",
-                      render: (t, r) =>
-                        t || r.title || (r._source === "dev" ? r.title : ""),
-                    },
-                    {
-                      title: "Body",
-                      dataIndex: "body",
-                      key: "body",
-                      render: (b, r) => {
-                        // Respect per-notification data visibility for dev notifications
-                        if (r._source === "dev") {
-                          if (r.dataVisible === false)
-                            return <Text type="secondary">[hidden]</Text>;
-                          const text = b || r.body || "";
-                          return text.length > 100
-                            ? text.slice(0, 100) + "..."
-                            : text;
-                        }
-                        const text = b || r.body || "";
-                        return text && text.length > 100
-                          ? text.slice(0, 100) + "..."
-                          : text;
-                      },
-                    },
-                    {
-                      title: "Visible",
-                      dataIndex: "dataVisible",
-                      key: "dataVisible",
-                      render: (v, r) => {
-                        // For developer notifications, Visible maps to dataVisible
-                        if (r._source === "dev") {
-                          return (
-                            <Switch
-                              checked={!!r.dataVisible}
-                              onChange={() => toggleDataVisibility(r)}
-                              disabled={!canSeeDev}
-                            />
-                          );
-                        }
+              )},
+            ]}
+          />
+        </Section>
+      );
+      case "bug-reports": return (
+        <Section title="Bug Reports">
+          <Space style={{ marginBottom: 12 }} wrap>
+            <Select size="small" value={bugStatusFilter} style={{ width: 140 }}
+              onChange={(v) => { setBugStatusFilter(v); fetchBugReports(1, bugPageSize, { status: v }); }}
+              options={[{ label: "Open", value: "open" }, { label: "Resolved", value: "resolved" }, { label: "All", value: "all" }]} />
+            <Input.Search size="small" placeholder="Search title/description" allowClear value={bugQuery}
+              onChange={(e) => setBugQuery(e.target.value)}
+              onSearch={(val) => { setBugQuery(val); fetchBugReports(1, bugPageSize, { q: val }); }}
+              style={{ width: 220 }} />
+            <Button size="small" onClick={() => fetchBugReports(bugPage, bugPageSize)}>Refresh</Button>
+          </Space>
+          <Table className="compact-table" size="small" dataSource={bugReports} loading={bugLoading} rowKey={(r) => r._id}
+            pagination={{ current: bugPage, pageSize: bugPageSize, total: bugTotal, showSizeChanger: true, pageSizeOptions: [5, 10, 20, 50],
+              onChange: (p, s) => fetchBugReports(p, s) }}
+            columns={[
+              { title: "Title", dataIndex: "title", key: "title", render: (t) => t || "(no title)", width: 180 },
+              { title: "Status", dataIndex: "status", key: "status", render: (s) => <Tag color={s === "resolved" ? "green" : "volcano"}>{s || "open"}</Tag>, width: 90 },
+              { title: "Reporter", key: "reporter", render: (_, r) => r.reporterName || r.employeeId || "-", width: 140 },
+              { title: "Email", dataIndex: "reporterEmail", key: "reporterEmail", render: (e) => e || "-", width: 160 },
+              { title: "Page URL", dataIndex: "pageUrl", key: "pageUrl", render: (p) => (p && p.length > 40 ? p.slice(0, 40) + "…" : p || "-"), width: 200 },
+              { title: "Created", dataIndex: "createdAt", key: "createdAt", render: (v) => v ? dayjs(v).format("MM/DD/YYYY HH:mm") : "", width: 150 },
+              { title: "Action", key: "action", render: (_, row) => (
+                <Space>
+                  <Button size="small" onClick={() => { setBugDetailObj(row); setBugDetailOpen(true); }}>View</Button>
+                  <Button size="small" type={row.status === "resolved" ? "default" : "primary"} onClick={() => toggleBugResolved(row)}>{row.status === "resolved" ? "Reopen" : "Resolve"}</Button>
+                  <Button size="small" danger onClick={() => removeBugReport(row)}>Delete</Button>
+                </Space>
+              ), width: 200 },
+            ]}
+          />
+          <Modal open={bugDetailOpen} onCancel={() => setBugDetailOpen(false)} footer={null} width={640} title={bugDetailObj?.title || "Bug Report Detail"}>
+            {bugDetailObj && (
+              <Space direction="vertical" style={{ width: "100%" }} size="small">
+                <Text type="secondary">Status: {bugDetailObj.status || "open"} • Submitted {bugDetailObj.createdAt ? dayjs(bugDetailObj.createdAt).format("MM/DD/YYYY HH:mm") : ""}</Text>
+                {bugDetailObj.reporterName && <Text>Reporter: {bugDetailObj.reporterName}</Text>}
+                {bugDetailObj.reporterEmail && <Text>Email: {bugDetailObj.reporterEmail}</Text>}
+                {bugDetailObj.pageUrl && <Text>Page: {bugDetailObj.pageUrl}</Text>}
+                {bugDetailObj.description && (
+                  <div style={{ fontSize: 12, background: "var(--ant-color-bg-container)", border: "1px solid var(--ant-color-border)", borderRadius: 6, padding: 12, whiteSpace: "pre-wrap" }}>
+                    {bugDetailObj.description}
+                  </div>
+                )}
+                {bugDetailObj.hasScreenshot && <Alert type="info" message="Screenshot was included with this report." />}
+                <Space>
+                  <Button size="small" onClick={() => toggleBugResolved(bugDetailObj)}>{bugDetailObj.status === "resolved" ? "Reopen" : "Resolve"}</Button>
+                  <Button size="small" danger onClick={() => { removeBugReport(bugDetailObj); setBugDetailOpen(false); }}>Delete</Button>
+                </Space>
+              </Space>
+            )}
+          </Modal>
+        </Section>
+      );
+      default: return runtimeTab;
+    }
+  };
 
-                        // For other notification sources, Visible maps to !hidden
-                        const hidden = !!r.hidden;
-                        return (
-                          <Switch
-                            checked={!hidden}
-                            onChange={() => toggleNotificationHidden(r)}
-                            disabled={!canSeeDev}
-                          />
-                        );
-                      },
-                    },
-                    {
-                      title: "Source",
-                      dataIndex: "_source",
-                      key: "_source",
-                      render: (s) => s || "dev",
-                    },
-                    {
-                      title: "Created",
-                      dataIndex: "createdAt",
-                      key: "createdAt",
-                      render: (v) =>
-                        v ? dayjs(v).format("MM/DD/YYYY HH:mm") : "",
-                    },
-                    {
-                      // Hidden status duplicates the Visible switch; omit to avoid redundancy
-                    },
-                    {
-                      title: "Action",
-                      key: "action",
-                      render: (_, row) => (
-                        <Space>
-                          {row._source === "dev" && (
-                            <>
-                              <Button
-                                size="small"
-                                onClick={() => toggleNotificationHidden(row)}
-                              >
-                                {row.hidden ? "Show" : "Hide"}
-                              </Button>
-                              <Button
-                                size="small"
-                                onClick={() => openEditModal(row)}
-                              >
-                                Edit
-                              </Button>
-                              <Button
-                                size="small"
-                                danger
-                                onClick={() => removeNotification(row)}
-                              >
-                                Delete
-                              </Button>
-                            </>
-                          )}
-                          {(row._source === "payslip" ||
-                            row._source === "dtr") && (
-                            <>
-                              <Button
-                                size="small"
-                                onClick={() => markDataRequestRead(row)}
-                                disabled={row.read}
-                              >
-                                Mark read
-                              </Button>
-                              <Button
-                                size="small"
-                                danger
-                                onClick={async () => {
-                                  try {
-                                    if (row._source === "payslip") {
-                                      await axiosInstance.delete(
-                                        `/payslip-requests/${row._id || row.id}`
-                                      );
-                                    } else if (row._source === "dtr") {
-                                      await axiosInstance.delete(
-                                        `/dtr-requests/${row._id || row.id}`
-                                      );
-                                    }
-                                    message.success("Deleted");
-                                    fetchNotifications();
-                                  } catch (err) {
-                                    message.error("Failed to delete");
-                                  }
-                                }}
-                                disabled={!canSeeDev}
-                              >
-                                Delete
-                              </Button>
-                            </>
-                          )}
-                        </Space>
-                      ),
-                    },
-                  ]}
-                />
-              </Section>
-            ),
-            forceRender: true,
-          },
-          {
-            key: "bug-reports",
-            label: "Bug Reports",
-            children: (
-              <Section title="Bug Reports">
-                <Space style={{ marginBottom: 12 }} wrap>
-                  <Select
-                    size="small"
-                    value={bugStatusFilter}
-                    style={{ width: 140 }}
-                    onChange={(v) => {
-                      setBugStatusFilter(v);
-                      fetchBugReports(1, bugPageSize, { status: v });
-                    }}
-                    options={[
-                      { label: "Open", value: "open" },
-                      { label: "Resolved", value: "resolved" },
-                      { label: "All", value: "all" },
-                    ]}
-                  />
-                  <Input.Search
-                    size="small"
-                    placeholder="Search title/description"
-                    allowClear
-                    value={bugQuery}
-                    onChange={(e) => setBugQuery(e.target.value)}
-                    onSearch={(val) => {
-                      setBugQuery(val);
-                      fetchBugReports(1, bugPageSize, { q: val });
-                    }}
-                    style={{ width: 220 }}
-                  />
-                  <Button
-                    size="small"
-                    onClick={() => fetchBugReports(bugPage, bugPageSize)}
-                  >
-                    Refresh
-                  </Button>
-                </Space>
-                <Table
-                  className="compact-table"
-                  size="small"
-                  dataSource={bugReports}
-                  loading={bugLoading}
-                  rowKey={(r) => r._id}
-                  pagination={{
-                    current: bugPage,
-                    pageSize: bugPageSize,
-                    total: bugTotal,
-                    showSizeChanger: true,
-                    pageSizeOptions: [5, 10, 20, 50],
-                    onChange: (p, s) => fetchBugReports(p, s),
-                  }}
-                  columns={[
-                    {
-                      title: "Title",
-                      dataIndex: "title",
-                      key: "title",
-                      render: (t) => t || "(no title)",
-                      width: 180,
-                    },
-                    {
-                      title: "Status",
-                      dataIndex: "status",
-                      key: "status",
-                      render: (s) => (
-                        <Tag color={s === "resolved" ? "green" : "volcano"}>
-                          {s || "open"}
-                        </Tag>
-                      ),
-                      width: 90,
-                    },
-                    {
-                      title: "Reporter",
-                      key: "reporter",
-                      render: (_, r) => r.reporterName || r.employeeId || "-",
-                      width: 140,
-                    },
-                    {
-                      title: "Email",
-                      dataIndex: "reporterEmail",
-                      key: "reporterEmail",
-                      render: (e) => e || "-",
-                      width: 160,
-                    },
-                    {
-                      title: "Page URL",
-                      dataIndex: "pageUrl",
-                      key: "pageUrl",
-                      render: (p) => (p && p.length > 40 ? p.slice(0, 40) + "…" : p || "-"),
-                      width: 200,
-                    },
-                    {
-                      title: "Created",
-                      dataIndex: "createdAt",
-                      key: "createdAt",
-                      render: (v) => (v ? dayjs(v).format("MM/DD/YYYY HH:mm") : ""),
-                      width: 150,
-                    },
-                    {
-                      title: "Action",
-                      key: "action",
-                      render: (_, row) => (
-                        <Space>
-                          <Button
-                            size="small"
-                            onClick={() => {
-                              setBugDetailObj(row);
-                              setBugDetailOpen(true);
-                            }}
-                          >
-                            View
-                          </Button>
-                          <Button
-                            size="small"
-                            type={row.status === "resolved" ? "default" : "primary"}
-                            onClick={() => toggleBugResolved(row)}
-                          >
-                            {row.status === "resolved" ? "Reopen" : "Resolve"}
-                          </Button>
-                          <Button
-                            size="small"
-                            danger
-                            onClick={() => removeBugReport(row)}
-                          >
-                            Delete
-                          </Button>
-                        </Space>
-                      ),
-                      width: 200,
-                    },
-                  ]}
-                />
-                <Modal
-                  open={bugDetailOpen}
-                  onCancel={() => setBugDetailOpen(false)}
-                  footer={null}
-                  width={640}
-                  title={bugDetailObj?.title || "Bug Report Detail"}
-                >
-                  {bugDetailObj && (
-                    <Space direction="vertical" style={{ width: "100%" }} size="small">
-                      <Text type="secondary">
-                        Status: {bugDetailObj.status || "open"} • Submitted {bugDetailObj.createdAt ? dayjs(bugDetailObj.createdAt).format("MM/DD/YYYY HH:mm") : ""}
-                      </Text>
-                      {bugDetailObj.reporterName && (
-                        <Text>Reporter: {bugDetailObj.reporterName}</Text>
-                      )}
-                      {bugDetailObj.reporterEmail && (
-                        <Text>Email: {bugDetailObj.reporterEmail}</Text>
-                      )}
-                      {bugDetailObj.pageUrl && (
-                        <Text>Page: {bugDetailObj.pageUrl}</Text>
-                      )}
-                      {bugDetailObj.description && (
-                        <div
-                          style={{
-                            fontSize: 12,
-                            background: "var(--ant-color-bg-container)",
-                            border: "1px solid var(--ant-color-border)",
-                            borderRadius: 6,
-                            padding: 12,
-                            whiteSpace: "pre-wrap",
-                          }}
-                        >
-                          {bugDetailObj.description}
-                        </div>
-                      )}
-                      {bugDetailObj.hasScreenshot && (
-                        <Alert
-                          type="info"
-                          message="Screenshot was included with this report."
-                        />
-                      )}
-                      <Space>
-                        <Button
-                          size="small"
-                          onClick={() => toggleBugResolved(bugDetailObj)}
-                        >
-                          {bugDetailObj.status === "resolved" ? "Reopen" : "Resolve"}
-                        </Button>
-                        <Button
-                          size="small"
-                          danger
-                          onClick={() => {
-                            removeBugReport(bugDetailObj);
-                            setBugDetailOpen(false);
-                          }}
-                        >
-                          Delete
-                        </Button>
-                      </Space>
-                    </Space>
-                  )}
-                </Modal>
-              </Section>
-            ),
-            forceRender: true,
-          },
-          
-        ]}
-      />
-      <Modal
-        title="Edit Notification"
-        open={editModalVisible}
-        onCancel={closeEditModal}
-        onOk={handleUpdateNotification}
-        okText="Update"
-      >
+  return (
+    <div style={{ width: "100%" }}>
+      {!canSeeDev && (
+        <Alert type="warning" message="Insufficient permissions" description="You don't have access to Developer Settings." showIcon style={{ marginBottom: 16 }} />
+      )}
+      {error && (
+        <Alert type="error" message="Failed to load runtime info" description={error} showIcon style={{ marginBottom: 16 }} />
+      )}
+
+      <Layout className="dev-settings-layout" style={{ minHeight: 600, background: "transparent" }}>
+        <Sider
+          width={210}
+          theme="light"
+          collapsed={siderCollapsed}
+          onCollapse={setSiderCollapsed}
+          collapsible
+          trigger={null}
+          style={{
+            borderRight: "1px solid var(--app-border-color, #f0f0f0)",
+            background: "transparent",
+            position: "sticky",
+            top: 0,
+            alignSelf: "flex-start",
+            maxHeight: "100vh",
+            overflowY: "auto",
+          }}
+          collapsedWidth={60}
+        >
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 12px 4px" }}>
+            {!siderCollapsed && (
+              <Title level={5} style={{ margin: 0, fontSize: 14, whiteSpace: "nowrap" }}>Developer Settings</Title>
+            )}
+            <Button
+              type="text"
+              size="small"
+              icon={siderCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+              onClick={() => setSiderCollapsed(!siderCollapsed)}
+            />
+          </div>
+          <Menu
+            mode="inline"
+            selectedKeys={[activeTab]}
+            onClick={({ key }) => setActiveTab(key)}
+            items={devSiderItems}
+            style={{ borderRight: "none", background: "transparent", fontSize: 13, padding: 0 }}
+          />
+        </Sider>
+        <Content style={{ padding: "0 0 0 4px", minHeight: 500 }}>
+          {renderActivePanel()}
+        </Content>
+      </Layout>
+
+      {/* ── Shared Modals ─────────────────────────────────────────────── */}
+      <Modal title="Edit Notification" open={editModalVisible} onCancel={closeEditModal} onOk={handleUpdateNotification} okText="Update">
         <Form form={editForm} layout="vertical">
-          <Form.Item
-            name="title"
-            label="Title"
-            rules={[{ required: true, message: "Title is required" }]}
-          >
+          <Form.Item name="title" label="Title" rules={[{ required: true, message: "Title is required" }]}>
             <Input />
           </Form.Item>
-          <Form.Item
-            name="body"
-            label="Body"
-            rules={[{ required: true, message: "Body is required" }]}
-          >
+          <Form.Item name="body" label="Body" rules={[{ required: true, message: "Body is required" }]}>
             <Input.TextArea rows={4} />
           </Form.Item>
         </Form>
       </Modal>
-      <Modal
-        title="UAT Deployment Notes"
-        open={deploymentModalOpen}
-        onCancel={() => setDeploymentModalOpen(false)}
-        footer={
-          <Button onClick={() => setDeploymentModalOpen(false)}>Close</Button>
-        }
-        width={800}
-        styles={{ body: { maxHeight: 600, overflowY: "auto" } }}
-      >
+      <Modal title="UAT Deployment Notes" open={deploymentModalOpen} onCancel={() => setDeploymentModalOpen(false)}
+        footer={<Button onClick={() => setDeploymentModalOpen(false)}>Close</Button>}
+        width={800} styles={{ body: { maxHeight: 600, overflowY: "auto" } }}>
         {loadingDeployment ? (
           <Card loading size="small" />
         ) : (
-          <div
-            style={{
-              fontFamily: "monospace",
-              fontSize: 12,
-              whiteSpace: "pre-wrap",
-            }}
-          >
-            {deploymentNotes}
-          </div>
+          <div style={{ fontFamily: "monospace", fontSize: 12, whiteSpace: "pre-wrap" }}>{deploymentNotes}</div>
         )}
       </Modal>
-    </Space>
+    </div>
   );
 };
 

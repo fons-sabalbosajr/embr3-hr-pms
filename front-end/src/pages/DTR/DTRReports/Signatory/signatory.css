@@ -17,7 +17,8 @@
   margin-right: 8px;
 }
 
-.ant-table-thead > tr > th {
+/* Scope bold header to signatory page only */
+.signatory-table .ant-table-thead > tr > th {
     font-weight: bold !important;
 }
 
@@ -29,4 +30,18 @@
 .signatory-tag {
     width: 100%;
     text-align: center;
+}
+
+/* ─── Responsive ─── */
+@media (max-width: 767px) {
+  .action-buttons { display: flex; flex-wrap: wrap; gap: 4px; }
+  .action-buttons .ant-btn { margin-right: 0; font-size: 11px; }
+  .employee-name { font-size: 0.85em; }
+  .employee-meta { font-size: 0.75em; }
+  .designation-tag { font-size: 10px; }
+  .signatory-tag { font-size: 10px; }
+}
+@media (min-width: 768px) and (max-width: 1080px) {
+  .employee-name { font-size: 0.9em; }
+  .employee-meta { font-size: 0.8em; }
 }

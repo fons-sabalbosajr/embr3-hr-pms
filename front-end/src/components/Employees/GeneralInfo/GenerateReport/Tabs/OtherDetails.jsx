@@ -22,6 +22,7 @@ import axiosInstance from "../../../../../api/axiosInstance";
 
 // Import PDF generation utilities
 import { generateDTRPdf } from "../../../../../../utils/generateDTRpdf.js";
+import { resolveTimePunches } from "../../../../../../utils/resolveTimePunches.js";
 import { openPayslipInNewTab } from "../../../../../../utils/generatePaySlipContract.js";
 import { openPayslipInNewTabRegular } from "../../../../../../utils/generatePaySlipRegular.js";
 
@@ -41,8 +42,8 @@ const docColors = {
 /**
  * Transforms a flat array of DTR logs into the nested object structure
  * required by the generateDTRPdf utility.
- * Maps raw states (e.g., 'C/In', 'Out', 'Out Back', 'C/Out') to
- * the expected keys: 'Time In', 'Break Out', 'Break In', 'Time Out'.
+ * Uses chronological position-based detection to assign Time In, Break Out,
+ * Break In, Time Out — the biometric State field is not trusted.
  * @param {Array} logs - The flat array of log objects.
  * @param {Object} employee - The employee object.
  * @returns {Object} - The transformed logs.
@@ -52,25 +53,24 @@ const transformLogsForDTR = (logs, employee) => {
   const empId = employee.empId;
   dtrLogs[empId] = {};
 
-  const STATE_MAP = {
-    "C/In": "Time In",
-    "Out": "Break Out",
-    "Out Back": "Break In",
-    "C/Out": "Time Out",
-  };
-
+  // Group logs by date first
+  const byDate = {};
   logs.forEach((log) => {
     const dateKey = dayjs(log.time).format("YYYY-MM-DD");
-    if (!dtrLogs[empId][dateKey]) {
-      dtrLogs[empId][dateKey] = {};
-    }
-    const mappedKey = STATE_MAP[log.state];
-    if (!mappedKey) return; // ignore unrecognized states
-    // Only set the first occurrence per type for the day; include AM/PM
-    if (!dtrLogs[empId][dateKey][mappedKey]) {
-      dtrLogs[empId][dateKey][mappedKey] = dayjs(log.time).format("h:mm A");
-    }
+    if (!byDate[dateKey]) byDate[dateKey] = [];
+    byDate[dateKey].push(log);
   });
+
+  // Resolve each day using chronological position
+  Object.entries(byDate).forEach(([dateKey, dayLogs]) => {
+    const resolved = resolveTimePunches(dayLogs, { format: "h:mm A" });
+    dtrLogs[empId][dateKey] = {};
+    if (resolved.timeIn) dtrLogs[empId][dateKey]["Time In"] = resolved.timeIn;
+    if (resolved.breakOut) dtrLogs[empId][dateKey]["Break Out"] = resolved.breakOut;
+    if (resolved.breakIn) dtrLogs[empId][dateKey]["Break In"] = resolved.breakIn;
+    if (resolved.timeOut) dtrLogs[empId][dateKey]["Time Out"] = resolved.timeOut;
+  });
+
   return dtrLogs;
 };
 

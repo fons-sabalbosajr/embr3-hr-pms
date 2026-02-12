@@ -1,6 +1,14 @@
 .upload-employee-container {
   padding: 24px;
   margin: 0 auto;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+/* ─── Responsive ─── */
+@media (max-width: 767px) {
+  .upload-employee-container { padding: 10px; }
+  .upload-employee-container .ant-table { font-size: 11px; }
 }
 
 .upload-dragger {

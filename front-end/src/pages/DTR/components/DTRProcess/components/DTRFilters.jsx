@@ -1,6 +1,7 @@
 import React from "react";
-import { Select, Input, Space } from "antd";
+import { Select, Input, Space, Grid } from "antd";
 const { Search } = Input;
+const { useBreakpoint } = Grid;
 
 const DTRFilters = ({
   selectedDtrRecord,
@@ -13,13 +14,18 @@ const DTRFilters = ({
   empTypeOptions,
   sectionOrUnitFilter,
   setSectionOrUnitFilter,
-}) => (
-  <Space style={{ marginBottom: 16 }} wrap>
+  dtrLogsLoading,
+}) => {
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
+  return (
+  <Space wrap>
     <Select
       placeholder="Select a biometrics cut off"
-      style={{ width: 180 }}
+      style={{ width: isMobile ? '100%' : 180 }}
       value={selectedDtrRecord}
       onChange={setSelectedDtrRecord}
+      loading={dtrLogsLoading}
       options={dtrRecords.map((rec) => ({
         label: rec.DTR_Record_Name,
         value: rec.DTR_Record_Name,
@@ -31,14 +37,14 @@ const DTRFilters = ({
       allowClear
       onSearch={setSearchText}
       onChange={(e) => setSearchText(e.target.value)}
-      style={{ width: 200 }}
+      style={{ width: isMobile ? '100%' : 200 }}
       value={searchText}
     />
     <Select
       placeholder="Filter by Employee Type"
       allowClear
       options={empTypeOptions}
-      style={{ width: 150 }}
+      style={{ width: isMobile ? '100%' : 150 }}
       onChange={(value) => setEmpTypeFilter(value || "")}
       value={empTypeFilter}
     />
@@ -47,10 +53,11 @@ const DTRFilters = ({
       allowClear
       onSearch={setSectionOrUnitFilter}
       onChange={(e) => setSectionOrUnitFilter(e.target.value)}
-      style={{ width: 200 }}
+      style={{ width: isMobile ? '100%' : 200 }}
       value={sectionOrUnitFilter}
     />
   </Space>
-);
+  );
+};
 
 export default DTRFilters;

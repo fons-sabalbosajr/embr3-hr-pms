@@ -14,6 +14,8 @@ import {
   Table,
   Alert,
   Skeleton,
+  Collapse,
+  Avatar,
 } from "antd";
 
 import {
@@ -53,13 +55,29 @@ import DTRReports from "../DTR/DTRReports/DTRReports";
 import Holidays from "../Holidays/Holidays";
 import RecordConfigSettings from "../../components/Settings/RecordConfigSettings/RecordConfigSettings";
 import DeveloperSettings from "../../components/Settings/DevSettings/DevSettings";
+import AnnouncementManager from "../../components/Settings/AnnouncementManager/AnnouncementManager";
+import Messaging from "../Messaging/Messaging";
+import AnnouncementPopup from "../../components/AnnouncementPopup/AnnouncementPopup";
 import ProtectedRoute from "../../components/ProtectedRoute";
 import ProfileModal from "./components/ProfileModal";
 import FeatureModal from "./components/FeatureModal";
 import { NotificationsContext } from "../../context/NotificationsContext";
 import socket from "../../../utils/socket";
 import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc";
+import timezone from "dayjs/plugin/timezone";
+import isSameOrAfter from "dayjs/plugin/isSameOrAfter";
+import isSameOrBefore from "dayjs/plugin/isSameOrBefore";
+import relativeTime from "dayjs/plugin/relativeTime";
 import UserAvatar from "../../components/common/UserAvatar";
+import { fetchPhilippineHolidays } from "../../api/holidayPH";
+import { resolveTimePunches } from "../../../utils/resolveTimePunches";
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
+dayjs.extend(isSameOrAfter);
+dayjs.extend(isSameOrBefore);
+dayjs.extend(relativeTime);
 
 import "./hompage.css";
 import { FloatButton, Form, Input, Upload } from "antd";
@@ -79,6 +97,7 @@ const HomePage = () => {
     useContext(NotificationsContext);
   const [devNotifications, setDevNotifications] = useState([]);
   const [devNotificationsLoading, setDevNotificationsLoading] = useState(true);
+  const [notifPopoverOpen, setNotifPopoverOpen] = useState(false);
   const [selectedNotification, setSelectedNotification] = useState(null);
   const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
   const [notificationsLoading, setNotificationsLoading] = useState(true);
@@ -96,6 +115,61 @@ const HomePage = () => {
   const [bugSubmitting, setBugSubmitting] = useState(false);
   const [bugScreenshot, setBugScreenshot] = useState(null);
   const [bugForm] = Form.useForm();
+  const [unreadMsgCount, setUnreadMsgCount] = useState(0);
+  const [recentConversations, setRecentConversations] = useState([]);
+  const [loadingRecentConvs, setLoadingRecentConvs] = useState(false);
+  const [msgPopoverOpen, setMsgPopoverOpen] = useState(false);
+
+  // Per-feature maintenance status
+  const [featureMaintenance, setFeatureMaintenance] = useState({});
+
+  // Fetch unread message count & listen for new messages
+  useEffect(() => {
+    const fetchUnread = async () => {
+      try {
+        const { data } = await axiosInstance.get("/messages/unread-count");
+        setUnreadMsgCount(data.count || 0);
+      } catch {}
+    };
+    fetchUnread();
+
+    const handleNewMsg = () => {
+      fetchUnread();
+      // Refresh recent conversations if popover is open
+      if (msgPopoverOpen) fetchRecentConversations();
+    };
+    socket.on("new-message", handleNewMsg);
+    return () => socket.off("new-message", handleNewMsg);
+  }, [msgPopoverOpen]);
+
+  // Fetch per-feature maintenance status
+  useEffect(() => {
+    const fetchFeatureMaintenance = async () => {
+      try {
+        const { data } = await axiosInstance.get("/settings/feature-maintenance");
+        if (data.isDeveloper) {
+          setFeatureMaintenance({}); // Developers see everything
+        } else {
+          setFeatureMaintenance(data.features || {});
+        }
+      } catch {}
+    };
+    fetchFeatureMaintenance();
+    // Re-check every 2 minutes
+    const interval = setInterval(fetchFeatureMaintenance, 120000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Fetch recent conversations for message popup
+  const fetchRecentConversations = async () => {
+    setLoadingRecentConvs(true);
+    try {
+      const { data } = await axiosInstance.get("/messages/conversations");
+      setRecentConversations((data || []).slice(0, 5));
+    } catch {} finally {
+      setLoadingRecentConvs(false);
+    }
+  };
   
   const beforeUploadScreenshot = (file) => {
     const isImage = file.type.startsWith("image/");
@@ -371,16 +445,16 @@ const HomePage = () => {
           } - ${d.endDate ? new Date(d.endDate).toLocaleDateString() : ""}`,
         }));
 
-        // Merge with any cached notifications avoiding duplicates by _id
-        setNotifications((prev) => {
+        // Replace notifications with fresh server data (source of truth)
+        setNotifications(() => {
           const seen = new Set();
-          const combined = [...payslip, ...dtr, ...prev];
+          const combined = [...payslip, ...dtr];
           const deduped = [];
           for (const n of combined) {
             const key = n._id || n.id;
             if (!seen.has(key)) {
               seen.add(key);
-              deduped.push({ ...n, cached: false });
+              deduped.push(n);
             }
           }
           return deduped;
@@ -492,6 +566,43 @@ const HomePage = () => {
         ],
       },
       {
+        key: "messaging",
+        icon: <MessageOutlined />,
+        label: (() => {
+          return (
+            <span style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              Messaging
+              {unreadMsgCount > 0 && (
+                <Badge
+                  count={unreadMsgCount}
+                  size="small"
+                  overflowCount={99}
+                  style={{ marginLeft: 8 }}
+                />
+              )}
+            </span>
+          );
+        })(),
+        permissions: ["canViewMessages"],
+        children: [
+          {
+            key: "/messaging/inbox",
+            label: "Inbox",
+            permissions: ["canViewMessages"],
+          },
+          {
+            key: "/messaging/sent",
+            label: "Sent",
+            permissions: ["canViewMessages"],
+          },
+          {
+            key: "/messaging/drafts",
+            label: "Drafts",
+            permissions: ["canViewMessages"],
+          },
+        ],
+      },
+      {
         key: "settings",
         icon: <SettingOutlined />,
         label: "Administration",
@@ -509,7 +620,7 @@ const HomePage = () => {
           },
           {
             key: "/settings/access",
-            label: "User Access",
+            label: "User Accounts",
             permissions: ["canManageUsers"],
           },
           // {
@@ -521,6 +632,11 @@ const HomePage = () => {
             key: "/settings/backup",
             label: "Backup",
             permissions: ["canPerformBackup"],
+          },
+          {
+            key: "/settings/announcements",
+            label: "Announcements",
+            permissions: ["canManageNotifications"],
           },
           {
             key: "/settings/developer-settings",
@@ -542,13 +658,32 @@ const HomePage = () => {
           (Array.isArray(demoAllowed) && demoAllowed.length > 0
             ? (item.permissions || []).some((p) => demoAllowed.includes(p))
             : true);
+
+        // Per-feature maintenance: check if this feature is hidden
+        const featureKey = item.featureKey || item.key;
+        const fm = featureMaintenance[featureKey];
+        if (fm && fm.enabled && fm.hidden) return acc; // Hidden entirely
+
         if (permitted && demoPermitted) {
+          // If feature is under maintenance (but not hidden), mark it
+          const isUnderMaintenance = fm && fm.enabled && !fm.hidden;
+          const itemWithMaint = isUnderMaintenance
+            ? { ...item, disabled: true, label: (
+                <span style={{ display: "flex", alignItems: "center", gap: 6, opacity: 0.6 }}>
+                  {typeof item.label === "string" ? item.label : item.label}
+                  <Tag color="orange" style={{ fontSize: 10, lineHeight: "16px", padding: "0 4px", marginLeft: 4 }}>
+                    Maintenance
+                  </Tag>
+                </span>
+              )}
+            : item;
+
           if (item.children) {
             const filteredChildren = filterItems(item.children);
             if (filteredChildren.length)
-              acc.push({ ...item, children: filteredChildren });
+              acc.push({ ...itemWithMaint, children: filteredChildren });
           } else {
-            acc.push(item);
+            acc.push(itemWithMaint);
           }
         }
         return acc;
@@ -657,15 +792,23 @@ const HomePage = () => {
     // Determine range: DTRRequest uses explicit start/end; PayslipRequest uses period month (YYYY-MM)
     let rangeStart = null;
     let rangeEnd = null;
-    if (n.type === 'DTRRequest' && n.startDate && n.endDate) {
-      rangeStart = dayjs(n.startDate).startOf('day');
-      rangeEnd = dayjs(n.endDate).startOf('day');
+    if (n.type === 'DTRRequest') {
+      // Use the request's Start Date / End Date as the definitive coverage range
+      if (n.startDate && n.endDate) {
+        rangeStart = dayjs(n.startDate).tz('Asia/Manila').startOf('day');
+        rangeEnd = dayjs(n.endDate).tz('Asia/Manila').startOf('day');
+      } else if (n.startDate) {
+        // Single date — treat as full-month request
+        const d = dayjs(n.startDate).tz('Asia/Manila');
+        rangeStart = d.startOf('month');
+        rangeEnd = d.endOf('month').startOf('day');
+      }
     } else if ((n.type === 'PayslipRequest' || n.period) && n.period) {
       // Expect n.period like YYYY-MM; fallback skip if malformed
-      const parsed = dayjs(n.period + '-01');
+      const parsed = dayjs.tz(n.period + '-01', 'Asia/Manila');
       if (parsed.isValid()) {
         rangeStart = parsed.startOf('month');
-        rangeEnd = parsed.endOf('month');
+        rangeEnd = parsed.endOf('month').startOf('day');
       }
     }
     if (!rangeStart || !rangeEnd) {
@@ -678,17 +821,69 @@ const HomePage = () => {
         setDtrPreviewLoading(true);
         setDtrPreviewError(null);
         setDtrPreviewRows([]);
+
+        // Fetch ALL logs for the employee within the date range (limit=500 to avoid default pagination of 20)
         const { data } = await axiosInstance.get('/dtrlogs/merged', {
           params: {
             startDate: rangeStart.format('YYYY-MM-DD'),
             endDate: rangeEnd.format('YYYY-MM-DD'),
             empIds: n.employeeId,
+            limit: 500,
           },
         });
         if (cancelled) return;
         const logs = data?.data || [];
+
+        // Fetch holidays, local holidays, and suspensions in parallel
+        const startStr = rangeStart.format('YYYY-MM-DD');
+        const endStr = rangeEnd.format('YYYY-MM-DD');
+        let allHolidays = [];
+        try {
+          const yearStart = rangeStart.year();
+          const yearEnd = rangeEnd.year();
+          const [phRes, lhRes, sRes] = await Promise.all([
+            fetchPhilippineHolidays(yearStart).catch(() => []),
+            axiosInstance.get('/local-holidays/public', { params: { start: startStr, end: endStr } }).catch(() => ({ data: { data: [] } })),
+            axiosInstance.get('/suspensions/public', { params: { start: startStr, end: endStr } }).catch(() => ({ data: { data: [] } })),
+          ]);
+          let phHolidays = phRes || [];
+          if (yearEnd !== yearStart) {
+            const ph2 = await fetchPhilippineHolidays(yearEnd).catch(() => []);
+            phHolidays = [...phHolidays, ...(ph2 || [])];
+          }
+          const localHolidays = (lhRes?.data?.data || []).map(h => ({
+            date: dayjs(h.date).format('YYYY-MM-DD'),
+            endDate: h.endDate ? dayjs(h.endDate).format('YYYY-MM-DD') : null,
+            name: h.name,
+            type: 'Local Holiday',
+          }));
+          const suspensions = (sRes?.data?.data || []).map(s => ({
+            date: dayjs(s.date).format('YYYY-MM-DD'),
+            endDate: s.endDate ? dayjs(s.endDate).format('YYYY-MM-DD') : null,
+            name: s.title || s.name,
+            type: 'Suspension',
+          }));
+          allHolidays = [
+            ...phHolidays.map(h => ({ date: h.date, name: h.localName, type: h.type })),
+            ...localHolidays,
+            ...suspensions,
+          ];
+        } catch (_) {}
+
+        const getHolidayName = (dateKey) => {
+          const found = allHolidays.find(h => {
+            const s = h.date || null;
+            const e = h.endDate || null;
+            if (s && e) return dayjs(dateKey).isSameOrAfter(s, 'day') && dayjs(dateKey).isSameOrBefore(e, 'day');
+            return s === dateKey;
+          });
+          if (!found) return '';
+          return found.type === 'Suspension' ? `Suspension: ${found.name}` : found.name || 'Holiday';
+        };
+
+        // Group logs by date using Asia/Manila timezone
         const byDate = logs.reduce((acc, log) => {
-          const dateKey = dayjs(log.time).format('YYYY-MM-DD');
+          const dateKey = dayjs(log.time).tz('Asia/Manila').format('YYYY-MM-DD');
           if (!acc[dateKey]) acc[dateKey] = [];
           acc[dateKey].push(log);
           return acc;
@@ -697,17 +892,20 @@ const HomePage = () => {
         const rows = Array.from({ length: totalDays }).map((_, idx) => {
           const date = rangeStart.add(idx, 'day');
           const key = date.format('YYYY-MM-DD');
-          const list = (byDate[key] || []).map(l => ({ time: dayjs(l.time), state: l.state }));
-          const timeInCandidates = list.filter(l => l.state === 'C/In' && l.time.hour() < 12).sort((a,b)=>a.time-b.time);
-          const timeOutCandidates = list.filter(l => l.state === 'C/Out' && l.time.hour() >= 12).sort((a,b)=>a.time-b.time);
-          const breakOutCandidates = list.filter(l => l.state === 'Out' && l.time.hour() >= 12 && l.time.hour() < 13).sort((a,b)=>a.time-b.time);
-          const breakInCandidates = list.filter(l => l.state === 'Out Back' && l.time.hour() >= 12 && l.time.hour() < 14).sort((a,b)=>a.time-b.time);
-          let timeIn = timeInCandidates[0]?.time.format('h:mm') || '';
-          let timeOut = timeOutCandidates.length ? timeOutCandidates[timeOutCandidates.length-1].time.format('h:mm') : '';
-            let breakOut = breakOutCandidates[0]?.time.format('h:mm') || '';
-          let breakIn = breakInCandidates[0]?.time.format('h:mm') || '';
-          if (timeIn && timeOut && !breakOut && !breakIn) { breakOut = '12:00'; breakIn = '1:00'; }
-          return { key, date: date.format('MM/DD/YYYY'), timeIn: timeIn || '---', breakOut: breakOut || '---', breakIn: breakIn || '---', timeOut: timeOut || '---' };
+          const dayLogs = (byDate[key] || []);
+
+          // Use shared chronological position-based detection
+          const resolved = resolveTimePunches(dayLogs, { format: 'h:mm', defaultBreak: true });
+          const { timeIn, breakOut, breakIn, timeOut } = resolved;
+
+          const dayOfWeek = date.day();
+          let status = '';
+          const holidayName = getHolidayName(key);
+          if (holidayName) status = holidayName;
+          else if (dayOfWeek === 0) status = 'Sunday';
+          else if (dayOfWeek === 6) status = 'Saturday';
+          const hasLogs = Boolean(timeIn || timeOut || breakOut || breakIn);
+          return { key, date: date.format('MM/DD/YYYY'), timeIn: timeIn || '---', breakOut: breakOut || '---', breakIn: breakIn || '---', timeOut: timeOut || '---', status, hasLogs };
         });
         setDtrPreviewRows(rows);
       } catch (err) {
@@ -834,7 +1032,7 @@ const HomePage = () => {
               key={n.id}
               style={{
                 padding: "8px 12px",
-                borderBottom: "1px solid #f0f0f0",
+                borderBottom: "1px solid var(--app-border-color, #f0f0f0)",
                 display: "flex",
                 justifyContent: "space-between",
                 alignItems: "center",
@@ -1103,85 +1301,119 @@ const HomePage = () => {
               </Descriptions.Item>
             )}
           </Descriptions>
-          {/* Show grid only when we have a known range (DTR or Payslip request) */}
-          {!dtrPreviewLoading &&
-            !dtrPreviewError &&
-            (selectedNotification?.type === 'DTRRequest' || selectedNotification?.type === 'PayslipRequest' || selectedNotification?.period) &&
-            dtrPreviewRows.length > 0 && (
-              <Table
-                size="small"
-                className="dtr-table-compact compact-table"
-                dataSource={dtrPreviewRows}
-                pagination={false}
-                rowKey={(r) => r.key}
-                bordered
-                columns={[
-                  {
-                    title: "Date",
-                    dataIndex: "date",
-                    key: "date",
-                    width: 120,
-                    onCell: () => ({ className: "date-cell" }),
-                  },
-                  {
-                    title: "Time In",
-                    dataIndex: "timeIn",
-                    key: "timeIn",
-                    width: 100,
-                    onCell: () => ({ className: "time-cell" }),
-                  },
-                  {
-                    title: "Break Out",
-                    dataIndex: "breakOut",
-                    key: "breakOut",
-                    width: 100,
-                    onCell: () => ({ className: "time-cell" }),
-                  },
-                  {
-                    title: "Break In",
-                    dataIndex: "breakIn",
-                    key: "breakIn",
-                    width: 100,
-                    onCell: () => ({ className: "time-cell" }),
-                  },
-                  {
-                    title: "Time Out",
-                    dataIndex: "timeOut",
-                    key: "timeOut",
-                    width: 100,
-                    onCell: () => ({ className: "time-cell" }),
-                  },
-                ]}
-              />
-            )}
-          {!dtrPreviewLoading &&
-            !dtrPreviewError &&
-            (selectedNotification?.type === 'DTRRequest' || selectedNotification?.type === 'PayslipRequest' || selectedNotification?.period) &&
-            dtrPreviewRows.length > 0 &&
-            dtrPreviewRows.every(
-              (r) =>
-                r.timeIn === "---" &&
-                r.breakOut === "---" &&
-                r.breakIn === "---" &&
-                r.timeOut === "---"
-            ) && (
-              <Alert
-                style={{ marginTop: 8 }}
-                type="warning"
-                showIcon
-                message="No biometrics encoded yet for the selected period."
-              />
-            )}
-          {!dtrPreviewLoading &&
-            !dtrPreviewError &&
-            (selectedNotification?.type === 'DTRRequest' || selectedNotification?.type === 'PayslipRequest' || selectedNotification?.period) &&
-            dtrPreviewRows.length === 0 && (
-              <Alert
-                type="warning"
-                showIcon
-                message="No biometrics encoded yet for the selected period."
-              />
-            )}
+          {/* Collapsible Quick DTR Summary */}
+          {(selectedNotification?.type === 'DTRRequest' || selectedNotification?.type === 'PayslipRequest' || selectedNotification?.period) && (
+            <Collapse
+              size="small"
+              style={{ marginTop: 12 }}
+              items={[{
+                key: 'dtr-summary',
+                label: `Quick DTR Summary${dtrPreviewRows.length ? ` (${dtrPreviewRows.filter(r => r.hasLogs).length} days with logs)` : ''}`,
+                children: (
+                  <>
+                    {dtrPreviewLoading && (
+                      <Skeleton active paragraph={{ rows: 4 }} />
+                    )}
+                    {dtrPreviewError && (
+                      <Alert type="error" showIcon message={dtrPreviewError} />
+                    )}
+                    {!dtrPreviewLoading && !dtrPreviewError && dtrPreviewRows.length > 0 && (
+                      <Table
+                        size="small"
+                        className="dtr-table-compact compact-table"
+                        dataSource={dtrPreviewRows}
+                        pagination={false}
+                        rowKey={(r) => r.key}
+                        bordered
+                        scroll={{ x: 420 }}
+                        columns={[
+                          {
+                            title: "Date",
+                            dataIndex: "date",
+                            key: "date",
+                            width: 85,
+                            onCell: () => ({ className: "date-cell", style: { fontSize: 11, padding: '4px 6px' } }),
+                          },
+                          {
+                            title: "In",
+                            dataIndex: "timeIn",
+                            key: "timeIn",
+                            width: 55,
+                            render: (value, record) =>
+                              !record.hasLogs && record.status
+                                ? record.status
+                                : value,
+                            onCell: (record) =>
+                              !record.hasLogs && record.status
+                                ? {
+                                    colSpan: 4,
+                                    style: {
+                                      background: "#f5f5f5",
+                                      textAlign: "center",
+                                      fontWeight: 500,
+                                      color: "#888",
+                                      fontSize: 11,
+                                      padding: '4px 6px',
+                                    },
+                                  }
+                                : { className: "time-cell", style: { fontSize: 11, padding: '4px 6px' } },
+                          },
+                          {
+                            title: "B-Out",
+                            dataIndex: "breakOut",
+                            key: "breakOut",
+                            width: 55,
+                            onCell: (record) =>
+                              !record.hasLogs && record.status
+                                ? { colSpan: 0 }
+                                : { className: "time-cell", style: { fontSize: 11, padding: '4px 6px' } },
+                          },
+                          {
+                            title: "B-In",
+                            dataIndex: "breakIn",
+                            key: "breakIn",
+                            width: 55,
+                            onCell: (record) =>
+                              !record.hasLogs && record.status
+                                ? { colSpan: 0 }
+                                : { className: "time-cell", style: { fontSize: 11, padding: '4px 6px' } },
+                          },
+                          {
+                            title: "Out",
+                            dataIndex: "timeOut",
+                            key: "timeOut",
+                            width: 55,
+                            onCell: (record) =>
+                              !record.hasLogs && record.status
+                                ? { colSpan: 0 }
+                                : { className: "time-cell", style: { fontSize: 11, padding: '4px 6px' } },
+                          },
+                        ]}
+                      />
+                    )}
+                    {!dtrPreviewLoading && !dtrPreviewError && dtrPreviewRows.length > 0 &&
+                      dtrPreviewRows.every(
+                        (r) => r.timeIn === "---" && r.breakOut === "---" && r.breakIn === "---" && r.timeOut === "---"
+                      ) && (
+                        <Alert
+                          style={{ marginTop: 8 }}
+                          type="warning"
+                          showIcon
+                          message="No biometrics encoded yet for the selected period."
+                        />
+                      )}
+                    {!dtrPreviewLoading && !dtrPreviewError && dtrPreviewRows.length === 0 && (
+                      <Alert
+                        type="warning"
+                        showIcon
+                        message="No biometrics encoded yet for the selected period."
+                      />
+                    )}
+                  </>
+                ),
+              }]}
+            />
+          )}
         </>
       )}
     </Modal>
@@ -1297,68 +1529,66 @@ const HomePage = () => {
     </Modal>
   );
 
-  // ---- Messages Popover ----
+  // ---- Messages Popover (recent conversations popup) ----
   const messageContent = hasAccess("canViewMessages") && (
-    <div style={{ maxHeight: 350, overflowY: "auto", width: 320 }}>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          padding: "4px 8px",
-        }}
-      >
-        <Text strong>Messages</Text>
-        {hasAccess("canManageMessages") && (
-          <Button
-            type="link"
-            size="small"
-            onClick={async () => {
-              // Messages are reserved; just mark locally (no-op setter) for now
-              setMessages((prev) => prev.map((m) => ({ ...m, read: true })));
-              message.success("Marked all as read (local)");
-            }}
-          >
-            Mark all as read
-          </Button>
-        )}
+    <div style={{ width: 340, maxHeight: 400, overflowY: "auto" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", borderBottom: "1px solid var(--app-border-color, #f0f0f0)" }}>
+        <Text strong style={{ fontSize: 14 }}>Messages</Text>
+        <Button type="link" size="small" onClick={() => { setMsgPopoverOpen(false); navigate("/messaging/inbox"); }}>
+          View All
+        </Button>
       </div>
-
-      {messages.length > 0 ? (
-        messages.map((m) => (
-          <div
-            key={m._id} // ✅ use _id instead of id
-            style={{
-              padding: "8px 12px",
-              borderBottom: "1px solid #f0f0f0",
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              opacity: m.read ? 0.6 : 1,
-            }}
-          >
-            <div>
-              <Text strong>{`DTR Log - ${m.employeeId}`}</Text>
-              <br />
-              <Text type="secondary" style={{ fontSize: "12px" }}>
-                {new Date(m.createdAt).toLocaleString()}
-              </Text>
-            </div>
-            <Button
-              size="small"
-              type="link"
-              onClick={() => openMessageModal(m)}
-            >
-              View
-            </Button>
-          </div>
-        ))
+      {loadingRecentConvs ? (
+        <div style={{ textAlign: "center", padding: 30 }}><Skeleton active paragraph={{ rows: 3 }} /></div>
+      ) : recentConversations.length === 0 ? (
+        <div style={{ padding: "24px 12px", textAlign: "center" }}>
+          <MessageOutlined style={{ fontSize: 28, color: "var(--app-text-muted, #d9d9d9)", marginBottom: 8 }} />
+          <br />
+          <Text type="secondary" style={{ fontSize: 13 }}>No conversations yet</Text>
+        </div>
       ) : (
-        <Text
-          type="secondary"
-          style={{ padding: "8px 12px", display: "block" }}
-        >
-          No new messages
-        </Text>
+        recentConversations.map((conv) => {
+          const other = (conv.participants || []).find((p) => String(p._id) !== String(user?._id));
+          const name = conv.isGroup ? (conv.groupName || "Group Chat") : (other?.name || "Unknown");
+          const preview = conv.lastMessage
+            ? conv.lastMessage.isDeleted ? "Message deleted" : (conv.lastMessage.content || "").slice(0, 50)
+            : "No messages yet";
+          return (
+            <div
+              key={conv._id}
+              style={{
+                display: "flex", alignItems: "center", gap: 10, padding: "10px 12px",
+                borderBottom: "1px solid var(--app-border-color, #f5f5f5)", cursor: "pointer",
+                background: conv.unreadCount > 0 ? "var(--ant-color-primary-bg, #f0f7ff)" : "transparent",
+              }}
+              onClick={() => { setMsgPopoverOpen(false); navigate(`/messaging/inbox?cid=${conv._id}`); }}
+            >
+              {other ? (
+                <UserAvatar user={other} size={36} />
+              ) : (
+                <Avatar style={{ backgroundColor: "#1677ff" }} icon={<MessageOutlined />} size={36} />
+              )}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: conv.unreadCount > 0 ? 600 : 400, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {name}
+                </div>
+                <div style={{ fontSize: 12, color: "var(--app-text-muted, #8c8c8c)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {preview}
+                </div>
+              </div>
+              <div style={{ textAlign: "right", flexShrink: 0 }}>
+                {conv.lastMessageAt && (
+                  <div style={{ fontSize: 11, color: "var(--app-text-muted, #bfbfbf)" }}>
+                    {dayjs(conv.lastMessageAt).fromNow(true)}
+                  </div>
+                )}
+                {conv.unreadCount > 0 && (
+                  <Badge count={conv.unreadCount} size="small" style={{ marginTop: 4 }} />
+                )}
+              </div>
+            </div>
+          );
+        })
       )}
     </div>
   );
@@ -1452,9 +1682,10 @@ const HomePage = () => {
           theme="dark"
           mode="inline"
           defaultSelectedKeys={["/"]}
-          onClick={({ key }) =>
-            key === "logout" ? handleLogout() : navigate(key)
-          }
+          onClick={({ key }) => {
+            if (key === "logout") return handleLogout();
+            navigate(key);
+          }}
           items={getMenuItems()}
         />
       </Sider>
@@ -1468,7 +1699,7 @@ const HomePage = () => {
         />
       )}
 
-      <Layout>
+      <Layout style={{ marginLeft: collapsed ? 80 : 220, transition: 'margin-left 0.2s' }}>
         <Header
           className="header"
           style={{ background: "var(--app-header-bg, #ffffff)" }}
@@ -1477,15 +1708,17 @@ const HomePage = () => {
             style={{
               display: "flex",
               alignItems: "center",
-              gap: "15px",
-              marginRight: "10px",
+              gap: "10px",
+              marginRight: "5px",
             }}
           >
             <Popover
               content={notificationContent}
               trigger="click"
               placement="bottomRight"
+              open={notifPopoverOpen}
               onOpenChange={(visible) => {
+                setNotifPopoverOpen(visible);
                 // Lazy refresh when popover is opened and data is stale (>60s old)
                 if (visible) {
                   if (isDemoActive && isDemoUser) return; // skip refresh in demo for fast open
@@ -1546,9 +1779,9 @@ const HomePage = () => {
                               : ""
                           }`,
                         }));
-                        setNotifications((prev) => {
+                        setNotifications(() => {
                           const seen = new Set();
-                          const combined = [...payslip, ...dtr, ...prev];
+                          const combined = [...payslip, ...dtr];
                           const deduped = [];
                           for (const n of combined) {
                             const key = n._id || n.id;
@@ -1586,13 +1819,18 @@ const HomePage = () => {
               content={messageContent}
               trigger="click"
               placement="bottomRight"
+              open={msgPopoverOpen}
+              onOpenChange={(open) => {
+                setMsgPopoverOpen(open);
+                if (open) fetchRecentConversations();
+              }}
             >
               <Badge
-                count={messages.filter((m) => !m.read).length} // Correctly count unread
+                count={unreadMsgCount}
                 size="small"
                 overflowCount={99}
               >
-                <MessageOutlined className="icon-trigger" />
+                <MessageOutlined className="icon-trigger" style={{ cursor: 'pointer' }} />
               </Badge>
             </Popover>
             <Popover
@@ -1611,7 +1849,10 @@ const HomePage = () => {
           </div>
         </Header>
 
-        <Content style={{ margin: "16px", paddingBottom: 0 }}>
+        <div className="homepage-content-scroll">
+        <Content style={{ margin: "16px", paddingBottom: 0 }}
+          className="main-content"
+        >
           <div className="content-wrapper">
             <Routes>
               <Route
@@ -1726,6 +1967,46 @@ const HomePage = () => {
                   </ProtectedRoute>
                 }
               />
+              <Route
+                path="/settings/announcements"
+                element={
+                  <ProtectedRoute requiredPermissions={["canManageNotifications"]}>
+                    <AnnouncementManager />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/messaging/inbox"
+                element={
+                  <ProtectedRoute requiredPermissions={["canViewMessages"]}>
+                    <Messaging currentUser={user} tab="inbox" />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/messaging/sent"
+                element={
+                  <ProtectedRoute requiredPermissions={["canViewMessages"]}>
+                    <Messaging currentUser={user} tab="sent" />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/messaging/drafts"
+                element={
+                  <ProtectedRoute requiredPermissions={["canViewMessages"]}>
+                    <Messaging currentUser={user} tab="drafts" />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/messaging"
+                element={
+                  <ProtectedRoute requiredPermissions={["canViewMessages"]}>
+                    <Messaging currentUser={user} tab="inbox" />
+                  </ProtectedRoute>
+                }
+              />
             </Routes>
           </div>
         </Content>
@@ -1733,6 +2014,7 @@ const HomePage = () => {
         <Footer style={{ textAlign: "center" }}>
           © {new Date().getFullYear()} EMBR3 Daily Time Record Management System
         </Footer>
+        </div>
       </Layout>
 
       
@@ -1828,6 +2110,9 @@ const HomePage = () => {
         onClose={() => setIsFeatureModalOpen(false)}
         user={user}
       />
+
+      {/* Show pop-up announcements after login */}
+      <AnnouncementPopup />
     </Layout>
   );
 };

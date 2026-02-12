@@ -1,14 +1,52 @@
 import React from "react";
 import useDemoMode from "../../../../hooks/useDemoMode";
-import { Modal, Table, Typography, Divider, Button, message, Spin, Tooltip } from "antd";
+import {
+  Modal,
+  Table,
+  Typography,
+  Divider,
+  Button,
+  message,
+  Spin,
+  Tooltip,
+  Descriptions,
+  Space,
+  Tag,
+} from "antd";
 import dayjs from "dayjs";
 import customParseFormat from "dayjs/plugin/customParseFormat";
+import utc from "dayjs/plugin/utc";
+import timezone from "dayjs/plugin/timezone";
+import {
+  ApartmentOutlined,
+  CalendarOutlined,
+  FilePdfOutlined,
+  IdcardOutlined,
+  InboxOutlined,
+  MailOutlined,
+  SendOutlined,
+  UserOutlined,
+} from "@ant-design/icons";
 import "./viewdtr.css";
 import axios from "axios";
 import axiosInstance from "../../../../api/axiosInstance";
 import { generateDTRPdf } from "../../../../../utils/generateDTRpdf";
 
 const { Text } = Typography;
+
+dayjs.extend(customParseFormat);
+dayjs.extend(utc);
+dayjs.extend(timezone);
+const LOCAL_TZ = "Asia/Manila";
+
+const parseInLocalTz = (value) => {
+  if (!value) return dayjs.invalid();
+  if (dayjs.isDayjs && dayjs.isDayjs(value)) return value.tz(LOCAL_TZ);
+  if (value instanceof Date || typeof value === "number") return dayjs(value).tz(LOCAL_TZ);
+  const s = String(value);
+  const hasZone = /([zZ]|[+-]\d{2}:\d{2})$/.test(s);
+  return hasZone ? dayjs(s).tz(LOCAL_TZ) : dayjs.tz(s, LOCAL_TZ);
+};
 
 // Note: Trainings for ViewDTR are omitted to keep the modal snappy.
 // If needed later, pass a pre-fetched training map via props to avoid per-open fetch.
@@ -29,21 +67,23 @@ const ViewDTR = ({
   const { readOnly, isDemoActive, isDemoUser, shouldHideInDemo } = useDemoMode();
   if (!employee || !selectedRecord) return null;
 
-  const startDate = dayjs(selectedRecord.DTR_Cut_Off.start);
-  const endDate = dayjs(selectedRecord.DTR_Cut_Off.end);
+  const startDate = parseInLocalTz(selectedRecord.DTR_Cut_Off.start);
+  const endDate = parseInLocalTz(selectedRecord.DTR_Cut_Off.end);
   const dateRangeStr = `${startDate.format("MMMM D, YYYY")} - ${endDate.format(
     "MMMM D, YYYY"
   )}`;
 
   const [tableData, setTableData] = React.useState([]);
   const [loading, setLoading] = React.useState(false);
+  const [previewForm48Loading, setPreviewForm48Loading] = React.useState(false);
+  const [saveToTrayLoading, setSaveToTrayLoading] = React.useState(false);
 
   React.useEffect(() => {
     // Build holiday/suspension lookup map; expand ranges
     const holidayMap = {};
     holidaysPH.forEach((h) => {
-      const start = dayjs(h.date);
-      const end = h.endDate ? dayjs(h.endDate) : start;
+      const start = parseInLocalTz(h.date);
+      const end = h.endDate ? parseInLocalTz(h.endDate) : start;
       let d = start.clone();
       const label = h.type === 'Suspension' ? `Suspension: ${h.name}` : (h.name || 'Holiday');
       while (d.isSameOrBefore(end, 'day')) {
@@ -68,14 +108,20 @@ const ViewDTR = ({
         .join(', ');
     };
     while (current.isBefore(endDate) || current.isSame(endDate, "day")) {
-      const dateKey = current.format("YYYY-MM-DD");
+      const dateKey = current.tz(LOCAL_TZ).format("YYYY-MM-DD");
       const dayOfWeek = current.day();
       const isWeekend = dayOfWeek === 6 || dayOfWeek === 0;
       const holidayLabel = holidayMap[dateKey] || "";
       const isHoliday = !!holidayLabel;
 
-      const dayData = dtrLogs?.[employee.empId]?.[dateKey] || null;
-      dayjs.extend(customParseFormat);
+      const ids = [employee.empId, ...(employee.alternateEmpIds || [])].filter(Boolean);
+      let dayData = null;
+      for (const id of ids) {
+        if (dtrLogs?.[id]?.[dateKey]) {
+          dayData = dtrLogs[id][dateKey];
+          break;
+        }
+      }
 
       const pickEarliest = (v) =>
         Array.isArray(v)
@@ -350,7 +396,7 @@ const ViewDTR = ({
       title: "Date",
       dataIndex: "date",
       key: "date",
-      width: 120,
+      width: 110,
       // Keep Date unmerged: always render per-day to match requirement
       render: (text) => text,
     },
@@ -361,7 +407,7 @@ const ViewDTR = ({
           title: "Time In",
           dataIndex: "timeIn",
           key: "timeIn",
-          width: 80,
+          width: 70,
           render: (text, record) => {
             if (record.isWeekend) {
               return {
@@ -408,7 +454,7 @@ const ViewDTR = ({
           title: "Break Out",
           dataIndex: "breakOut",
           key: "breakOut",
-          width: 80,
+          width: 70,
           render: (_, record) =>
             record.isWeekend || record.isHoliday
               ? { children: null, props: { colSpan: 0 } }
@@ -427,7 +473,7 @@ const ViewDTR = ({
           title: "Break In",
           dataIndex: "breakIn",
           key: "breakIn",
-          width: 80,
+          width: 70,
           render: (_, record) =>
             record.isWeekend || record.isHoliday
               ? { children: null, props: { colSpan: 0 } }
@@ -441,7 +487,7 @@ const ViewDTR = ({
           title: "Time Out",
           dataIndex: "timeOut",
           key: "timeOut",
-          width: 80,
+          width: 70,
           render: (_, record) =>
             record.isWeekend || record.isHoliday
               ? { children: null, props: { colSpan: 0 } }
@@ -458,7 +504,7 @@ const ViewDTR = ({
       dataIndex: "status",
       key: "status",
       align: "center",
-      width: 120,
+      width: 110,
       render: (_, record) =>
         record.isWeekend || record.isHoliday || record.isTraining
           ? { children: null, props: { colSpan: 0 } }
@@ -467,14 +513,25 @@ const ViewDTR = ({
     // Reminder column removed: single consolidated button is provided above the table.
   ];
 
-  const handlePreviewForm48 = () => {
-    generateDTRPdf({ employee, dtrDays, dtrLogs, selectedRecord });
+  const handlePreviewForm48 = async () => {
+    setPreviewForm48Loading(true);
+    try {
+      await Promise.resolve(
+        generateDTRPdf({ employee, dtrDays, dtrLogs, selectedRecord })
+      );
+    } finally {
+      setPreviewForm48Loading(false);
+    }
   };
 
-  const handleSaveToTray = () => {
-    if (onSaveToTray) {
-      onSaveToTray(employee, selectedRecord);
+  const handleSaveToTray = async () => {
+    if (!onSaveToTray) return;
+    setSaveToTrayLoading(true);
+    try {
+      await Promise.resolve(onSaveToTray(employee, selectedRecord));
       message.success("DTR has been added to the Printer Tray!");
+    } finally {
+      setSaveToTrayLoading(false);
     }
   };
 
@@ -624,67 +681,135 @@ const ViewDTR = ({
 
   return (
     <Modal
-      title={null}
+      title={
+        <Space size={8} align="center">
+          <UserOutlined />
+          <span style={{ fontWeight: 600 }}>View Daily Time Record</span>
+        </Space>
+      }
       open={visible}
       onCancel={onClose}
       footer={null}
-      width={750}
+      width={720}
       className="view-dtr-modal"
     >
+      <Descriptions
+        size="small"
+        column={2}
+        colon={false}
+        style={{ marginBottom: 12 }}
+        labelStyle={{ width: 150, color: "var(--app-muted-text-color, #595959)" }}
+        contentStyle={{ fontWeight: 600 }}
+        items={[
+          {
+            key: "name",
+            label: (
+              <Space size={6}>
+                <UserOutlined /> Employee
+              </Space>
+            ),
+            children: employee.name || "—",
+          },
+          {
+            key: "empId",
+            label: (
+              <Space size={6}>
+                <IdcardOutlined /> Employee ID
+              </Space>
+            ),
+            children: employee.empId || "—",
+          },
+          {
+            key: "empNo",
+            label: (
+              <Space size={6}>
+                <IdcardOutlined /> Employee No.
+              </Space>
+            ),
+            children: employee.empNo || "—",
+          },
+          {
+            key: "empType",
+            label: (
+              <Space size={6}>
+                <IdcardOutlined /> Type
+              </Space>
+            ),
+            children: employee.empType ? (
+              <Tag color="geekblue" className="emp-type-tag">
+                {employee.empType}
+              </Tag>
+            ) : (
+              "—"
+            ),
+          },
+          {
+            key: "division",
+            label: (
+              <Space size={6}>
+                <ApartmentOutlined /> Division / Section
+              </Space>
+            ),
+            span: 2,
+            children: (
+              <span style={{ fontWeight: 500 }}>
+                {employee.division || "—"}
+                {employee.sectionOrUnit ? ` | ${employee.sectionOrUnit}` : ""}
+              </span>
+            ),
+          },
+          {
+            key: "cutoff",
+            label: (
+              <Space size={6}>
+                <CalendarOutlined /> Cut-off
+              </Space>
+            ),
+            span: 2,
+            children: <span style={{ fontWeight: 600 }}>{dateRangeStr}</span>,
+          },
+        ]}
+      />
+
       <div
         style={{
-          marginBottom: 16,
           display: "flex",
-          flexDirection: "column",
-          gap: 4,
+          justifyContent: "space-between",
+          gap: 8,
+          marginBottom: 8,
         }}
       >
-        <div style={{ display: "flex", justifyContent: "space-between" }}>
-          <Text strong>Employee Name: {employee.name}</Text>
-          <Text style={{ textAlign: "left", marginRight: 30 }}>
-            Employee ID: <Text strong>{employee.empId}</Text>
-          </Text>
-        </div>
-
-        <div style={{ display: "flex", justifyContent: "space-between" }}>
-          <Text>Employee No.: {employee.empNo}</Text>
-          <Text style={{ textAlign: "left", marginRight: 30 }}>
-            Employee Type: {employee.empType}
-          </Text>
-        </div>
-
-        <div>
-          <Text>
-            Division / Section: {employee.division}{" "}
-            {employee.sectionOrUnit && `| ${employee.sectionOrUnit}`}
-          </Text>
-        </div>
-
-        <div>
-          <Text underline>DTR Cut-Off Date: {dateRangeStr}</Text>
-        </div>
-      </div>
-
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
         <div>
           {!shouldHideInDemo('ui.notifications.quickSend') && (
             Array.isArray(employee.emails) && employee.emails.length > 0 ? (
               <Tooltip title="Send one email listing all days in this cut-off with no time records">
-                <Button onClick={handleSendAllMissing} disabled={readOnly && isDemoActive && isDemoUser}>
+                <Button
+                  icon={<SendOutlined />}
+                  onClick={handleSendAllMissing}
+                  disabled={readOnly && isDemoActive && isDemoUser}
+                >
                   Send All Missing
                 </Button>
               </Tooltip>
             ) : (
               <Tooltip title="Employee has no email on record">
                 <span>
-                  <Button disabled>Send All Missing</Button>
+                  <Button icon={<MailOutlined />} disabled>
+                    Send All Missing
+                  </Button>
                 </span>
               </Tooltip>
             )
           )}
         </div>
         <div>
-          <Button type="primary" onClick={handlePreviewForm48} disabled={readOnly && isDemoActive && isDemoUser}>
+          <Button
+            type="primary"
+            onClick={handlePreviewForm48}
+            loading={previewForm48Loading}
+            disabled={(readOnly && isDemoActive && isDemoUser) || saveToTrayLoading}
+            icon={<FilePdfOutlined />}
+          >
             Preview DTR Form 48
           </Button>
         </div>
@@ -705,7 +830,8 @@ const ViewDTR = ({
           pagination={false}
           bordered
           size="small"
-          scroll={{ x: 650 }}
+          tableLayout="fixed"
+          scroll={{ x: 560, y: 340 }}
           rowClassName={(record) =>
             record.isWeekend
               ? "weekend-row"
@@ -719,7 +845,13 @@ const ViewDTR = ({
       </Spin>
 
       <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
-        <Button type="default" onClick={handleSaveToTray} disabled={readOnly && isDemoActive && isDemoUser}>
+        <Button
+          type="default"
+          onClick={handleSaveToTray}
+          loading={saveToTrayLoading}
+          disabled={(readOnly && isDemoActive && isDemoUser) || previewForm48Loading}
+          icon={<InboxOutlined />}
+        >
           Save to Print Tray
         </Button>
       </div>

@@ -11,8 +11,10 @@ import {
   Tabs,
   Form,
   Modal,
+  Grid,
 } from "antd";
 import useNotify from '../../../../hooks/useNotify';
+import useLoading from '../../../../hooks/useLoading';
 import { SearchOutlined } from "@ant-design/icons";
 import axiosInstance from "../../../../api/axiosInstance";
 import dayjs from "dayjs";
@@ -34,7 +36,10 @@ const { Option } = Select;
 const { TabPane } = Tabs;
 
 const Payslip = () => {
+  const screens = Grid.useBreakpoint();
+  const isMobile = !screens.md;
   const { notification } = useNotify();
+  const { withLoading } = useLoading();
   const [form] = Form.useForm();
   const { shouldHideInDemo } = useDemoMode();
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -202,52 +207,59 @@ const Payslip = () => {
     isFullMonthRange,
     actionType
   ) => {
-    try {
-      const payload = {
-        empId: payslipData.empId,
-        docType: "Payslip",
-        reference: `Payslip for ${payslipData.cutOffStartDate} to ${payslipData.cutOffEndDate}`,
-        period: `${payslipData.cutOffStartDate} - ${payslipData.cutOffEndDate}`,
-        dateIssued: dayjs().toISOString(),
-        description: `Payslip for ${payslipData.cutOffStartDate} to ${payslipData.cutOffEndDate}`,
-        createdBy: currentUser?.username || "Admin",
-        // Store exact data used for generation so HR can re-open later
-        payload: payslipData,
-        isFullMonthRange,
-      };
+    await withLoading(async ({ updateProgress }) => {
+      try {
+        updateProgress(10, "Saving payslip record…");
+        const payload = {
+          empId: payslipData.empId,
+          docType: "Payslip",
+          reference: `Payslip for ${payslipData.cutOffStartDate} to ${payslipData.cutOffEndDate}`,
+          period: `${payslipData.cutOffStartDate} - ${payslipData.cutOffEndDate}`,
+          dateIssued: dayjs().toISOString(),
+          description: `Payslip for ${payslipData.cutOffStartDate} to ${payslipData.cutOffEndDate}`,
+          createdBy: currentUser?.username || "Admin",
+          // Store exact data used for generation so HR can re-open later
+          payload: payslipData,
+          isFullMonthRange,
+        };
 
-      const response = await axiosInstance.post("/employee-docs", payload);
-      const { data: doc, isNew } = response.data;
-      const { docNo } = doc;
+        const response = await axiosInstance.post("/employee-docs", payload);
+        const { data: doc, isNew } = response.data;
+        const { docNo } = doc;
 
-      if (selectedEmployee.empType === "Regular") {
-        if (actionType === "view") {
-          openPayslipInNewTabRegular(payslipData, docNo, isFullMonthRange);
-        } else if (actionType === "download") {
-          generatePaySlipPdfRegular(payslipData, docNo, isFullMonthRange);
+        updateProgress(50, "Generating PDF…");
+
+        if (selectedEmployee.empType === "Regular") {
+          if (actionType === "view") {
+            openPayslipInNewTabRegular(payslipData, docNo, isFullMonthRange);
+          } else if (actionType === "download") {
+            generatePaySlipPdfRegular(payslipData, docNo, isFullMonthRange);
+          }
+        } else {
+          if (actionType === "view") {
+            openPayslipInNewTab(payslipData, docNo, isFullMonthRange);
+          } else if (actionType === "download") {
+            generatePaySlipPdf(payslipData, docNo, isFullMonthRange);
+          }
         }
-      } else {
-        if (actionType === "view") {
-          openPayslipInNewTab(payslipData, docNo, isFullMonthRange);
-        } else if (actionType === "download") {
-          generatePaySlipPdf(payslipData, docNo, isFullMonthRange);
-        }
+
+        updateProgress(100);
+
+        notification.success({
+          message: "Success",
+          description: `Payslip ${
+            isNew ? "generated" : "updated"
+          } successfully with No. ${docNo}.`,
+        });
+        handleCancel();
+      } catch (error) {
+        console.error("Failed to generate payslip:", error);
+        notification.error({
+          message: "Error",
+          description: "Failed to generate payslip. Please try again.",
+        });
       }
-
-      notification.success({
-        message: "Success",
-        description: `Payslip ${
-          isNew ? "generated" : "updated"
-        } successfully with No. ${docNo}.`,
-      });
-      handleCancel();
-    } catch (error) {
-      console.error("Failed to generate payslip:", error);
-      notification.error({
-        message: "Error",
-        description: "Failed to generate payslip. Please try again.",
-      });
-    }
+    }, "Generating payslip…");
   };
 
   const getFilteredData = (data, tab) => {
@@ -278,7 +290,7 @@ const Payslip = () => {
     {
       title: "Employee Details",
       key: "employeeDetails",
-      width: 250,
+      width: isMobile ? 180 : 250,
       render: (_, record) => (
         <div>
           <strong>{record.name}</strong>
@@ -297,10 +309,10 @@ const Payslip = () => {
       ),
     },
     {
-      title: "Rate per Month",
+      title: isMobile ? "Rate/Mo" : "Rate per Month",
       dataIndex: ["salaryInfo", "ratePerMonth"],
       key: "ratePerMonth",
-      width: 120,
+      width: isMobile ? 100 : 120,
       render: (text, record) =>
         showSalaryAmounts
           ? text
@@ -317,9 +329,9 @@ const Payslip = () => {
           : "*****",
     },
     {
-      title: "Cut off Rate",
+      title: isMobile ? "Cut off" : "Cut off Rate",
       key: "cutOffRate",
-      width: 120,
+      width: isMobile ? 100 : 120,
       render: (_, record) => {
         const rate =
           record.salaryInfo?.ratePerMonth || record.salaryInfo?.basicSalary;
@@ -360,7 +372,7 @@ const Payslip = () => {
     {
       title: "Employee Details",
       key: "employeeDetails",
-      width: 250,
+      width: isMobile ? 180 : 250,
       render: (_, record) => (
         <div>
           <strong>{record.name}</strong>
@@ -379,10 +391,10 @@ const Payslip = () => {
       ),
     },
     {
-      title: "Rate per Month",
+      title: isMobile ? "Rate/Mo" : "Rate per Month",
       dataIndex: ["salaryInfo", "ratePerMonth"],
       key: "ratePerMonth",
-      width: 120,
+      width: isMobile ? 100 : 120,
       render: (text) =>
         showSalaryAmounts
           ? text
@@ -394,10 +406,10 @@ const Payslip = () => {
           : "*****",
     },
     {
-      title: "Daily Rate",
+      title: isMobile ? "Daily" : "Daily Rate",
       dataIndex: ["salaryInfo", "dailyRate"],
       key: "dailyRate",
-      width: 120,
+      width: isMobile ? 100 : 120,
       render: (text) =>
         showSalaryAmounts
           ? text
@@ -667,7 +679,7 @@ const Payslip = () => {
               value={searchKeyword}
               onChange={(e) => setSearchKeyword(e.target.value)}
               allowClear
-              style={{ width: 350 }}
+              style={{ width: isMobile ? '100%' : 350 }}
             />
             <Button type="primary" onClick={showAddSalaryModal}>
               Add Salary Info

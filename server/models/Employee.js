@@ -40,6 +40,11 @@ const employeeSchema = new mongoose.Schema(
     isResigned: { type: Boolean, default: false, index: true },
     resignedAt: { type: Date },
     resignedReason: { type: String },
+
+    // Restoration metadata (when a resigned employee is restored back to active)
+    restoredAt: { type: Date },
+    restorationReason: { type: String },
+    restoredByName: { type: String },
     // Signatory fields
     isSignatory: { type: Boolean, default: false },
     isSignatoryActive: { type: Boolean, default: true }, // New field

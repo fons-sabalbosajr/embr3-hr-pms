@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Card,
   Typography,
@@ -9,6 +9,7 @@ import {
   message,
   AutoComplete,
   ConfigProvider,
+  Grid,
   theme,
 } from "antd";
 import { Link } from "react-router-dom";
@@ -18,14 +19,12 @@ import "./paysliprequest.css";
 import dayjs from "dayjs";
 import { CalendarOutlined } from "@ant-design/icons";
 
-// ✅ Make sure you have NotificationsContext or pass setNotifications from props
-import { NotificationsContext } from "../../context/NotificationsContext";
-
 const { Title, Text } = Typography;
 
 const PayslipRequest = () => {
   const [form] = Form.useForm();
-  const { setNotifications } = useContext(NotificationsContext); // ✅ add context
+  const screens = Grid.useBreakpoint();
+  const isMobile = !screens.md;
   const [submitting, setSubmitting] = useState(false);
   const [latestCutoff, setLatestCutoff] = useState(null);
   const [cutoffLoading, setCutoffLoading] = useState(true);
@@ -60,7 +59,7 @@ const PayslipRequest = () => {
     empSearchRef.current = setTimeout(async () => {
       try {
         setEmpSearching(true);
-        const { data } = await axiosInstance.get(`/employees/search-emp-id`, {
+        const { data } = await axiosInstance.get(`/employees/public/search`, {
           params: { q: value },
         });
         const rows = data?.data || [];
@@ -74,12 +73,18 @@ const PayslipRequest = () => {
         } else {
           const variants = buildEmpIdVariants(value);
           setEmpOptions(
-            variants.map((v) => ({ value: v, label: `Try: ${v}` }))
+            variants.length
+              ? variants.map((v) => ({ value: v, label: `Try: ${v}` }))
+              : []
           );
         }
       } catch (_) {
         const variants = buildEmpIdVariants(value);
-        setEmpOptions(variants.map((v) => ({ value: v, label: `Try: ${v}` })));
+        setEmpOptions(
+          variants.length
+            ? variants.map((v) => ({ value: v, label: `Try: ${v}` }))
+            : []
+        );
       } finally {
         setEmpSearching(false);
       }
@@ -92,7 +97,7 @@ const PayslipRequest = () => {
     const load = async () => {
       try {
         setCutoffLoading(true);
-        const { data } = await axiosInstance.get("/dtrdatas");
+        const { data } = await axiosInstance.get("/dtrdatas/public");
         const list = data?.data || [];
         if (!mounted) return;
         if (list.length) {
@@ -121,30 +126,18 @@ const PayslipRequest = () => {
     if (submitting) return; // prevent double submit
     setSubmitting(true);
     try {
+      // Extract empId from display string ("03-0946 — Name" → "03-0946")
+      const rawEmpId = (values.employeeId || "").split("\u2014")[0].trim();
+      const employeeId = rawEmpId || values.employeeId;
+
       const response = await axiosInstance.post("/payslip-requests", {
-        employeeId: values.employeeId,
+        employeeId: employeeId,
         period: values.month.format("YYYY-MM"),
         email: values.email,
       });
 
       if (response.data?.success) {
-        const request = response.data?.data;
         message.success("Payslip request submitted successfully!");
-
-        // ✅ Push into notifications so it appears in bell popover
-        if (request) {
-          setNotifications((prev) => [
-            {
-              id: request._id || Date.now(),
-              employeeId: request.employeeId,
-              createdAt: request.createdAt || new Date(),
-              read: false,
-              type: "PayslipRequest",
-            },
-            ...prev,
-          ]);
-        }
-
         form.resetFields();
       } else {
         // Handle limit reached or general failure
@@ -255,14 +248,17 @@ const PayslipRequest = () => {
             onFinish={onFinish}
           >
             <Form.Item
-              label="Employee ID"
+              label="Employee ID or Name"
               name="employeeId"
               rules={[{ required: true, message: "Employee ID is required" }]}
             >
               <AutoComplete
                 options={empOptions}
                 onSearch={handleEmpSearch}
-                placeholder="Type your Employee ID (e.g. 03-0946)"
+                onSelect={(val, option) => {
+                  form.setFieldValue("employeeId", option.label || val);
+                }}
+                placeholder="Search by ID or name (e.g. 03-0946 or Juan)"
                 allowClear
                 notFoundContent={empSearching ? "Searching…" : "No matches"}
                 filterOption={false}

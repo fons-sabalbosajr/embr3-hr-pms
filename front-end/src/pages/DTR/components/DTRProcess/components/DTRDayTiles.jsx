@@ -4,9 +4,49 @@ import { CalendarFilled, BookFilled, LoadingOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import isSameOrBefore from "dayjs/plugin/isSameOrBefore";
 import isSameOrAfter from "dayjs/plugin/isSameOrAfter";
+import utc from "dayjs/plugin/utc";
+import timezone from "dayjs/plugin/timezone";
 
 dayjs.extend(isSameOrBefore);
 dayjs.extend(isSameOrAfter);
+dayjs.extend(utc);
+dayjs.extend(timezone);
+
+const LOCAL_TZ = "Asia/Manila";
+
+const parseInLocalTz = (value) => {
+  if (!value) return dayjs.invalid();
+  if (dayjs.isDayjs && dayjs.isDayjs(value)) return value.tz(LOCAL_TZ);
+  if (value instanceof Date || typeof value === "number") return dayjs(value).tz(LOCAL_TZ);
+  const s = String(value);
+  // If the string already includes a timezone (Z or ±HH:mm), parse then convert.
+  const hasZone = /([zZ]|[+-]\d{2}:\d{2})$/.test(s);
+  return hasZone ? dayjs(s).tz(LOCAL_TZ) : dayjs.tz(s, LOCAL_TZ);
+};
+
+const isNonEmptyTimeString = (v) => {
+  if (v == null) return false;
+  if (typeof v !== "string") return false;
+  const s = v.trim();
+  if (!s) return false;
+  if (s === "-" || s.toLowerCase() === "n/a") return false;
+  // Accept common DTR display formats (we primarily use hh:mm A)
+  const d = dayjs(s, ["hh:mm A", "h:mm A", "HH:mm", "H:mm"], true);
+  return d.isValid();
+};
+
+const hasAnyPunches = (dayLogs) => {
+  if (!dayLogs || typeof dayLogs !== "object") return false;
+  const values = Object.values(dayLogs);
+  for (const v of values) {
+    if (Array.isArray(v)) {
+      if (v.some(isNonEmptyTimeString)) return true;
+      continue;
+    }
+    if (isNonEmptyTimeString(v)) return true;
+  }
+  return false;
+};
 
 const DTRDayTiles = ({
   days,
@@ -25,11 +65,14 @@ const DTRDayTiles = ({
   return (
     <div style={{ display: "flex", gap: 2, marginBottom: 4 }}>
       {days.map((dayNum) => {
-        const dateObj = dayjs(selectedRecord.DTR_Cut_Off.start).date(dayNum);
-        const dateKey = dateObj.format("YYYY-MM-DD");
+        const cutStart = parseInLocalTz(selectedRecord?.DTR_Cut_Off?.start);
+        const dateObj = cutStart.isValid()
+          ? cutStart.clone().date(dayNum)
+          : parseInLocalTz(selectedRecord?.DTR_Cut_Off?.start).date(dayNum);
+        const dateKey = dateObj.tz(LOCAL_TZ).format("YYYY-MM-DD");
 
         const dayLogs = getEmployeeDayLogs(emp, dateKey);
-        const hasLogs = dayLogs && Object.values(dayLogs).some((v) => v);
+        const hasLogs = hasAnyPunches(dayLogs);
 
         const dayOfWeek = dateObj.day();
         const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
@@ -37,12 +80,13 @@ const DTRDayTiles = ({
         // Check if holiday or suspension (supports ranges)
         const holiday = holidaysPH.find((h) => {
           if (!h) return false;
-          const start = dayjs(h.date).format("YYYY-MM-DD");
+          const start = h.date ? parseInLocalTz(h.date).format("YYYY-MM-DD") : null;
+          if (!start) return false;
           if (h.endDate) {
-            const end = dayjs(h.endDate).format("YYYY-MM-DD");
+            const end = parseInLocalTz(h.endDate).format("YYYY-MM-DD");
             return (
-              dayjs(dateKey).isSameOrAfter(start, "day") &&
-              dayjs(dateKey).isSameOrBefore(end, "day")
+              dayjs.tz(dateKey, LOCAL_TZ).isSameOrAfter(start, "day") &&
+              dayjs.tz(dateKey, LOCAL_TZ).isSameOrBefore(end, "day")
             );
           }
           return start === dateKey;
@@ -408,4 +452,4 @@ const DTRDayTiles = ({
   );
 };
 
-export default DTRDayTiles;
+export default React.memo(DTRDayTiles);

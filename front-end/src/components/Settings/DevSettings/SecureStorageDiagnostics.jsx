@@ -4,9 +4,32 @@ import { listSecureKeys, listSecureSessionKeys, rotateSecureStorage } from '../.
 
 const { Title, Text } = Typography;
 
+const truncate = (val, max = 80) => {
+  const s = typeof val === 'string' ? val : JSON.stringify(val);
+  return s && s.length > max ? s.slice(0, max) + '…' : s;
+};
+
 const columns = [
-  { title: 'Key', dataIndex: 'key', key: 'key', ellipsis: true },
-  { title: 'Encrypted', dataIndex: 'encrypted', key: 'encrypted', render: (v) => (v ? 'Yes' : 'No') },
+  { title: 'Logical Key', dataIndex: 'logicalKey', key: 'logicalKey', width: 160, ellipsis: true },
+  { title: 'Storage Key', dataIndex: 'storageKey', key: 'storageKey', width: 180, ellipsis: true, render: (v) => <Text copyable style={{ fontSize: 11 }}>{v}</Text> },
+  { title: 'Obfuscated', dataIndex: 'obfuscated', key: 'obfuscated', width: 90, render: (v) => (v ? 'Yes' : 'No') },
+  { title: 'Encrypted', dataIndex: 'encrypted', key: 'encrypted', width: 90, render: (v) => (v ? 'Yes' : 'No') },
+  {
+    title: 'Decrypted Value',
+    dataIndex: 'rawValue',
+    key: 'rawValue',
+    render: (v) => {
+      const display = truncate(v, 120);
+      return (
+        <Text
+          copyable={{ text: typeof v === 'string' ? v : JSON.stringify(v, null, 2) }}
+          style={{ fontSize: 11, fontFamily: 'monospace', wordBreak: 'break-all' }}
+        >
+          {display || <Text type="secondary">(empty)</Text>}
+        </Text>
+      );
+    },
+  },
 ];
 
 export default function SecureStorageDiagnostics() {
@@ -53,7 +76,7 @@ export default function SecureStorageDiagnostics() {
         <Table
           className="compact-table"
           size="small"
-          rowKey={(r) => r.key}
+          rowKey={(r) => r.storageKey}
           columns={columns}
           dataSource={localKeys}
           pagination={{ pageSize: 8, showSizeChanger: true, pageSizeOptions: [5,8,10,20,50] }}
@@ -64,7 +87,7 @@ export default function SecureStorageDiagnostics() {
         <Table
           className="compact-table"
           size="small"
-          rowKey={(r) => r.key}
+          rowKey={(r) => r.storageKey}
           columns={columns}
           dataSource={sessionKeys}
           pagination={{ pageSize: 8, showSizeChanger: true, pageSizeOptions: [5,8,10,20,50] }}
