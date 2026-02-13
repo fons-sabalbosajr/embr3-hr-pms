@@ -263,6 +263,38 @@
   color: inherit !important;
 }
 
+/* Messaging menu: green-styled like Developer Settings */
+.ant-layout-sider .ant-menu .messaging-menu-item,
+.ant-layout-sider .ant-menu-item.messaging-menu-item,
+.ant-layout-sider .ant-menu-submenu-title.messaging-menu-item,
+.messaging-menu-item { font-weight: 600; color: #52c41a !important; }
+
+.ant-layout-sider .ant-menu .messaging-menu-item:hover,
+.messaging-menu-item:hover {
+  background-color: rgba(82,196,26,0.15) !important;
+  color: #52c41a !important;
+}
+
+.ant-layout-sider .ant-menu-item-selected.messaging-menu-item,
+.ant-menu-item-selected.messaging-menu-item {
+  background-color: rgba(82,196,26,0.25) !important;
+  color: #52c41a !important;
+}
+
+.messaging-menu-item .ant-menu-title-content {
+  color: inherit !important;
+}
+
+/* Ensure messaging submenu parent also gets green styling */
+.ant-menu-submenu.messaging-menu-item > .ant-menu-submenu-title {
+  color: #52c41a !important;
+  font-weight: 600;
+}
+.ant-menu-submenu.messaging-menu-item > .ant-menu-submenu-title:hover {
+  background-color: rgba(82,196,26,0.15) !important;
+  color: #52c41a !important;
+}
+
 /* Apply CSS variables to the whole menu to adapt colors */
 .ant-layout-sider .ant-menu {
   background: var(--app-menu-bg, #001529) !important;

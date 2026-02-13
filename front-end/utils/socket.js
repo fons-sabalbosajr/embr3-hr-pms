@@ -1,9 +1,13 @@
 import { io } from "socket.io-client";
 
-// Prefer explicit socket URL, fall back to server URL, or derive from API URL by stripping /api
+// Prefer explicit socket URL, fall back to server URL, or derive from API URL by stripping /api.
+// In dev mode the Vite proxy already forwards /socket.io → server, so let the
+// browser use its own origin (the Vite dev-server) to go through that proxy.
+// This avoids issues where VITE_SERVER_URL is localhost (unreachable from LAN).
 const deriveSocketUrl = () => {
   const explicit = import.meta.env.VITE_SOCKET_URL;
   if (explicit) return explicit;
+  if (import.meta.env.DEV) return window.location.origin;
   const serverUrl = import.meta.env.VITE_SERVER_URL;
   if (serverUrl) return serverUrl;
   const apiUrl = import.meta.env.VITE_API_URL;

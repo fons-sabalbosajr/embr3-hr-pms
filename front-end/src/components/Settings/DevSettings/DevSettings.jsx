@@ -299,24 +299,56 @@ const DevSettings = () => {
   const [driveLoading, setDriveLoading] = useState(false);
   const [driveFiles, setDriveFiles] = useState([]);
   const [drivePath, setDrivePath] = useState(""); // local uploads subdir
+  const [driveFolderStack, setDriveFolderStack] = useState([]); // [{id, name}] for Drive breadcrumb
   const [drivePage, setDrivePage] = useState(1);
   const [drivePageSize, setDrivePageSize] = useState(5);
-  const fetchDriveFiles = async (nextPath) => {
+  const isDriveProvider = devInfo?.storageProvider === 'drive';
+  const fetchDriveFiles = async (nextPathOrFolderId, folderName) => {
     try {
       setDriveLoading(true);
-      const pathToUse = typeof nextPath === 'string' ? nextPath : drivePath;
-      const res = await axiosInstance.get("/uploads", { params: pathToUse ? { path: pathToUse } : {} });
+      let params = {};
+      if (isDriveProvider) {
+        // Drive mode — navigate by folder ID
+        if (nextPathOrFolderId) params.folderId = nextPathOrFolderId;
+      } else {
+        // Local mode — navigate by path
+        const pathToUse = typeof nextPathOrFolderId === 'string' ? nextPathOrFolderId : drivePath;
+        if (pathToUse) params.path = pathToUse;
+      }
+      const res = await axiosInstance.get("/uploads", { params });
       const rows = res?.data?.data || res?.data || [];
       setDriveFiles(Array.isArray(rows) ? rows : []);
       setDrivePage(1);
-      if (typeof nextPath === 'string') setDrivePath(nextPath);
+      if (!isDriveProvider && typeof nextPathOrFolderId === 'string') {
+        setDrivePath(nextPathOrFolderId);
+      }
     } catch (e) {
       message.error(e?.response?.data?.message || "Failed to load Drive files");
     } finally {
       setDriveLoading(false);
     }
   };
-  // Removed Test Drive helper (no longer needed)
+  const navigateDriveFolder = (folderId, folderName) => {
+    setDriveFolderStack((prev) => [...prev, { id: folderId, name: folderName }]);
+    fetchDriveFiles(folderId, folderName);
+  };
+  const navigateDriveUp = () => {
+    if (isDriveProvider) {
+      setDriveFolderStack((prev) => {
+        const next = prev.slice(0, -1);
+        const parentId = next.length > 0 ? next[next.length - 1].id : "";
+        fetchDriveFiles(parentId || "");
+        return next;
+      });
+    } else {
+      const parent = drivePath.split('/').slice(0, -1).join('/');
+      fetchDriveFiles(parent);
+    }
+  };
+  const navigateDriveRoot = () => {
+    setDriveFolderStack([]);
+    fetchDriveFiles("");
+  };
 
   // Employees management
   const [employeesLoading, setEmployeesLoading] = useState(false);
@@ -1720,26 +1752,24 @@ const DevSettings = () => {
                 <Space style={{ marginBottom: 8, flexWrap: 'wrap' }}>
                   <Button
                     size="small"
-                    onClick={() => fetchDriveFiles("")}
+                    onClick={navigateDriveRoot}
                     loading={driveLoading}
                   >
                     Load Files
                   </Button>
-                  {/* Test Drive button removed as requested */}
-                  {drivePath && (
+                  {(isDriveProvider ? driveFolderStack.length > 0 : !!drivePath) && (
                     <Button
                       size="small"
-                      onClick={() => {
-                        const parent = drivePath.split('/').slice(0, -1).join('/');
-                        fetchDriveFiles(parent);
-                      }}
+                      onClick={navigateDriveUp}
                       disabled={driveLoading}
                     >
                       Up
                     </Button>
                   )}
                   <Text type="secondary" style={{ fontSize: 11 }}>
-                    Folder: server env GOOGLE_DRIVE_FOLDER_ID_FILE
+                    {isDriveProvider
+                      ? `/ ${driveFolderStack.map((f) => f.name).join(' / ') || '(root)'}`
+                      : `Folder: ${drivePath || '(root)'}`}
                   </Text>
                 </Space>
                 <Table
@@ -1767,6 +1797,13 @@ const DevSettings = () => {
                       dataIndex: "name",
                       key: "name",
                       render: (v, r) => {
+                        const isDriveFolder = r.mimeType === 'application/vnd.google-apps.folder';
+                        // Drive folder — click to navigate into it
+                        if (isDriveFolder && r.id) {
+                          return (
+                            <a onClick={() => navigateDriveFolder(r.id, v || r.id)} style={{ cursor: 'pointer' }}>{v || r.id}</a>
+                          );
+                        }
                         // Drive file link
                         if (r.webViewLink) {
                           return (
@@ -1777,7 +1814,7 @@ const DevSettings = () => {
                         if (r.isDirectory && r.localPath) {
                           const next = r.localPath.replace(/^uploads\//, '');
                           return (
-                            <a onClick={() => fetchDriveFiles(next)}>{v}</a>
+                            <a onClick={() => { setDrivePath(next); fetchDriveFiles(next); }} style={{ cursor: 'pointer' }}>{v}</a>
                           );
                         }
                         return v || r.id;
@@ -1788,14 +1825,17 @@ const DevSettings = () => {
                       dataIndex: "mimeType",
                       key: "mimeType",
                       width: 180,
-                      render: (v, r) => r?.isDirectory ? 'folder' : (v || (r?.localPath ? (r.name?.split('.').pop() || 'file') : '')),
+                      render: (v, r) => {
+                        if (r?.isDirectory || v === 'application/vnd.google-apps.folder') return 'folder';
+                        return v || (r?.localPath ? (r.name?.split('.').pop() || 'file') : '');
+                      },
                     },
                     {
                       title: "Size",
                       dataIndex: "size",
                       key: "size",
                       width: 100,
-                      render: (s, r) => r?.isDirectory ? '-' : (s ? `${Number(s).toLocaleString()} B` : ''),
+                      render: (s, r) => (r?.isDirectory || r?.mimeType === 'application/vnd.google-apps.folder') ? '-' : (s ? `${Number(s).toLocaleString()} B` : ''),
                     },
                     {
                       title: "Created",
@@ -1905,9 +1945,31 @@ const DevSettings = () => {
             style={runtimeCardStyle}
             bodyStyle={cardBodySmall}
             extra={
-              <Tag color={clientRuntime.socketConnected ? "green" : "red"}>
-                Socket {clientRuntime.socketConnected ? "Connected" : "Disconnected"}
-              </Tag>
+              <Space size={4}>
+                <Tag color={clientRuntime.socketConnected ? "green" : "red"}>
+                  Socket {clientRuntime.socketConnected ? "Connected" : "Disconnected"}
+                </Tag>
+                <Button
+                  size="small"
+                  type={clientRuntime.socketConnected ? "default" : "primary"}
+                  danger={clientRuntime.socketConnected}
+                  icon={clientRuntime.socketConnected ? <CloseCircleOutlined /> : <ApiOutlined />}
+                  onClick={() => {
+                    if (clientRuntime.socketConnected) {
+                      socket.disconnect();
+                      message.info("Socket disconnected.");
+                    } else {
+                      socket.connect();
+                      socket.once("connect", () => {
+                        if (user) socket.emit("store-user", user);
+                        message.success("Socket reconnected!");
+                      });
+                    }
+                  }}
+                >
+                  {clientRuntime.socketConnected ? "Disconnect" : "Connect"}
+                </Button>
+              </Space>
             }
           >
             <Descriptions {...descCommon}>

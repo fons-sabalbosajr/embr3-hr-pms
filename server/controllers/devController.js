@@ -43,12 +43,23 @@ export const getDevConfig = async (req, res) => {
     };
 
     const googleKeyPath = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
+    const googleHasCredentials = Boolean(
+      process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 ||
+      process.env.GOOGLE_SERVICE_ACCOUNT_JSON ||
+      googleKeyPath
+    );
     const google = {
       serviceAccountKey: googleKeyPath
         ? path.basename(googleKeyPath)
-        : null,
-      configured: Boolean(googleKeyPath),
+        : process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64
+          ? "(base64)"
+          : process.env.GOOGLE_SERVICE_ACCOUNT_JSON
+            ? "(inline JSON)"
+            : null,
+      configured: googleHasCredentials,
     };
+
+    const storageProvider = (process.env.STORAGE_PROVIDER || 'local').toLowerCase();
 
     // Reflect socket config used in server/socket.js
     const socket = {
@@ -58,7 +69,7 @@ export const getDevConfig = async (req, res) => {
       corsOrigin: app.clientOrigin || true,
     };
 
-    res.status(200).json({ app, db, email, google, socket });
+    res.status(200).json({ app, db, email, google, socket, storageProvider });
   } catch (err) {
     res.status(500).json({ message: "Failed to load dev config", error: err.message });
   }

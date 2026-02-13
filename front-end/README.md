@@ -170,3 +170,27 @@ Backup UI reorganized for compact display; `requestedByName` enriched from auth 
 
 ---
 This README supersedes the default Vite template content and documents current security & feature architecture.
+
+## Deployment
+
+### VPS (Production)
+
+The front-end is built as static files and served by Nginx:
+
+```bash
+npm ci
+cp .env.example .env   # Set VITE_API_URL, VITE_ENCRYPT_SECRET
+npm run build          # Outputs to dist/
+```
+
+Nginx serves `dist/` directly with `try_files $uri $uri/ /index.html` for SPA routing.
+
+See [DEPLOYMENT-VPS.md](../DEPLOYMENT-VPS.md) for the full VPS guide.
+
+### Render (UAT)
+
+See [DEPLOYMENT-UAT.md](../DEPLOYMENT-UAT.md).
+
+---
+
+*Last updated: 2026-02-13*

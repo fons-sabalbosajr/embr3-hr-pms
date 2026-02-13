@@ -32,7 +32,9 @@ const OnlineUsers = () => {
     try {
       const usersArray = await getUsers(); // getUsers() directly returns the array
       if (Array.isArray(usersArray)) {
-        const enrichedUsers = usersArray.map((u) => {
+        // Only show verified accounts in the People list
+        const verifiedOnly = usersArray.filter((u) => u.isVerified !== false);
+        const enrichedUsers = verifiedOnly.map((u) => {
           let lastSeen = "Offline";
           if (u.isOnline) lastSeen = "Online now";
           else if (u.lastSeenAt) {

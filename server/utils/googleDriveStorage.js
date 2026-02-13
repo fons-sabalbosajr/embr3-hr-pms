@@ -72,12 +72,12 @@ export async function driveDelete(fileId) {
 export async function driveList({ parentFolderId, pageSize = 100 } = {}) {
   try {
     const drive = getDriveClient();
-    // Prefer *_FILE overrides for folder as well
+    // For browsing, prefer the file/general folder; avatar folder is separate
     const folderId =
       parentFolderId ||
-      process.env.GOOGLE_DRIVE_FOLDER_ID_IMAGE ||
       process.env.GOOGLE_DRIVE_FOLDER_ID_FILE ||
-      process.env.GOOGLE_DRIVE_FOLDER_ID;
+      process.env.GOOGLE_DRIVE_FOLDER_ID ||
+      process.env.GOOGLE_DRIVE_FOLDER_ID_IMAGE;
     const q = folderId
       ? `'${folderId}' in parents and trashed = false`
       : "trashed = false";

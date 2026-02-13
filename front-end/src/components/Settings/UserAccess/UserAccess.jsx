@@ -275,12 +275,10 @@ const UserAccess = () => {
     try {
       const response = await axiosInstance.get("/users");
       if (response.data.success) {
-        // Only show verified & approved users in the current accounts tab
+        // Show all verified users in the Current Accounts tab
         setUsers(
           (response.data.data || []).filter(
-            (u) =>
-              u.isVerified !== false &&
-              (u.approvalStatus === "approved" || !u.approvalStatus)
+            (u) => u.isVerified !== false
           )
         );
       }
@@ -476,7 +474,6 @@ const UserAccess = () => {
             src={record.avatarUrl}
             name={record.name}
             size={32}
-            icon={<UserOutlined />}
             style={{ flex: "none" }}
           />
           <div style={{ lineHeight: 1.2 }}>
@@ -493,23 +490,21 @@ const UserAccess = () => {
       title: "Role",
       dataIndex: "userType",
       key: "userType",
-      width: 130,
-      render: (v, r) => (
-        <Tag icon={<SafetyOutlined />} color={r.isAdmin ? "gold" : "default"}>
-          {r.isAdmin ? "admin" : v || "guest"}
-        </Tag>
-      ),
-    },
-    {
-      title: "Verified",
-      dataIndex: "isVerified",
-      key: "isVerified",
-      width: 110,
-      render: (v) => (
-        <Tag icon={v ? <CheckCircleOutlined /> : <CloseCircleOutlined />} color={v ? "green" : "default"}>
-          {v ? "Yes" : "No"}
-        </Tag>
-      ),
+      width: 140,
+      render: (v) => {
+        const role = v || "guest";
+        const colorMap = {
+          developer: "purple",
+          administrator: "gold",
+          "co-admin": "blue",
+          guest: "default",
+        };
+        return (
+          <Tag icon={<SafetyOutlined />} color={colorMap[role] || "default"} style={{ textTransform: "capitalize" }}>
+            {role}
+          </Tag>
+        );
+      },
     },
     {
       title: "Access",
@@ -626,7 +621,6 @@ const UserAccess = () => {
             src={record.avatarUrl}
             name={record.name}
             size={32}
-            icon={<UserAddOutlined />}
             style={{ flex: "none" }}
           />
           <div style={{ lineHeight: 1.2 }}>
@@ -649,6 +643,20 @@ const UserAccess = () => {
         const d = dayjs(v);
         return d.isValid() ? d.format("MMM DD, YYYY hh:mm A") : "-";
       },
+    },
+    {
+      title: "Verified",
+      dataIndex: "isVerified",
+      key: "isVerified",
+      width: 100,
+      render: (v) => (
+        <Tag
+          icon={v ? <CheckCircleOutlined /> : <CloseCircleOutlined />}
+          color={v ? "green" : "default"}
+        >
+          {v ? "Yes" : "No"}
+        </Tag>
+      ),
     },
     {
       title: "Status",
@@ -940,8 +948,8 @@ const UserAccess = () => {
                   style={{ marginTop: 8 }}
                 >
                   <Radio value="developer">Developer</Radio>
-                  <Radio value="admin">Administrator</Radio>
-                  <Radio value="coadmin">Co-Admin</Radio>
+                  <Radio value="administrator">Administrator</Radio>
+                  <Radio value="co-admin">Co-Admin</Radio>
                   <Radio value="guest">Guest User</Radio>
                 </Radio.Group>
               </div>

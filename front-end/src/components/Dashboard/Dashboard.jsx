@@ -95,9 +95,11 @@ const Dashboard = () => {
   const fetchUsers = async () => {
     try {
       const usersArray = await getUsers(); // always returns an array
-      setUsers(usersArray);
-      setOnlineUsers(usersArray.filter((u) => u.isOnline));
-      setOfflineUsers(usersArray.filter((u) => !u.isOnline));
+      // Only count verified accounts for overview stats
+      const verified = usersArray.filter((u) => u.isVerified !== false);
+      setUsers(verified);
+      setOnlineUsers(verified.filter((u) => u.isOnline));
+      setOfflineUsers(verified.filter((u) => !u.isOnline));
     } catch (err) {
       console.error("Failed to fetch users:", err);
       setUsers([]); // fallback

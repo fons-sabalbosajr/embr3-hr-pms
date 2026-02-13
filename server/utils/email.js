@@ -157,7 +157,7 @@ export const sendVerificationEmail = async (to, name, verificationLink) => {
         </div>
         <p style="font-size: 13px; color: #666;">If you didn’t sign up for this account, you can safely ignore this email.</p>
         <hr style="border: none; border-top: 1px solid #ddd;" />
-        <p style="font-size: 12px; color: #999; text-align: center;">© 2025 EMB Region III. All rights reserved.</p>
+        <p style="font-size: 12px; color: #999; text-align: center;">© ${new Date().getFullYear()} EMB Region III. All rights reserved.</p>
       </div>
     `,
   }, "verification");
@@ -187,7 +187,7 @@ export const sendResetPasswordEmail = async (to, name, resetLink) => {
         </div>
         <p style="font-size: 13px; color: #666;">If you didn’t request this password reset, no action is required.</p>
         <hr style="border: none; border-top: 1px solid #ddd;" />
-        <p style="font-size: 12px; color: #999; text-align: center;">© 2025 EMB Region III. All rights reserved.</p>
+        <p style="font-size: 12px; color: #999; text-align: center;">© ${new Date().getFullYear()} EMB Region III. All rights reserved.</p>
       </div>
     `,
     text: `Hi ${name},\n\nUse the link below to reset your password:\n${resetLink}\n\nIf you didn’t request this, you can ignore this email.`,
@@ -219,7 +219,7 @@ export const sendPasswordChangeVerificationEmail = async (to, name, confirmLink,
   <pre style="background:#f7f7f7;border:1px solid #eee;padding:10px;border-radius:6px;white-space:pre-wrap;word-break:break-all;">${token || ''}</pre>
   <p style="font-size: 13px; color: #666;">If you did not initiate this request, you can safely ignore this email. Your password will remain unchanged.</p>
         <hr style="border: none; border-top: 1px solid #ddd;" />
-        <p style="font-size: 12px; color: #999; text-align: center;">© 2025 EMB Region III. All rights reserved.</p>
+        <p style="font-size: 12px; color: #999; text-align: center;">© ${new Date().getFullYear()} EMB Region III. All rights reserved.</p>
       </div>
     `,
     text: `Hi ${name},\n\nYou requested a password change. Confirm using this link: ${confirmLink}\nIf you did not request this, ignore this email.`,
@@ -451,7 +451,7 @@ export const sendSignupApprovedEmail = async (to, name, loginLink) => {
         </div>
         <p style="font-size: 13px; color: #666;">Your access permissions will be configured by your system administrator.</p>
         <hr style="border: none; border-top: 1px solid #ddd;" />
-        <p style="font-size: 12px; color: #999; text-align: center;">© 2025 EMB Region III. All rights reserved.</p>
+        <p style="font-size: 12px; color: #999; text-align: center;">© ${new Date().getFullYear()} EMB Region III. All rights reserved.</p>
       </div>
     `,
     text: `Hi ${name},\n\nYour account has been approved! You can now log in at: ${loginLink}`,
@@ -471,7 +471,7 @@ export const sendSignupRejectedEmail = async (to, name, reason) => {
         ${reason ? `<p><strong>Reason:</strong> ${reason}</p>` : ""}
         <p>If you believe this was a mistake, please contact your system administrator for assistance.</p>
         <hr style="border: none; border-top: 1px solid #ddd;" />
-        <p style="font-size: 12px; color: #999; text-align: center;">© 2025 EMB Region III. All rights reserved.</p>
+        <p style="font-size: 12px; color: #999; text-align: center;">© ${new Date().getFullYear()} EMB Region III. All rights reserved.</p>
       </div>
     `,
     text: `Hi ${name},\n\nYour account registration has not been approved.${reason ? ` Reason: ${reason}` : ""}\n\nPlease contact your administrator if you have questions.`,
@@ -503,7 +503,7 @@ export const sendNewSignupNotificationEmail = async (to, newUserName, newUserEma
           ">Review in Dashboard</a>
         </div>
         <hr style="border: none; border-top: 1px solid #ddd;" />
-        <p style="font-size: 12px; color: #999; text-align: center;">© 2025 EMB Region III. All rights reserved.</p>
+        <p style="font-size: 12px; color: #999; text-align: center;">© ${new Date().getFullYear()} EMB Region III. All rights reserved.</p>
       </div>
     `,
   }, "new-signup-notification");

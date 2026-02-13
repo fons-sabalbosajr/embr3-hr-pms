@@ -43,7 +43,7 @@ const AccountsSettings = () => {
   const [passwordForm] = Form.useForm();
   const { user, updateCurrentUser } = useAuth();
   const { isDemoActive, isDemoUser } = useDemoMode();
-  const { theme, setTheme, userPrimaryPreset, setUserPrimaryPreset, applyPresetToChrome, setApplyPresetToChrome } = useTheme();
+  const { theme, setTheme, appSettings, userPrimaryPreset, setUserPrimaryPreset, applyPresetToChrome, setApplyPresetToChrome } = useTheme();
 
   useEffect(() => {
     if (user) {
@@ -130,11 +130,13 @@ const AccountsSettings = () => {
     const img = new Image();
     img.onload = () => {
       const canvas = document.createElement('canvas');
-      const size = Math.max(cropPixels.width, cropPixels.height);
+      const MAX_AVATAR = 512;
+      const rawSize = Math.max(cropPixels.width, cropPixels.height);
+      const size = Math.min(rawSize, MAX_AVATAR);
       canvas.width = size;
       canvas.height = size;
       const ctx = canvas.getContext('2d');
-      ctx.fillStyle = 'transparent';
+      ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, size, size);
       ctx.drawImage(
         img,
@@ -150,7 +152,7 @@ const AccountsSettings = () => {
       canvas.toBlob((blob) => {
         if (!blob) return reject(new Error('Canvas is empty'));
         resolve(blob);
-      }, 'image/png');
+      }, 'image/jpeg', 0.85);
     };
     img.onerror = reject;
     img.src = image;
@@ -164,13 +166,13 @@ const AccountsSettings = () => {
     try {
       const blob = await getCroppedBlob(imageSrc, croppedAreaPixels);
       const formData = new FormData();
-      formData.append('avatar', new File([blob], 'avatar.png', { type: 'image/png' }));
+      formData.append('avatar', new File([blob], 'avatar.jpg', { type: 'image/jpeg' }));
       const res = await axiosInstance.post('/users/avatar', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
       const avatarUrl = res.data?.avatarUrl;
       if (avatarUrl) {
-        // Cache-bust by appending version param (timestamp or extracted version)
-        const cacheBusted = `${avatarUrl}${avatarUrl.includes('?') ? '&' : '?'}v=${Date.now()}`;
-        updateCurrentUser({ ...user, avatarUrl: cacheBusted });
+        // Skip cache-busting for data: URLs (base64) – they are unique by content
+        const finalUrl = avatarUrl.startsWith('data:') ? avatarUrl : `${avatarUrl}${avatarUrl.includes('?') ? '&' : '?'}v=${Date.now()}`;
+        updateCurrentUser({ ...user, avatarUrl: finalUrl });
         notification.success({ message: 'Avatar updated.' });
       }
       setCropModalOpen(false);
@@ -266,7 +268,12 @@ const AccountsSettings = () => {
                 <Form.Item name="oldPassword" label="Old Password" rules={[{ required: true }]}>
                   <Input.Password />
                 </Form.Item>
-                <Form.Item name="newPassword" label="New Password" rules={[{ required: true }]}>
+                <Form.Item name="newPassword" label="New Password" rules={[
+                  { required: true },
+                  { min: appSettings?.security?.passwordMinLength || 8, message: `Password must be at least ${appSettings?.security?.passwordMinLength || 8} characters` },
+                  ...(appSettings?.security?.passwordRequiresNumber !== false ? [{ pattern: /\d/, message: "Password must contain at least one number" }] : []),
+                  ...(appSettings?.security?.passwordRequiresSymbol !== false ? [{ pattern: /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?`~]/, message: "Password must contain at least one special character" }] : []),
+                ]}>
                   <Input.Password />
                 </Form.Item>
                 <Form.Item name="confirmPassword" label="Confirm New Password" rules={[{ required: true }]}>

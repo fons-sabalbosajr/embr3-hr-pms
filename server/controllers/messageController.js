@@ -66,12 +66,12 @@ export const getConversations = async (req, res) => {
 /**
  * POST /api/messages/conversations
  * Create or find a 1-on-1 conversation, or create a group.
- * Body: { participantIds: [userId, ...], isGroup?, groupName? }
+ * Body: { participantIds: [userId, ...], isGroup?, groupName?, isConfidential? }
  */
 export const createConversation = async (req, res) => {
   try {
     const userId = String(req.user.id || req.user._id);
-    let { participantIds = [], isGroup = false, groupName } = req.body;
+    let { participantIds = [], isGroup = false, groupName, isConfidential = false } = req.body;
 
     // Ensure creator is always included
     if (!participantIds.includes(userId)) participantIds.push(userId);
@@ -102,6 +102,7 @@ export const createConversation = async (req, res) => {
       participants: participantIds,
       isGroup,
       groupName: isGroup ? groupName || "Group Chat" : undefined,
+      isConfidential: !!isConfidential,
       createdBy: userId,
     });
 
@@ -121,6 +122,57 @@ export const createConversation = async (req, res) => {
   } catch (err) {
     console.error("[Messages] createConversation error:", err);
     res.status(500).json({ message: "Failed to create conversation" });
+  }
+};
+
+/**
+ * PATCH /api/messages/conversations/:conversationId
+ * Update group conversation (rename, add/remove members, toggle confidential).
+ */
+export const updateConversation = async (req, res) => {
+  try {
+    const userId = String(req.user.id || req.user._id);
+    const { conversationId } = req.params;
+    const { groupName, addParticipants, removeParticipants, isConfidential } = req.body;
+
+    const conv = await Conversation.findById(conversationId);
+    if (!conv) return res.status(404).json({ message: "Conversation not found" });
+    if (!conv.participants.map(String).includes(userId)) {
+      return res.status(403).json({ message: "Not a participant" });
+    }
+
+    if (groupName !== undefined && conv.isGroup) conv.groupName = groupName;
+    if (isConfidential !== undefined) conv.isConfidential = !!isConfidential;
+
+    if (Array.isArray(addParticipants) && conv.isGroup) {
+      for (const pid of addParticipants) {
+        if (!conv.participants.map(String).includes(String(pid))) {
+          conv.participants.push(pid);
+        }
+      }
+    }
+    if (Array.isArray(removeParticipants) && conv.isGroup) {
+      conv.participants = conv.participants.filter(
+        (p) => !removeParticipants.map(String).includes(String(p))
+      );
+    }
+
+    await conv.save();
+    const populated = await Conversation.findById(conv._id)
+      .populate("participants", populateParticipants)
+      .populate("lastMessage")
+      .lean();
+    if (populated.lastMessage) populated.lastMessage = decryptMessage(populated.lastMessage);
+
+    // Notify all participants
+    conv.participants.forEach((pid) => {
+      emitToUser(String(pid), "conversation-updated", populated);
+    });
+
+    res.json(populated);
+  } catch (err) {
+    console.error("[Messages] updateConversation error:", err);
+    res.status(500).json({ message: "Failed to update conversation" });
   }
 };
 
@@ -177,7 +229,7 @@ export const sendMessage = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
     const { conversationId } = req.params;
-    const { content, type = "text" } = req.body;
+    const { content, type = "text", mentions = [], priority = "normal" } = req.body;
 
     if (!content || !content.trim()) {
       return res.status(400).json({ message: "Message content is required" });
@@ -202,6 +254,8 @@ export const sendMessage = async (req, res) => {
       iv,
       tag,
       type,
+      mentions: Array.isArray(mentions) ? mentions : [],
+      priority: ["normal", "urgent"].includes(priority) ? priority : "normal",
       readBy: [{ user: userId, readAt: new Date() }],
     });
 
@@ -351,7 +405,7 @@ export const deleteMessage = async (req, res) => {
       msg.content = "";
       msg.iv = "";
       msg.tag = "";
-      await msg.save();
+      await msg.save({ validateBeforeSave: false });
 
       // Notify conversation participants
       const conv = await Conversation.findById(msg.conversation);

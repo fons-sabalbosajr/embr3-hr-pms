@@ -1,16 +1,30 @@
-# React + Vite
+# EMBR3 HR-PMS — Landing Page
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+> Public-facing landing page for the EMBR3 DTRMS Personnel Management System.
 
-Currently, two official plugins are available:
+## Tech Stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- React 18 + Vite
+- Static site (no API dependency)
 
-## React Compiler
+## Development
 
-The React Compiler is not enabled on this template. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```bash
+npm install
+npm run dev       # Local dev server
+npm run build     # Production build → dist/
+npm run preview   # Preview production build
+```
 
-## Expanding the ESLint configuration
+## Deployment
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+For VPS deployment, the landing page can be:
+
+1. **Served as a separate Nginx site** on a subdomain (e.g., `www.embr3-onlinesystems.cloud`)
+2. **Included in the main app** by building and placing `dist/` in a `/landing` path
+
+See [DEPLOYMENT-VPS.md](../DEPLOYMENT-VPS.md) for the full VPS guide.
+
+---
+
+*Last updated: 2026-02-13*

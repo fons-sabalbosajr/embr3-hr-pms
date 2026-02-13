@@ -3,6 +3,7 @@ import verifyToken from "../middleware/authMiddleware.js";
 import {
   getConversations,
   createConversation,
+  updateConversation,
   getMessages,
   sendMessage,
   markAsRead,
@@ -25,6 +26,7 @@ router.get("/unread-count", getUnreadCount);
 // Conversations
 router.get("/conversations", getConversations);
 router.post("/conversations", createConversation);
+router.patch("/conversations/:conversationId", updateConversation);
 
 // Messages within a conversation
 router.get("/conversations/:conversationId/messages", getMessages);

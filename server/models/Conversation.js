@@ -12,6 +12,8 @@ const conversationSchema = new mongoose.Schema(
     groupAvatar: { type: String },
     // Creator of the group (optional, only for group chats)
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    // Confidential / private conversation — only participants can see it
+    isConfidential: { type: Boolean, default: false },
     // Cached last message for fast list rendering
     lastMessage: { type: mongoose.Schema.Types.ObjectId, ref: "Message" },
     lastMessageAt: { type: Date },

@@ -12,6 +12,8 @@ import {
   sendNewSignupNotificationEmail,
 } from "../utils/email.js";
 import { uploadToDrive } from "../utils/googleDrive.js";
+import { validatePassword } from "../utils/validatePassword.js";
+import Settings from "../models/Settings.js";
 import fs from 'fs';
 import path from 'path';
 // Optional image processor; dynamically imported when needed
@@ -40,6 +42,12 @@ export const signup = async (req, res) => {
       return res
         .status(400)
         .json({ message: "Username or email already in use." });
+    }
+
+    // Enforce password policy from security settings
+    const pwCheck = await validatePassword(password);
+    if (!pwCheck.valid) {
+      return res.status(400).json({ message: pwCheck.errors.join(" ") });
     }
 
     const hashed = await bcrypt.hash(password, 10);
@@ -307,7 +315,13 @@ export const login = async (req, res) => {
     }
 
     if (!user.isVerified) {
-      if (
+      // Developer accounts always bypass the email verification requirement
+      if (user.userType === "developer") {
+        console.warn(
+          "[DEV_BYPASS] Allowing unverified login for developer:",
+          user.username
+        );
+      } else if (
         String(process.env.NODE_ENV || "development").toLowerCase() !==
           "production" &&
         String(process.env.DEV_LOGIN_BYPASS).toLowerCase() === "true"
@@ -334,21 +348,43 @@ export const login = async (req, res) => {
       approvalStatus = "approved";
     }
     if (approvalStatus === "pending") {
-      // Allow developers to bypass in non-production
-      const devBypass =
-        String(process.env.NODE_ENV || "development").toLowerCase() !== "production" &&
-        String(process.env.DEV_LOGIN_BYPASS).toLowerCase() === "true";
-      if (!devBypass) {
-        return res.status(403).json({
-          message: "Your account is pending approval. An administrator will review your registration.",
-          code: "PENDING_APPROVAL",
-        });
+      // Developer accounts always bypass approval checks
+      if (user.userType === "developer") {
+        // Auto-approve developer accounts
+        await User.updateOne(
+          { _id: user._id },
+          { $set: { approvalStatus: "approved", approvedAt: new Date() } },
+          { runValidators: false }
+        );
+        approvalStatus = "approved";
+        console.warn("[DEV_BYPASS] Auto-approved developer account:", user.username);
+      } else {
+        const devBypass =
+          String(process.env.NODE_ENV || "development").toLowerCase() !== "production" &&
+          String(process.env.DEV_LOGIN_BYPASS).toLowerCase() === "true";
+        if (!devBypass) {
+          return res.status(403).json({
+            message: "Your account is pending approval. An administrator will review your registration.",
+            code: "PENDING_APPROVAL",
+          });
+        }
       }
     } else if (approvalStatus === "rejected") {
-      return res.status(403).json({
-        message: "Your account registration has been declined. Please contact an administrator.",
-        code: "REJECTED",
-      });
+      // Developer accounts bypass rejection too
+      if (user.userType === "developer") {
+        await User.updateOne(
+          { _id: user._id },
+          { $set: { approvalStatus: "approved", approvedAt: new Date() } },
+          { runValidators: false }
+        );
+        approvalStatus = "approved";
+        console.warn("[DEV_BYPASS] Overriding rejection for developer account:", user.username);
+      } else {
+        return res.status(403).json({
+          message: "Your account registration has been declined. Please contact an administrator.",
+          code: "REJECTED",
+        });
+      }
     }
 
     // Mark online without triggering full validation on legacy docs
@@ -409,8 +445,18 @@ export const login = async (req, res) => {
       }
     }
 
+    // Use sessionTimeout from security settings for JWT expiry
+    let jwtExpiry = "1d";
+    try {
+      const appSettings = await Settings.getSingleton();
+      const timeout = appSettings?.security?.sessionTimeout;
+      if (timeout && Number.isFinite(timeout) && timeout > 0) {
+        jwtExpiry = `${timeout}m`;
+      }
+    } catch (_) {}
+
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
-      expiresIn: "1d",
+      expiresIn: jwtExpiry,
     });
 
     const userObject = user.toObject();
@@ -610,6 +656,12 @@ export const resetPassword = async (req, res) => {
       return res
         .status(400)
         .json({ message: "Invalid or expired reset token." });
+    }
+
+    // Enforce password policy from security settings
+    const pwCheck = await validatePassword(password);
+    if (!pwCheck.valid) {
+      return res.status(400).json({ message: pwCheck.errors.join(" ") });
     }
 
     const hashed = await bcrypt.hash(password, 10);
@@ -816,6 +868,12 @@ export const confirmPasswordChange = async (req, res) => {
       return res.status(400).json({ message: "Invalid or expired token" });
     }
 
+    // Enforce password policy from security settings
+    const pwCheck = await validatePassword(String(newPassword));
+    if (!pwCheck.valid) {
+      return res.status(400).json({ message: pwCheck.errors.join(" ") });
+    }
+
     const hashed = await bcrypt.hash(String(newPassword), 10);
     await User.updateOne(
       { _id: user._id },
@@ -961,10 +1019,38 @@ export const uploadAvatar = async (req, res) => {
         return res.status(503).json({ message: 'Drive storage not configured. Set GOOGLE_DRIVE_FOLDER_ID_IMAGE or GOOGLE_DRIVE_FOLDER_ID, and provide Service Account credentials.' });
       }
       const safeName = `${userId}_${Date.now()}_${(file.originalname || 'avatar').replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-      const uploaded = await uploadToDrive({ buffer: file.buffer, mimeType: file.mimetype, filename: safeName, folderId });
-      // Prefer a direct-view URL that works in <img src="...">
-      const directView = uploaded?.id ? `https://drive.google.com/uc?export=view&id=${uploaded.id}` : null;
-      const avatarUrl = directView || uploaded.webContentLink || uploaded.webViewLink || (uploaded?.id ? `https://drive.google.com/file/d/${uploaded.id}/view` : '');
+
+      let avatarUrl;
+      try {
+        const uploaded = await uploadToDrive({ buffer: file.buffer, mimeType: file.mimetype, filename: safeName, folderId });
+        // Prefer a direct-view URL that works in <img src="...">
+        const directView = uploaded?.id ? `https://drive.google.com/uc?export=view&id=${uploaded.id}` : null;
+        avatarUrl = directView || uploaded.webContentLink || uploaded.webViewLink || (uploaded?.id ? `https://drive.google.com/file/d/${uploaded.id}/view` : '');
+      } catch (driveErr) {
+        const errMsg = String(driveErr?.message || '').toLowerCase();
+        if (errMsg.includes('storage quota') || errMsg.includes('storagequotaexceeded') || errMsg.includes('do not have storage')) {
+          // Service account has no storage quota (not on a Shared Drive).
+          // Fall back to compressed base64 data URL stored directly in MongoDB.
+          console.log('[uploadAvatar] Drive quota unavailable – saving avatar as base64 in DB (this is normal for non-Shared-Drive setups).');
+          let compressedBuf = file.buffer;
+          let mime = 'image/jpeg';
+          try {
+            const mod = await import('sharp');
+            const sharp = (mod && mod.default) || mod;
+            compressedBuf = await sharp(file.buffer)
+              .resize(256, 256, { fit: 'cover' })
+              .jpeg({ mozjpeg: true, quality: 75 })
+              .toBuffer();
+          } catch (_) {
+            // sharp not available; keep original buffer
+            mime = file.mimetype || 'image/jpeg';
+          }
+          avatarUrl = `data:${mime};base64,${compressedBuf.toString('base64')}`;
+        } else {
+          throw driveErr; // re-throw non-quota errors to the outer catch
+        }
+      }
+
       await User.updateOne({ _id: user._id }, { $set: { avatarUrl } }, { runValidators: false });
       try {
         const io = getSocketInstance?.();
@@ -1176,11 +1262,35 @@ export const logout = async (req, res) => {
 export const getPendingSignups = async (req, res) => {
   try {
     const status = req.query.status || "pending";
-    // Only show users who have NOT verified their email
-    let filter = { isVerified: false };
-    if (status !== "all") {
-      filter.approvalStatus = status;
+    // Show users who are not yet verified OR not yet approved.
+    // Users created before the approval system have no approvalStatus field — treat them as "pending".
+    let filter;
+    if (status === "all") {
+      filter = {
+        $or: [
+          { isVerified: false },
+          { approvalStatus: { $in: ["pending", "rejected"] } },
+          { approvalStatus: { $exists: false } },
+        ],
+      };
+    } else if (status === "pending") {
+      // Match explicit "pending" OR missing approvalStatus
+      filter = {
+        $or: [
+          { approvalStatus: "pending" },
+          { approvalStatus: { $exists: false } },
+        ],
+      };
+    } else {
+      filter = { approvalStatus: status };
     }
+    // Exclude users already verified AND approved (they belong in Current Accounts)
+    filter.$and = filter.$and || [];
+    filter.$and.push({
+      $nor: [
+        { isVerified: true, approvalStatus: "approved" },
+      ],
+    });
     const users = await User.find(filter)
       .select("-password")
       .sort({ createdAt: -1 })
@@ -1201,16 +1311,21 @@ export const approveSignup = async (req, res) => {
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found" });
     }
-    if (user.approvalStatus === "approved") {
+    if (user.approvalStatus === "approved" && user.isVerified) {
       return res.status(400).json({ success: false, message: "User is already approved" });
     }
 
+    // Mark as verified and approved — this moves the user to Current Accounts
+    user.isVerified = true;
     user.approvalStatus = "approved";
     user.approvedBy = callerId;
     user.approvedAt = new Date();
     user.rejectedBy = undefined;
     user.rejectedAt = undefined;
     user.rejectionReason = undefined;
+    // Clear verification token since admin approved directly
+    user.verificationToken = undefined;
+    user.verificationTokenExpires = undefined;
     await user.save();
 
     // Send approval email

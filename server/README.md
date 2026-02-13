@@ -1,3 +1,36 @@
+# EMBR3 HR-PMS — Server (Node.js / Express)
+
+> API backend for the EMBR3 HR Personnel Management System
+
+## Quick Start
+
+```bash
+npm install
+cp .env.example .env   # Fill in your values
+npm run dev            # Development (nodemon)
+node server.js         # Production
+```
+
+## Environment Variables
+
+See [`.env.example`](.env.example) for the full list. Key variables:
+
+| Variable | Description |
+|----------|-------------|
+| `MONGO_URI` | MongoDB connection string |
+| `JWT_SECRET` | 64-char hex for JWT signing |
+| `CLIENT_ORIGIN` | Comma-separated allowed front-end origins |
+| `STORAGE_PROVIDER` | `local` (VPS disk) or `drive` (Google Drive) |
+| `EMAIL_HOST/PORT/USER/PASS` | SMTP config for email sending |
+
+## Deployment
+
+- **VPS (Production)**: See [DEPLOYMENT-VPS.md](../DEPLOYMENT-VPS.md)
+- **Render (UAT)**: See [DEPLOYMENT-UAT.md](../DEPLOYMENT-UAT.md)
+- **PM2 Config**: See [ecosystem.config.cjs](../ecosystem.config.cjs)
+
+---
+
 ## Account Preferences Enhancements (Nov 2025)
 
 ### New User Fields
@@ -224,3 +257,19 @@ Updated: 2025-11-11
 - Resend Policy: Payslip emails allow up to 5 resends; idempotent responses avoid 409 conflicts.
 
 After changing `.env`, restart the server and send a test payslip to verify inline logo rendering and branding.
+
+---
+
+## VPS Deployment Notes
+
+When deploying to a VPS (Hostinger KVM 2):
+
+- Use `npm ci --omit=dev` for production installs
+- PM2 manages the Node process: `pm2 start ecosystem.config.cjs`
+- Nginx proxies `/api/*` and `/socket.io/*` to port 5000
+- Avatars stored locally in `/var/www/embr3-hr-pms/server/uploads/`
+- Full guide: [DEPLOYMENT-VPS.md](../DEPLOYMENT-VPS.md)
+
+---
+
+*Last updated: 2026-02-13*

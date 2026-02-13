@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { Card, Form, Input, Button, Typography } from "antd";
 import Swal from "sweetalert2";
@@ -11,6 +11,18 @@ const ResetPassword = () => {
   const { token } = useParams();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
+  const [securityRules, setSecurityRules] = useState({ passwordMinLength: 8, passwordRequiresNumber: true, passwordRequiresSymbol: true });
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const res = await axios.get('/public/security-settings');
+        if (mounted && res.data) setSecurityRules(res.data);
+      } catch (_) {}
+    })();
+    return () => { mounted = false; };
+  }, []);
 
   const onFinish = async (values) => {
     const { password, confirm } = values;
@@ -60,7 +72,9 @@ const ResetPassword = () => {
             label="New Password"
             rules={[
               { required: true, message: "Please enter your new password" },
-              { min: 6, message: "Password must be at least 6 characters" },
+              { min: securityRules.passwordMinLength, message: `Password must be at least ${securityRules.passwordMinLength} characters` },
+              ...(securityRules.passwordRequiresNumber ? [{ pattern: /\d/, message: "Password must contain at least one number" }] : []),
+              ...(securityRules.passwordRequiresSymbol ? [{ pattern: /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?`~]/, message: "Password must contain at least one special character" }] : []),
             ]}
           >
             <Input.Password placeholder="Enter new password" visibilityToggle />

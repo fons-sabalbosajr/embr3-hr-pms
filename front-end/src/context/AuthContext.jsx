@@ -57,9 +57,10 @@ export const AuthProvider = ({ children }) => {
       const onAvatarUpdated = (payload) => {
         try {
           if (payload && String(payload.userId) === String(user._id) && payload.avatarUrl) {
-            // Cache-bust to ensure immediate refresh across the app
-            const cacheBusted = `${payload.avatarUrl}${payload.avatarUrl.includes('?') ? '&' : '?'}v=${Date.now()}`;
-            const updated = { ...user, avatarUrl: cacheBusted };
+            // Skip cache-busting for data: URLs (base64) – they are unique by content
+            const url = payload.avatarUrl;
+            const finalUrl = url.startsWith('data:') ? url : `${url}${url.includes('?') ? '&' : '?'}v=${Date.now()}`;
+            const updated = { ...user, avatarUrl: finalUrl };
             setUser(updated);
             secureStore("user", updated);
           }

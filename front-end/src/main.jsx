@@ -15,6 +15,7 @@ import { LoadingProvider } from "./context/LoadingContext.jsx";
 import { App as AntApp } from "antd";
 import NProgress from "nprogress";
 import GlobalLoadingOverlay from "./components/GlobalLoadingOverlay.jsx";
+import SessionManager from "./components/SessionManager.jsx";
 
 // Configure NProgress (thin bar, no spinner – overlay has its own Spin)
 NProgress.configure({ showSpinner: false, trickleSpeed: 120, minimum: 0.08 });
@@ -29,6 +30,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
             <LoadingProvider>
               <AntApp>
                 <App />
+                <SessionManager />
                 <GlobalLoadingOverlay />
               </AntApp>
             </LoadingProvider>

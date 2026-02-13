@@ -120,6 +120,30 @@ export const updateSettings = async (req, res) => {
     res.status(500).json({ message: "Error updating settings", error });
   }
 };
+
+// @desc    Public password policy (for signup/reset forms)
+// @route   GET /api/public/security-settings
+// @access  Public
+export const getPublicSecuritySettings = async (req, res) => {
+  try {
+    const s = await Settings.getSingleton();
+    const security = s?.security || {};
+    res.status(200).json({
+      passwordMinLength: security.passwordMinLength ?? 8,
+      passwordRequiresNumber: security.passwordRequiresNumber ?? true,
+      passwordRequiresSymbol: security.passwordRequiresSymbol ?? true,
+      // sessionTimeout is intentionally NOT exposed publicly
+    });
+  } catch (error) {
+    // Return safe defaults on error
+    res.status(200).json({
+      passwordMinLength: 8,
+      passwordRequiresNumber: true,
+      passwordRequiresSymbol: true,
+    });
+  }
+};
+
 // @desc    Public demo mode info (no credentials)
 // @route   GET /api/public/demo-info
 // @access  Public

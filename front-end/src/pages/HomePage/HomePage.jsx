@@ -30,6 +30,8 @@ import {
   EyeOutlined,
   FieldTimeOutlined,
   BugOutlined,
+  LockOutlined,
+  PlusOutlined,
 } from "@ant-design/icons";
 
 import { useNavigate, Routes, Route } from "react-router-dom";
@@ -115,6 +117,11 @@ const HomePage = () => {
   const [bugSubmitting, setBugSubmitting] = useState(false);
   const [bugScreenshot, setBugScreenshot] = useState(null);
   const [bugForm] = Form.useForm();
+  // Bug reports summary modal (developer only)
+  const [bugListOpen, setBugListOpen] = useState(false);
+  const [bugListData, setBugListData] = useState([]);
+  const [bugListLoading, setBugListLoading] = useState(false);
+  const [bugListStats, setBugListStats] = useState({ total: 0, open: 0, resolved: 0 });
   const [unreadMsgCount, setUnreadMsgCount] = useState(0);
   const [recentConversations, setRecentConversations] = useState([]);
   const [loadingRecentConvs, setLoadingRecentConvs] = useState(false);
@@ -221,8 +228,21 @@ const HomePage = () => {
   const handleOpenDevSettings = () => {
     navigate("/settings/developer-settings");
   };
-  const handleOpenBugReports = () => {
-    navigate("/settings/developer-settings?tab=bug-reports");
+  const handleOpenBugReports = async () => {
+    setBugListOpen(true);
+    setBugListLoading(true);
+    try {
+      const res = await axiosInstance.get("/bug-report", { params: { page: 1, limit: 50 } });
+      const rows = Array.isArray(res.data?.data) ? res.data.data : Array.isArray(res.data) ? res.data : [];
+      setBugListData(rows);
+      const total = res.data?.total ?? rows.length;
+      const open = rows.filter((r) => r.status !== "resolved").length;
+      setBugListStats({ total, open, resolved: total - open });
+    } catch {
+      message.error("Failed to load bug reports");
+    } finally {
+      setBugListLoading(false);
+    }
   };
   
   // Demo mode state
@@ -515,6 +535,47 @@ const HomePage = () => {
         permissions: ["canViewDashboard"],
       },
       {
+        key: "messaging",
+        icon: <MessageOutlined />,
+        label: (() => {
+          return (
+            <span style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              Messaging
+              {unreadMsgCount > 0 && (
+                <Badge
+                  count={unreadMsgCount}
+                  size="small"
+                  overflowCount={99}
+                  style={{ marginLeft: 8 }}
+                />
+              )}
+            </span>
+          );
+        })(),
+        className: "messaging-menu-item",
+        permissions: ["canViewMessages"],
+        children: [
+          {
+            key: "/messaging/inbox",
+            label: "Inbox",
+            className: "messaging-menu-item",
+            permissions: ["canViewMessages"],
+          },
+          {
+            key: "/messaging/sent",
+            label: "Sent",
+            className: "messaging-menu-item",
+            permissions: ["canViewMessages"],
+          },
+          {
+            key: "/messaging/drafts",
+            label: "Drafts",
+            className: "messaging-menu-item",
+            permissions: ["canViewMessages"],
+          },
+        ],
+      },
+      {
         key: "employees",
         icon: <TeamOutlined />,
         label: "Personnel",
@@ -562,43 +623,6 @@ const HomePage = () => {
             key: "/dtr/holidays",
             label: "Holidays & Suspensions",
             permissions: ["canViewDTR"],
-          },
-        ],
-      },
-      {
-        key: "messaging",
-        icon: <MessageOutlined />,
-        label: (() => {
-          return (
-            <span style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              Messaging
-              {unreadMsgCount > 0 && (
-                <Badge
-                  count={unreadMsgCount}
-                  size="small"
-                  overflowCount={99}
-                  style={{ marginLeft: 8 }}
-                />
-              )}
-            </span>
-          );
-        })(),
-        permissions: ["canViewMessages"],
-        children: [
-          {
-            key: "/messaging/inbox",
-            label: "Inbox",
-            permissions: ["canViewMessages"],
-          },
-          {
-            key: "/messaging/sent",
-            label: "Sent",
-            permissions: ["canViewMessages"],
-          },
-          {
-            key: "/messaging/drafts",
-            label: "Drafts",
-            permissions: ["canViewMessages"],
           },
         ],
       },
@@ -1531,19 +1555,25 @@ const HomePage = () => {
 
   // ---- Messages Popover (recent conversations popup) ----
   const messageContent = hasAccess("canViewMessages") && (
-    <div style={{ width: 340, maxHeight: 400, overflowY: "auto" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", borderBottom: "1px solid var(--app-border-color, #f0f0f0)" }}>
-        <Text strong style={{ fontSize: 14 }}>Messages</Text>
-        <Button type="link" size="small" onClick={() => { setMsgPopoverOpen(false); navigate("/messaging/inbox"); }}>
-          View All
-        </Button>
+    <div style={{ width: 360, maxHeight: 440, overflowY: "auto" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid #f0f0f0" }}>
+        <Text strong style={{ fontSize: 15 }}>Messages</Text>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <Button size="small" icon={<PlusOutlined />} type="primary" style={{ borderRadius: 6 }}
+            onClick={() => { setMsgPopoverOpen(false); navigate("/messaging/inbox"); }}
+          >New</Button>
+          <Button type="link" size="small" onClick={() => { setMsgPopoverOpen(false); navigate("/messaging/inbox"); }}>
+            View All
+          </Button>
+        </div>
       </div>
       {loadingRecentConvs ? (
         <div style={{ textAlign: "center", padding: 30 }}><Skeleton active paragraph={{ rows: 3 }} /></div>
       ) : recentConversations.length === 0 ? (
-        <div style={{ padding: "24px 12px", textAlign: "center" }}>
-          <MessageOutlined style={{ fontSize: 28, color: "var(--app-text-muted, #d9d9d9)", marginBottom: 8 }} />
-          <br />
+        <div style={{ padding: "32px 16px", textAlign: "center" }}>
+          <div style={{ width: 56, height: 56, borderRadius: "50%", background: "linear-gradient(135deg, #e6f4ff, #f0f5ff)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px" }}>
+            <MessageOutlined style={{ fontSize: 24, color: "#1677ff" }} />
+          </div>
           <Text type="secondary" style={{ fontSize: 13 }}>No conversations yet</Text>
         </div>
       ) : (
@@ -1551,34 +1581,50 @@ const HomePage = () => {
           const other = (conv.participants || []).find((p) => String(p._id) !== String(user?._id));
           const name = conv.isGroup ? (conv.groupName || "Group Chat") : (other?.name || "Unknown");
           const preview = conv.lastMessage
-            ? conv.lastMessage.isDeleted ? "Message deleted" : (conv.lastMessage.content || "").slice(0, 50)
+            ? conv.lastMessage.isDeleted
+              ? "Message deleted"
+              : conv.lastMessage.priority === "urgent"
+              ? `🔴 ${(conv.lastMessage.content || "").slice(0, 45)}`
+              : (conv.lastMessage.content || "").slice(0, 50)
             : "No messages yet";
           return (
             <div
               key={conv._id}
               style={{
-                display: "flex", alignItems: "center", gap: 10, padding: "10px 12px",
-                borderBottom: "1px solid var(--app-border-color, #f5f5f5)", cursor: "pointer",
-                background: conv.unreadCount > 0 ? "var(--ant-color-primary-bg, #f0f7ff)" : "transparent",
+                display: "flex", alignItems: "center", gap: 10, padding: "10px 16px",
+                borderBottom: "1px solid #fafafa", cursor: "pointer",
+                background: conv.unreadCount > 0 ? "#f0f7ff" : "transparent",
+                transition: "background 0.15s",
               }}
+              onMouseEnter={(e) => { if (!conv.unreadCount) e.currentTarget.style.background = "#f9f9fb"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = conv.unreadCount > 0 ? "#f0f7ff" : "transparent"; }}
               onClick={() => { setMsgPopoverOpen(false); navigate(`/messaging/inbox?cid=${conv._id}`); }}
             >
-              {other ? (
-                <UserAvatar user={other} size={36} />
-              ) : (
-                <Avatar style={{ backgroundColor: "#1677ff" }} icon={<MessageOutlined />} size={36} />
-              )}
+              <div style={{ position: "relative", flexShrink: 0 }}>
+                {conv.isGroup ? (
+                  <Avatar style={{ background: "linear-gradient(135deg, #667eea, #764ba2)" }} icon={<TeamOutlined />} size={40} />
+                ) : other ? (
+                  <UserAvatar user={other} size={40} />
+                ) : (
+                  <Avatar style={{ backgroundColor: "#1677ff" }} icon={<MessageOutlined />} size={40} />
+                )}
+                {!conv.isGroup && other?.isOnline && (
+                  <span style={{ position: "absolute", bottom: 2, right: 2, width: 10, height: 10, background: "#52c41a", border: "2px solid #fff", borderRadius: "50%", zIndex: 1 }} />
+                )}
+              </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: conv.unreadCount > 0 ? 600 : 400, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                <div style={{ fontWeight: conv.unreadCount > 0 ? 600 : 500, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "flex", alignItems: "center", gap: 4 }}>
+                  {conv.isConfidential && <LockOutlined style={{ fontSize: 11, color: "#faad14" }} />}
                   {name}
+                  {conv.isGroup && <span style={{ fontSize: 10, color: "#8c8c8c", background: "#f0f0f0", borderRadius: 10, padding: "0 5px", height: 16, display: "inline-flex", alignItems: "center", marginLeft: 4 }}>{(conv.participants || []).length}</span>}
                 </div>
-                <div style={{ fontSize: 12, color: "var(--app-text-muted, #8c8c8c)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                <div style={{ fontSize: 12, color: "#8c8c8c", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: 1 }}>
                   {preview}
                 </div>
               </div>
               <div style={{ textAlign: "right", flexShrink: 0 }}>
                 {conv.lastMessageAt && (
-                  <div style={{ fontSize: 11, color: "var(--app-text-muted, #bfbfbf)" }}>
+                  <div style={{ fontSize: 11, color: "#bfbfbf" }}>
                     {dayjs(conv.lastMessageAt).fromNow(true)}
                   </div>
                 )}
@@ -1608,7 +1654,7 @@ const HomePage = () => {
           View Profile
         </div>
         {/* Developer Settings item removed as requested */}
-        {hasPermission(["canAccessDeveloper"]) && (
+        {user?.userType === "developer" && (
           <div className="popover-item" onClick={handleOpenBugReports}>
             <BugOutlined style={{ marginRight: 8 }} />
             Bug Reports
@@ -2110,6 +2156,48 @@ const HomePage = () => {
         onClose={() => setIsFeatureModalOpen(false)}
         user={user}
       />
+
+      {/* Bug Reports Summary Modal (developer only) */}
+      <Modal
+        open={bugListOpen}
+        onCancel={() => setBugListOpen(false)}
+        footer={<Button onClick={() => setBugListOpen(false)}>Close</Button>}
+        width={720}
+        title="Bug Reports Summary"
+        destroyOnHidden
+      >
+        {bugListLoading ? (
+          <Skeleton active paragraph={{ rows: 4 }} />
+        ) : (
+          <>
+            <div style={{ display: "flex", gap: 16, marginBottom: 16 }}>
+              <Tag color="blue" style={{ fontSize: 14, padding: "4px 12px" }}>Total: {bugListStats.total}</Tag>
+              <Tag color="volcano" style={{ fontSize: 14, padding: "4px 12px" }}>Open: {bugListStats.open}</Tag>
+              <Tag color="green" style={{ fontSize: 14, padding: "4px 12px" }}>Resolved: {bugListStats.resolved}</Tag>
+            </div>
+            <Table
+              size="small"
+              dataSource={bugListData}
+              rowKey={(r) => r._id}
+              pagination={{ pageSize: 5, size: "small" }}
+              columns={[
+                { title: "Title", dataIndex: "title", key: "title", render: (t) => t || "(no title)", ellipsis: true },
+                { title: "Status", dataIndex: "status", key: "status", width: 90, render: (s) => <Tag color={s === "resolved" ? "green" : "volcano"}>{s || "open"}</Tag> },
+                { title: "Reporter", key: "reporter", width: 140, render: (_, r) => r.reporterName || r.name || "-" },
+                { title: "Date", dataIndex: "createdAt", key: "createdAt", width: 130, render: (v) => v ? dayjs(v).format("MM/DD/YY HH:mm") : "-" },
+              ]}
+              expandable={{
+                expandedRowRender: (r) => (
+                  <div style={{ fontSize: 13 }}>
+                    {r.description && <p style={{ whiteSpace: "pre-wrap", margin: 0 }}>{r.description}</p>}
+                    {r.pageUrl && <Text type="secondary" style={{ fontSize: 12 }}>Page: {r.pageUrl}</Text>}
+                  </div>
+                ),
+              }}
+            />
+          </>
+        )}
+      </Modal>
 
       {/* Show pop-up announcements after login */}
       <AnnouncementPopup />

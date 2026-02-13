@@ -17,16 +17,20 @@ const AuthPage = () => {
   const [activeTab, setActiveTab] = useState("1");
   const { login } = useAuth();
   const [demoInfo, setDemoInfo] = useState(null);
+  const [securityRules, setSecurityRules] = useState({ passwordMinLength: 8, passwordRequiresNumber: true, passwordRequiresSymbol: true });
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
-        // Use axios instance so baseURL (VITE_API_URL) is respected in static hosting
         const res = await axios.get('/public/demo-info');
         if (mounted) setDemoInfo(res.data);
       } catch (_) {
         if (mounted) setDemoInfo(null);
       }
+      try {
+        const secRes = await axios.get('/public/security-settings');
+        if (mounted && secRes.data) setSecurityRules(secRes.data);
+      } catch (_) {}
     })();
     return () => { mounted = false; };
   }, []);
@@ -288,7 +292,12 @@ const AuthPage = () => {
                   <Form.Item
                     name="password"
                     label="Password"
-                    rules={[{ required: true, min: 6 }]}
+                    rules={[
+                      { required: true },
+                      { min: securityRules.passwordMinLength, message: `Password must be at least ${securityRules.passwordMinLength} characters` },
+                      ...(securityRules.passwordRequiresNumber ? [{ pattern: /\d/, message: "Password must contain at least one number" }] : []),
+                      ...(securityRules.passwordRequiresSymbol ? [{ pattern: /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?`~]/, message: "Password must contain at least one special character" }] : []),
+                    ]}
                   >
                     <Input.Password />
                   </Form.Item>
