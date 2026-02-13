@@ -1,6 +1,6 @@
 import axios from "axios";
 import { message } from "antd";
-import { secureRetrieve, secureRemove, secureStore, secureGet, secureSessionGet, secureSessionRemove } from "../../utils/secureStorage";
+import { secureRetrieve, secureRemove, secureStore, secureGet, secureSessionGet, secureSessionRemove, secureClearAll } from "../../utils/secureStorage";
 import demoActions from "../utils/demoActionsRegistry";
 
 // Prefer explicit API base via VITE_API_URL; fall back to Vite dev proxy path '/api' for local dev
@@ -104,13 +104,8 @@ axiosInstance.interceptors.response.use(
       }
     }
     if (error.response && error.response.status === 401) {
-      // Clear token on any 401 (session first, then legacy local)
-  try { secureRemove("token"); } catch {}
-  try { secureRemove("user"); } catch {}
-  try { secureSessionRemove("token"); } catch {}
-  try { secureSessionRemove("user"); } catch {}
-  // Proactively harden any lingering plaintext values migrated mid-session
-  try { secureStore('__last401', Date.now()); } catch(_){}
+      // Clear ALL encrypted/obfuscated keys from localStorage & sessionStorage (same as manual logout)
+      try { secureClearAll(); } catch {}
 
       // Determine if current location is a public route that should not force redirect
       const base = (import.meta.env.BASE_URL || "/").replace(/\/$/, "");
