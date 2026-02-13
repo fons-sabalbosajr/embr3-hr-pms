@@ -8,6 +8,7 @@ import {
   markDTRRequestAsRead,
   updateDTRRequest,
   deleteDTRRequest,
+  sendDTREmail,
 } from "../controllers/dtrRequestController.js";
 
 const router = express.Router();
@@ -39,6 +40,12 @@ router.delete(
   verifyToken,
   requirePermissions(["canProcessDTR"]),
   deleteDTRRequest
+);
+router.post(
+  "/:id/send-email",
+  verifyToken,
+  requirePermissions(["canProcessDTR"]),
+  sendDTREmail
 );
 
 export default router;

@@ -4,8 +4,8 @@ import { getSocketInstance } from "../socket.js";
 import User from "../models/User.js";
 import AuditLog from "../models/AuditLog.js";
 import Employee from "../models/Employee.js";
-import { sendPayslipDeliveryEmail } from "../utils/email.js";
-import { buildPayslipEmail } from "../utils/emailTemplates.js";
+import { sendPayslipDeliveryEmail, sendRequestAcknowledgmentEmail } from "../utils/email.js";
+import { buildPayslipEmail, buildRequestAcknowledgmentEmail } from "../utils/emailTemplates.js";
 
 export const createPayslipRequest = async (req, res) => {
   try {
@@ -53,6 +53,25 @@ export const createPayslipRequest = async (req, res) => {
         const payload = { ...newRequest.toObject(), type: "PayslipRequest" };
         io.emit("newNotification", payload);
       }
+    }
+
+    // Send acknowledgment email (fire-and-forget, non-blocking, Gmail only)
+    try {
+      const isGmail = /^[^\s@]+@gmail\.com$/i.test(email);
+      if (isGmail) {
+        const html = buildRequestAcknowledgmentEmail({
+          requestType: 'Payslip',
+          employeeId,
+          period,
+        });
+        sendRequestAcknowledgmentEmail({
+          to: email,
+          subject: `Payslip Request Received — ${employeeId}`,
+          html,
+        }).catch(err => console.warn('[Payslip] Acknowledgment email failed:', err?.message));
+      }
+    } catch (ackErr) {
+      console.warn('[Payslip] Could not queue acknowledgment email:', ackErr?.message);
     }
 
     res.status(201).json({ success: true, data: newRequest });

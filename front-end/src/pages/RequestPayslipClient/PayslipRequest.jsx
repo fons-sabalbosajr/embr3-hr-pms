@@ -137,7 +137,7 @@ const PayslipRequest = () => {
       });
 
       if (response.data?.success) {
-        message.success("Payslip request submitted successfully!");
+        message.success("Payslip request submitted! A confirmation email has been sent to your inbox.");
         form.resetFields();
       } else {
         // Handle limit reached or general failure
@@ -285,7 +285,7 @@ const PayslipRequest = () => {
             </Form.Item>
 
             <Form.Item
-              label="Email Address"
+              label="Email Address (Gmail only)"
               name="email"
               rules={[
                 { required: true, message: "Email is required" },
@@ -293,9 +293,13 @@ const PayslipRequest = () => {
                   type: "email",
                   message: "Please enter a valid email address",
                 },
+                {
+                  pattern: /^[^\s@]+@gmail\.com$/i,
+                  message: "Only Gmail addresses (@gmail.com) are currently supported",
+                },
               ]}
             >
-              <Input placeholder="Enter the email to receive your payslip" />
+              <Input placeholder="yourname@gmail.com" />
             </Form.Item>
 
             <Form.Item>

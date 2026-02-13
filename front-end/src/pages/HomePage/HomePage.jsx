@@ -1134,7 +1134,7 @@ const HomePage = () => {
                       title: "Send payslip to employee? ",
                       content: `Employee ${n.employeeId} • Period ${
                         n.period || ""
-                      }`,
+                      }\n\nThe payslip PDF will be sent to: ${n.email || "the email on file"}`,
                       onOk: () => resolve(true),
                       onCancel: () => resolve(false),
                     });
@@ -1162,6 +1162,53 @@ const HomePage = () => {
               }}
             >
               Send Payslip
+            </Button>
+          ),
+        // If this is a DTR request, provide a quick "Send DTR" action when HR already has a generated PDF
+        selectedNotification &&
+          selectedNotification.type === "DTRRequest" && (
+            <Button
+              key="sendDTR"
+              onClick={async () => {
+                try {
+                  const pdfBase64 = window.__LAST_GENERATED_DTR_BASE64__;
+                  if (!pdfBase64) {
+                    Modal.info({
+                      title: "Attach DTR PDF",
+                      content:
+                        'Please generate or open the DTR first so it can be attached. After generating, click "Send DTR" again.',
+                    });
+                    return;
+                  }
+                  const n = selectedNotification;
+                  const startLabel = n.startDate ? new Date(n.startDate).toLocaleDateString() : "";
+                  const endLabel = n.endDate ? new Date(n.endDate).toLocaleDateString() : "";
+                  const confirm = await new Promise((resolve) => {
+                    Modal.confirm({
+                      title: "Send DTR to employee?",
+                      content: `Employee ${n.employeeId} • ${startLabel} – ${endLabel}\n\nThe DTR PDF will be sent to: ${n.email || "the email on file"}`,
+                      onOk: () => resolve(true),
+                      onCancel: () => resolve(false),
+                    });
+                  });
+                  if (!confirm) return;
+                  await axiosInstance.post(
+                    `/dtr-requests/${encodeURIComponent(n._id || n.id)}/send-email`,
+                    {
+                      pdfBase64,
+                      filename: `dtr_${n.employeeId}_${startLabel.replace(/\//g, "-")}.pdf`,
+                    }
+                  );
+                  message.success("DTR emailed successfully");
+                } catch (err) {
+                  message.error(
+                    err?.response?.data?.message ||
+                      "Failed to send DTR email"
+                  );
+                }
+              }}
+            >
+              Send DTR
             </Button>
           ),
         selectedNotification && (
@@ -1311,7 +1358,20 @@ const HomePage = () => {
               <Tag color={selectedNotification.read ? "green" : "blue"}>
                 {selectedNotification.read ? "Read" : "Unread"}
               </Tag>
+              {selectedNotification.status === "sent" && (
+                <Tag color="green" style={{ marginLeft: 4 }}>Sent</Tag>
+              )}
             </Descriptions.Item>
+            {selectedNotification.email && (
+              <Descriptions.Item label="Recipient Email">
+                {selectedNotification.email}
+              </Descriptions.Item>
+            )}
+            {selectedNotification.sentAt && (
+              <Descriptions.Item label="Sent At">
+                {new Date(selectedNotification.sentAt).toLocaleString()}
+              </Descriptions.Item>
+            )}
             {selectedNotification.notes && (
               <Descriptions.Item label="Notes">
                 {selectedNotification.dataVisible === false

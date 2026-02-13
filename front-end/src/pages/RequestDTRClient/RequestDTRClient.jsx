@@ -318,7 +318,7 @@ const RequestDTRClient = () => {
             </Form.Item>
 
             <Form.Item
-              label="Email Address"
+              label="Email Address (Gmail only)"
               name="email"
               rules={[
                 { required: true, message: "Email is required" },
@@ -326,9 +326,13 @@ const RequestDTRClient = () => {
                   type: "email",
                   message: "Please enter a valid email address",
                 },
+                {
+                  pattern: /^[^\s@]+@gmail\.com$/i,
+                  message: "Only Gmail addresses (@gmail.com) are currently supported",
+                },
               ]}
             >
-              <Input placeholder="Enter your email where DTR will be sent" />
+              <Input placeholder="yourname@gmail.com" />
             </Form.Item>
 
             <Form.Item>
@@ -370,6 +374,7 @@ const RequestDTRClient = () => {
                       What happens next?
                     </Typography.Title>
                     <ol style={{ paddingLeft: 20, margin: 0, lineHeight: 2 }}>
+                      <li>A confirmation email has been sent to your inbox.</li>
                       <li>HR will review and verify your request.</li>
                       <li>
                         A PDF copy of your DTR will be sent to the email address

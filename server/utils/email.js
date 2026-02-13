@@ -410,7 +410,7 @@ export const sendPayslipDeliveryEmail = async ({ to, subject, html, pdfBuffer, f
   const fromName = process.env.EMAIL_FROM_NAME || "EMBR3 DTRMS Personnel";
   const fromAddress = process.env.EMAIL_USER || "no-reply@example.local";
   return sendWithRetry({
-    from: `${fromName} <${fromAddress}>`,
+    from: `"${fromName} (No-Reply)" <${fromAddress}>`,
     to,
     subject,
     html,
@@ -426,6 +426,48 @@ export const sendPayslipDeliveryEmail = async ({ to, subject, html, pdfBuffer, f
 };
 
 // ── Signup Approval / Rejection Emails ──────────────────────────────────────
+
+/**
+ * Send a DTR email with PDF attachment through the shared transport.
+ * @param {{ to: string, subject: string, html: string, pdfBuffer: Buffer, filename: string }} opts
+ * @returns {Promise<object>} nodemailer info or { skipped: true }
+ */
+export const sendDTRDeliveryEmail = async ({ to, subject, html, pdfBuffer, filename }) => {
+  const fromName = process.env.EMAIL_FROM_NAME || "EMBR3 DTRMS Personnel";
+  const fromAddress = process.env.EMAIL_USER || "no-reply@example.local";
+  return sendWithRetry({
+    from: `"${fromName} (No-Reply)" <${fromAddress}>`,
+    to,
+    subject,
+    html,
+    attachments: [
+      {
+        filename,
+        content: pdfBuffer,
+        contentType: "application/pdf",
+        contentDisposition: "attachment",
+      },
+    ],
+  }, "dtr-delivery");
+};
+
+/**
+ * Send a request acknowledgment email (no attachment).
+ * Used when employees submit DTR/Payslip requests from the public portal.
+ * @param {{ to: string, subject: string, html: string }} opts
+ * @returns {Promise<object>} nodemailer info or { skipped: true }
+ */
+export const sendRequestAcknowledgmentEmail = async ({ to, subject, html }) => {
+  const fromName = process.env.EMAIL_FROM_NAME || "EMBR3 DTRMS Personnel";
+  const fromAddress = process.env.EMAIL_USER || "no-reply@example.local";
+  return sendWithRetry({
+    from: `"${fromName} (No-Reply)" <${fromAddress}>`,
+    to,
+    subject,
+    html,
+    headers: { 'X-Auto-Response-Suppress': 'All' },
+  }, "request-acknowledgment");
+};
 
 export const sendSignupApprovedEmail = async (to, name, loginLink) => {
   return sendWithRetry({
