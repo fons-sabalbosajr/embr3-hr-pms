@@ -242,7 +242,8 @@ pm2 restart embr3-hr-api
 | `PORT` | Yes | `5000` (Nginx proxies to this) |
 | `MONGO_URI` | Yes | MongoDB connection string |
 | `JWT_SECRET` | Yes | Random 64-char hex for JWT signing |
-| `CLIENT_ORIGIN` | Yes | Front-end URL (e.g., `http://embr3-onlinesystems.cloud`) |
+| `CLIENT_ORIGIN` | Yes | Front-end origin (e.g., `https://embr3-onlinesystems.cloud`) — no path |
+| `CLIENT_BASE_PATH` | If subpath | `/hrpms` — appended to origin in email links |
 | `STORAGE_PROVIDER` | Yes | `local` (VPS disk) or `drive` (Google Drive) |
 | `AVATAR_UPLOAD_DIR` | If local | `/var/www/embr3-hr-pms/server/uploads` |
 | `SERVER_PUBLIC_URL` | If local | `http://embr3-onlinesystems.cloud/api` |
@@ -257,9 +258,9 @@ pm2 restart embr3-hr-api
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `VITE_API_URL` | Yes | `http://embr3-onlinesystems.cloud/api` |
+| `VITE_API_URL` | Yes | `https://embr3-onlinesystems.cloud/api` |
 | `VITE_ENCRYPT_SECRET` | Yes | Random 32+ char string for secure storage |
-| `VITE_BASE_PATH` | No | `/` (default) |
+| `VITE_BASE_PATH` | Yes | `/hrpms` — Vite `base`; used by React Router `basename` |
 
 ---
 

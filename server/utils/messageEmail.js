@@ -77,7 +77,12 @@ export const sendMessageNotificationEmail = async ({
     process.env.FRONTEND_URL ||
     "https://embr3-hr-pms.onrender.com";
   const firstOrigin = appUrl.split(",")[0].trim().replace(/\/$/, "");
-  const deepLink = `${firstOrigin}/messaging?cid=${conversationId}`;
+  const basePath = process.env.CLIENT_BASE_PATH
+    ? process.env.CLIENT_BASE_PATH.startsWith("/")
+      ? process.env.CLIENT_BASE_PATH
+      : `/${process.env.CLIENT_BASE_PATH}`
+    : "";
+  const deepLink = `${firstOrigin}${basePath}/messaging?cid=${conversationId}`;
 
   return send({
     from: `"EMB Region III HR Messaging" <${process.env.EMAIL_USER}>`,
