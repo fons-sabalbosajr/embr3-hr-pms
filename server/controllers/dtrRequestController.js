@@ -59,7 +59,8 @@ export const createDTRRequest = async (req, res) => {
 
 export const getDTRRequests = async (_req, res) => {
   try {
-    const rows = await DTRRequest.find().sort({ createdAt: -1 });
+    // Only return pending (unsent) requests as active notifications
+    const rows = await DTRRequest.find({ status: { $ne: 'sent' } }).sort({ createdAt: -1 });
     res.json({ success: true, data: rows });
   } catch (err) {
     console.error(err);
@@ -247,6 +248,18 @@ export const sendDTREmail = async (req, res) => {
       });
     } catch (e) {
       console.warn('Failed to write DTR email audit log', e);
+    }
+
+    // Save the request email to the employee's profile (addToSet avoids duplicates)
+    if (row.email && row.employeeId) {
+      try {
+        await Employee.updateOne(
+          { empId: row.employeeId },
+          { $addToSet: { emails: row.email } }
+        );
+      } catch (e) {
+        console.warn('Failed to save email to employee profile', e);
+      }
     }
 
     const io = getSocketInstance();

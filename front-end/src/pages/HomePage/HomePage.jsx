@@ -328,6 +328,30 @@ const HomePage = () => {
     };
   }, [setNotifications]);
 
+  // Socket.io: remove dispatched notifications in real-time (for all connected admins)
+  useEffect(() => {
+    const handleDtrSent = (payload) => {
+      if (payload?.id) {
+        setNotifications((prev) =>
+          prev.filter((n) => (n._id || n.id) !== String(payload.id))
+        );
+      }
+    };
+    const handlePayslipSent = (payload) => {
+      if (payload?.id) {
+        setNotifications((prev) =>
+          prev.filter((n) => (n._id || n.id) !== String(payload.id))
+        );
+      }
+    };
+    socket.on("dtrSent", handleDtrSent);
+    socket.on("payslipSent", handlePayslipSent);
+    return () => {
+      socket.off("dtrSent", handleDtrSent);
+      socket.off("payslipSent", handlePayslipSent);
+    };
+  }, [setNotifications]);
+
   // Load developer notifications if user is developer/admin and listen for DevSettings updates
   useEffect(() => {
     let mounted = true;
@@ -1153,6 +1177,12 @@ const HomePage = () => {
                     }
                   );
                   message.success("Payslip emailed successfully");
+                  // Remove dispatched notification in real-time and close modal
+                  setNotifications((prev) =>
+                    prev.filter((item) => (item._id || item.id) !== (n._id || n.id))
+                  );
+                  setIsNotificationModalOpen(false);
+                  setSelectedNotification(null);
                 } catch (err) {
                   message.error(
                     err?.response?.data?.message ||
@@ -1200,6 +1230,12 @@ const HomePage = () => {
                     }
                   );
                   message.success("DTR emailed successfully");
+                  // Remove dispatched notification in real-time and close modal
+                  setNotifications((prev) =>
+                    prev.filter((item) => (item._id || item.id) !== (n._id || n.id))
+                  );
+                  setIsNotificationModalOpen(false);
+                  setSelectedNotification(null);
                 } catch (err) {
                   message.error(
                     err?.response?.data?.message ||

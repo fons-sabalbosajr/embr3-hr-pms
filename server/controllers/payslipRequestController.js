@@ -84,7 +84,8 @@ export const createPayslipRequest = async (req, res) => {
 // ✅ New controller for GET
 export const getPayslipRequests = async (req, res) => {
   try {
-    const requests = await PayslipRequest.find().sort({ createdAt: -1 });
+    // Only return pending (unsent) requests as active notifications
+    const requests = await PayslipRequest.find({ status: { $ne: 'sent' } }).sort({ createdAt: -1 });
     res.json({ success: true, data: requests });
   } catch (err) {
     console.error(err);
@@ -285,6 +286,18 @@ export const sendPayslipEmail = async (req, res) => {
     const io = getSocketInstance();
     if (io) {
       io.emit('payslipSent', { id: row._id, employeeId: row.employeeId, period: row.period, sentAt: row.sentAt });
+    }
+
+    // Save the request email to the employee's profile (addToSet avoids duplicates)
+    if (row.email && row.employeeId) {
+      try {
+        await Employee.updateOne(
+          { empId: row.employeeId },
+          { $addToSet: { emails: row.email } }
+        );
+      } catch (e) {
+        console.warn('Failed to save email to employee profile', e);
+      }
     }
 
     // Ensure a System Reports entry exists/updated for this payslip
