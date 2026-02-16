@@ -54,7 +54,7 @@ const settingsSchema = new mongoose.Schema({
 
   // Security Settings
   security: {
-    sessionTimeout: { type: Number, default: 30 }, // in minutes
+    sessionTimeout: { type: Number, default: 480 }, // in minutes (8 hours)
     passwordMinLength: { type: Number, default: 8 },
     passwordRequiresNumber: { type: Boolean, default: true },
     passwordRequiresSymbol: { type: Boolean, default: true },

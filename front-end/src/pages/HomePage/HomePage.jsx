@@ -524,7 +524,7 @@ const HomePage = () => {
     logout();
   };
 
-  const IDLE_TIMEOUT = 10 * 60 * 1000;
+  const IDLE_TIMEOUT = 60 * 60 * 1000; // 60 minutes
   const idleTimer = useRef(null);
 
   const resetIdleTimer = useCallback(() => {
@@ -533,12 +533,12 @@ const HomePage = () => {
   }, [handleLogout]);
 
   useEffect(() => {
-    window.addEventListener("mousemove", resetIdleTimer);
-    window.addEventListener("keydown", resetIdleTimer);
+    const events = ["mousemove", "keydown", "mousedown", "scroll", "touchstart", "click", "pointerdown"];
+    events.forEach((e) => window.addEventListener(e, resetIdleTimer));
+    resetIdleTimer(); // start the timer
     return () => {
       clearTimeout(idleTimer.current);
-      window.removeEventListener("mousemove", resetIdleTimer);
-      window.removeEventListener("keydown", resetIdleTimer);
+      events.forEach((e) => window.removeEventListener(e, resetIdleTimer));
     };
   }, [resetIdleTimer]);
 

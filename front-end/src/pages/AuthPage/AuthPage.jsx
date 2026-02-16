@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Tabs, Form, Input, Button, Typography, Card, Alert, Space, Tag } from "antd";
+import { Tabs, Form, Input, Button, Typography, Card, Alert, Space, Tag, Collapse } from "antd";
 import { useNavigate } from "react-router-dom";
 import useAuth from "../../hooks/useAuth";
 import bgImage from "../../assets/bgemb.webp";
@@ -7,8 +7,21 @@ import axios from "../../api/axiosInstance";
 import "./authpage.css";
 import Swal from "sweetalert2";
 import { swalSuccess, swalError, swalWarning } from "../../utils/swalHelper";
+import {
+  RocketOutlined,
+  BellOutlined,
+  ToolOutlined,
+  InfoCircleOutlined,
+} from "@ant-design/icons";
 
 const { Title, Text } = Typography;
+
+const TYPE_META = {
+  announcement: { icon: <BellOutlined />, color: "#1890ff", label: "Announcement" },
+  "app-update": { icon: <RocketOutlined />, color: "#52c41a", label: "App Update" },
+  maintenance: { icon: <ToolOutlined />, color: "#fa8c16", label: "Maintenance" },
+  general: { icon: <InfoCircleOutlined />, color: "#8c8c8c", label: "General" },
+};
 
 const AuthPage = () => {
   const [loading, setLoading] = useState(false);
@@ -19,6 +32,7 @@ const AuthPage = () => {
   const { login } = useAuth();
   const [demoInfo, setDemoInfo] = useState(null);
   const [securityRules, setSecurityRules] = useState({ passwordMinLength: 8, passwordRequiresNumber: true, passwordRequiresSymbol: true });
+  const [loginAnnouncements, setLoginAnnouncements] = useState([]);
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -31,6 +45,11 @@ const AuthPage = () => {
       try {
         const secRes = await axios.get('/public/security-settings');
         if (mounted && secRes.data) setSecurityRules(secRes.data);
+      } catch (_) {}
+      // Fetch login-page announcements (public, no auth)
+      try {
+        const annRes = await axios.get('/announcements/login');
+        if (mounted) setLoginAnnouncements(annRes.data?.data || []);
       } catch (_) {}
     })();
     return () => { mounted = false; };
@@ -121,7 +140,56 @@ const AuthPage = () => {
     ), url(${bgImage})`,
       }}
     >
-      <Card className="auth-card">
+      <div className="auth-layout-wrapper">
+        {/* ── What's New — above login card ── */}
+        {loginAnnouncements.length > 0 && (
+          <div className="auth-announcements-panel">
+            <div className="auth-announcements-header">
+              <RocketOutlined className="auth-announcements-header-icon" />
+              <span>What's New</span>
+            </div>
+            <Collapse
+              accordion
+              defaultActiveKey={loginAnnouncements[0]?._id}
+              size="small"
+              className="auth-announcements-collapse"
+              expandIconPosition="end"
+              items={loginAnnouncements.map((a) => {
+                const meta = TYPE_META[a.type] || TYPE_META.general;
+                return {
+                  key: a._id,
+                  label: (
+                    <div className="auth-announcement-label">
+                      <span className="auth-announcement-label-icon" style={{ color: meta.color }}>{meta.icon}</span>
+                      <span className="auth-announcement-label-title">{a.title}</span>
+                      <Tag
+                        color={meta.color === "#52c41a" ? "green" : meta.color === "#fa8c16" ? "orange" : meta.color === "#1890ff" ? "blue" : "default"}
+                        className="auth-announcement-label-tag"
+                      >
+                        {meta.label}
+                      </Tag>
+                    </div>
+                  ),
+                  children: (
+                    <div className="auth-announcement-body">
+                      <div
+                        className="auth-announcement-content"
+                        dangerouslySetInnerHTML={{ __html: a.body }}
+                      />
+                      <div className="auth-announcement-meta">
+                        {a.createdBy && <span>Posted by {a.createdBy} &bull; </span>}
+                        {new Date(a.createdAt).toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" })}
+                      </div>
+                    </div>
+                  ),
+                };
+              })}
+            />
+          </div>
+        )}
+
+        {/* ── Login Card ── */}
+        <Card className="auth-card">
         <Title level={3} className="auth-title">
           EMBR3 DTR Management System
         </Title>
@@ -368,6 +436,7 @@ const AuthPage = () => {
           );
         })()}
       </Card>
+      </div>
     </div>
   );
 };

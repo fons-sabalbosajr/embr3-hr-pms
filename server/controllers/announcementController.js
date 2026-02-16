@@ -31,7 +31,12 @@ export const getAnnouncements = async (req, res) => {
 /** GET /active — only active, non-expired, published announcements (for pop-up) */
 export const getActiveAnnouncements = async (req, res) => {
   try {
-    const docs = await Announcement.find(activeFilter())
+    const filter = {
+      ...activeFilter(),
+      // Only return pop-up or both — exclude login-only
+      publishPlace: { $in: ["popup", "both"] },
+    };
+    const docs = await Announcement.find(filter)
       .sort({ priority: -1, createdAt: -1 })
       .lean();
     res.json({ success: true, data: docs });
@@ -41,10 +46,28 @@ export const getActiveAnnouncements = async (req, res) => {
   }
 };
 
+/** GET /login — public (no auth) active announcements targeted at the login page */
+export const getLoginAnnouncements = async (req, res) => {
+  try {
+    const filter = {
+      ...activeFilter(),
+      publishPlace: { $in: ["login", "both"] },
+    };
+    const docs = await Announcement.find(filter)
+      .select("title body type priority createdAt createdBy publishPlace")
+      .sort({ priority: -1, createdAt: -1 })
+      .lean();
+    res.json({ success: true, data: docs });
+  } catch (err) {
+    console.error("[Announcements] login error:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 /** POST / — create */
 export const createAnnouncement = async (req, res) => {
   try {
-    const { title, body, type, priority, showPopup, publishAt, expiresAt } = req.body;
+    const { title, body, type, priority, showPopup, publishPlace, publishAt, expiresAt } = req.body;
     if (!title || !body) {
       return res.status(400).json({ success: false, message: "Title and body are required." });
     }
@@ -54,6 +77,7 @@ export const createAnnouncement = async (req, res) => {
       type: type || "announcement",
       priority: priority || "normal",
       showPopup: showPopup !== false,
+      publishPlace: publishPlace || "popup",
       publishAt: publishAt || null,
       expiresAt: expiresAt || null,
       createdBy: req.user?.name || req.user?.email || "Admin",
@@ -68,7 +92,7 @@ export const createAnnouncement = async (req, res) => {
 /** PUT /:id — update */
 export const updateAnnouncement = async (req, res) => {
   try {
-    const { title, body, type, priority, active, showPopup, publishAt, expiresAt } = req.body;
+    const { title, body, type, priority, active, showPopup, publishPlace, publishAt, expiresAt } = req.body;
     const doc = await Announcement.findByIdAndUpdate(
       req.params.id,
       {
@@ -78,6 +102,7 @@ export const updateAnnouncement = async (req, res) => {
         ...(priority !== undefined && { priority }),
         ...(active !== undefined && { active }),
         ...(showPopup !== undefined && { showPopup }),
+        ...(publishPlace !== undefined && { publishPlace }),
         ...(publishAt !== undefined && { publishAt: publishAt || null }),
         ...(expiresAt !== undefined && { expiresAt: expiresAt || null }),
         updatedBy: req.user?.name || req.user?.email || "Admin",

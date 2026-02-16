@@ -125,6 +125,31 @@ body {
 	line-height: 22px;
 }
 
+/* Extra-compact table for modals */
+.compact-modal-table .ant-table-tbody > tr > td {
+	padding: 2px 4px !important;
+	font-size: 11px;
+	line-height: 1.15;
+}
+.compact-modal-table .ant-table-thead > tr > th {
+	padding: 3px 4px !important;
+	font-size: 11px;
+	line-height: 1.15;
+}
+.compact-modal-table .ant-table-cell {
+	font-size: 11px;
+	line-height: 1.15;
+}
+.compact-modal-table .ant-pagination {
+	margin: 4px 0;
+}
+.compact-modal-table .ant-pagination-item {
+	min-width: 24px;
+	height: 22px;
+	line-height: 20px;
+	font-size: 11px;
+}
+
 /* Corporate panel aesthetic */
 .corp-panel .ant-card-head-title {
 	font-size: 16px;

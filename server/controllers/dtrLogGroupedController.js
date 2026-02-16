@@ -36,11 +36,12 @@ export const getGroupedEmployeeDTR = async (req, res) => {
       const allIds = [emp.empId, ...(emp.alternateEmpIds || [])].filter(
         Boolean
       );
-      const last4Ids = allIds.map((id) =>
-        String(id).replace(/\D/g, "").slice(-4)
-      );
-      last4Ids.forEach((id) => {
-        empMap.set(id, emp);
+      // Map by full normalized digits (strip non-digits + leading zeros)
+      allIds.forEach((id) => {
+        const normalized = String(id).replace(/\D/g, "").replace(/^0+/, "");
+        if (normalized && !empMap.has(normalized)) {
+          empMap.set(normalized, emp);
+        }
       });
     });
 
@@ -48,10 +49,10 @@ export const getGroupedEmployeeDTR = async (req, res) => {
 
     logs.forEach((log) => {
       const acNoRaw = log["AC-No"] || "";
-      const acNoDigits = String(acNoRaw).replace(/\D/g, "");
-      const acNoLast4 = acNoDigits.slice(-4);
+      const acNoDigits = String(acNoRaw).replace(/\D/g, "").replace(/^0+/, "");
+      if (!acNoDigits) return;
 
-      const emp = empMap.get(acNoLast4);
+      const emp = empMap.get(acNoDigits);
       if (!emp) return;
 
       const empKey = emp.empId;

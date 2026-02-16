@@ -150,7 +150,35 @@ const ImportDTRModal = ({ open, onClose, currentUser, isDemo }) => {
                 ).toISOString();
               }
             } else {
-              const jsDate = new Date(value);
+              const raw = String(value).trim();
+              // Try native Date first
+              let jsDate = new Date(raw);
+              if (isNaN(jsDate)) {
+                // Try common date formats via dayjs
+                const fmts = [
+                  "MM/DD/YYYY hh:mm:ss A",
+                  "MM/DD/YYYY hh:mm A",
+                  "MM/DD/YYYY HH:mm:ss",
+                  "MM/DD/YYYY HH:mm",
+                  "M/D/YYYY h:mm:ss A",
+                  "M/D/YYYY h:mm A",
+                  "M/D/YYYY H:mm:ss",
+                  "M/D/YYYY H:mm",
+                  "DD/MM/YYYY hh:mm:ss A",
+                  "DD/MM/YYYY HH:mm:ss",
+                  "DD/MM/YYYY HH:mm",
+                  "YYYY-MM-DD HH:mm:ss",
+                  "YYYY-MM-DD HH:mm",
+                  "YYYY/MM/DD HH:mm:ss",
+                ];
+                for (const fmt of fmts) {
+                  const d = dayjs(raw, fmt, true);
+                  if (d.isValid()) {
+                    jsDate = d.toDate();
+                    break;
+                  }
+                }
+              }
               if (!isNaN(jsDate)) isoDate = jsDate.toISOString();
             }
             obj[h] = isoDate
@@ -164,14 +192,14 @@ const ImportDTRModal = ({ open, onClose, currentUser, isDemo }) => {
         return obj;
       });
 
-      // Deduplicate
+      // Deduplicate: use AC-No + TimeISO + State so different punch types are preserved
       const seen = new Set();
       body = body
         .filter((row) =>
           requiredHeaders.some((h) => row[h] !== undefined && row[h] !== "")
         )
         .filter((row) => {
-          const key = `${row.Name}__${row.TimeISO}`;
+          const key = `${row["AC-No"] || ""}_${row.Name}_${row.TimeISO || row.Time || ""}_${row.State || ""}`;
           if (seen.has(key)) return false;
           seen.add(key);
           return true;
@@ -225,7 +253,7 @@ const ImportDTRModal = ({ open, onClose, currentUser, isDemo }) => {
 
       const seen = new Set();
       const uniqueRows = data.filter((row) => {
-        const key = `${row.Name}__${row.TimeISO}`;
+        const key = `${row["AC-No"] || ""}_${row.Name}_${row.TimeISO || row.Time || ""}_${row.State || ""}`;
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
@@ -369,7 +397,10 @@ const ImportDTRModal = ({ open, onClose, currentUser, isDemo }) => {
               style={{
                 display: "flex",
                 justifyContent: "space-between",
-                marginBottom: 16,
+                alignItems: "center",
+                marginBottom: 8,
+                gap: 8,
+                flexWrap: "wrap",
               }}
             >
               <Input.Search
@@ -386,9 +417,15 @@ const ImportDTRModal = ({ open, onClose, currentUser, isDemo }) => {
                     );
                   }
                 }}
-                style={{ width: 250 }}
+                style={{ width: 220 }}
+                size="small"
               />
-              <Button onClick={handleReupload} disabled={uploading}>
+              <span style={{ fontSize: 12, color: "#666" }}>
+                Total Records: <b>{filteredData.length}</b>
+                {filteredData.length !== data.length && (
+                  <> (of {data.length})</>)}
+              </span>
+              <Button onClick={handleReupload} disabled={uploading} size="small">
                 Re-upload Excel File
               </Button>
             </div>
@@ -400,11 +437,14 @@ const ImportDTRModal = ({ open, onClose, currentUser, isDemo }) => {
               bordered
               dataSource={filteredData}
               size="small"
+              className="import-dtr-table"
+              scroll={{ y: 380 }}
               columns={[
                 ...mergedColumns,
                 {
                   title: "Action",
                   dataIndex: "action",
+                  width: 80,
                   render: (_, record) => {
                     const editable = isEditing(record);
                     return editable ? (
@@ -434,7 +474,14 @@ const ImportDTRModal = ({ open, onClose, currentUser, isDemo }) => {
                 );
                 return missingRequired ? "table-row-error" : "";
               }}
-              pagination={{ pageSize: 10 }}
+              pagination={{
+                defaultPageSize: 20,
+                pageSizeOptions: [10, 20, 50, 100, 200],
+                showSizeChanger: true,
+                showTotal: (total, range) =>
+                  `${range[0]}-${range[1]} of ${total} records`,
+                size: "small",
+              }}
             />
 
             <Button

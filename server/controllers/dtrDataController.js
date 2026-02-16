@@ -27,14 +27,14 @@ export const deleteDTRDataJob = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Basic permission check (caller must be admin or developer-ish)
+    // Basic permission check (caller must be developer or have Edit Time Records)
     const callerId = req.user?.id || req.user?._id;
     const caller = callerId ? await User.findById(callerId) : null;
     if (!caller) {
       return res.status(403).json({ success: false, message: 'Forbidden: user context missing' });
     }
-    if (!(caller.isAdmin || caller.userType === 'developer' || caller.canManipulateBiometrics)) {
-      return res.status(403).json({ success: false, message: 'Forbidden: insufficient permissions' });
+    if (!(caller.userType === 'developer' || caller.canManipulateBiometrics)) {
+      return res.status(403).json({ success: false, message: 'Forbidden: only developers or users with Edit Time Records permission can delete records' });
     }
 
     // Verify record exists
@@ -51,17 +51,14 @@ export const deleteDTRDataJob = async (req, res) => {
 
         const objectId = new mongoose.Types.ObjectId(id);
 
-        // Build a combined filter: logs linked by DTR_ID *or* logs within the cut-off date range
-        const dateFilter = {};
+        // Build filter: logs linked to THIS DTR record, narrowed by cut-off dates.
+        // Only logs whose Time falls within the cut-off range are deleted.
+        const combinedFilter = { DTR_ID: objectId };
         if (record.DTR_Cut_Off?.start && record.DTR_Cut_Off?.end) {
           const start = parseInLocalTz(record.DTR_Cut_Off.start).startOf("day").toDate();
           const end = parseInLocalTz(record.DTR_Cut_Off.end).endOf("day").toDate();
-          dateFilter.Time = { $gte: start, $lte: end };
+          combinedFilter.Time = { $gte: start, $lte: end };
         }
-
-        const combinedFilter = Object.keys(dateFilter).length > 0
-          ? { $or: [{ DTR_ID: objectId }, dateFilter] }
-          : { DTR_ID: objectId };
 
         // Count total logs to delete
         const total = await DTRLog.countDocuments(combinedFilter);
@@ -269,14 +266,14 @@ export const updateDTRData = async (req, res) => {
     const { id } = req.params;
     const { DTR_Record_Name, DTR_Cut_Off } = req.body;
 
-    // Permission check (optional, same as delete)
+    // Permission check (caller must be developer or have Edit Time Records)
     const callerId = req.user?.id || req.user?._id;
     const caller = callerId ? await User.findById(callerId) : null;
     if (!caller) {
       return res.status(403).json({ success: false, message: 'Forbidden: user context missing' });
     }
-    if (!(caller.isAdmin || caller.userType === 'developer' || caller.canManipulateBiometrics)) {
-      return res.status(403).json({ success: false, message: 'Forbidden: insufficient permissions' });
+    if (!(caller.userType === 'developer' || caller.canManipulateBiometrics)) {
+      return res.status(403).json({ success: false, message: 'Forbidden: only developers or users with Edit Time Records permission can edit records' });
     }
 
     const record = await DTRData.findById(id);

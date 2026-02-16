@@ -104,6 +104,21 @@ axiosInstance.interceptors.response.use(
       }
     }
     if (error.response && error.response.status === 401) {
+      // Only force-logout when the server says the token itself is invalid/expired.
+      // Avoid logging out on 401s that are just permission/auth issues on specific endpoints.
+      const msg = (error.response.data?.message || "").toLowerCase();
+      const isTokenIssue =
+        msg.includes("expired") ||
+        msg.includes("invalid") ||
+        msg.includes("no token") ||
+        msg.includes("unauthorized") ||
+        msg.includes("jwt");
+
+      if (!isTokenIssue) {
+        // Not a token problem — just reject without clearing session
+        return Promise.reject(error);
+      }
+
       // Clear ALL encrypted/obfuscated keys from localStorage & sessionStorage (same as manual logout)
       try { secureClearAll(); } catch {}
 

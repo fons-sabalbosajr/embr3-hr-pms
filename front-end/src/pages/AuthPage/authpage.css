@@ -15,7 +15,149 @@
   background-repeat: no-repeat;
   padding: 1rem;
   animation: fadeIn 0.8s ease-in-out;
-  
+}
+
+/* Single-column vertical wrapper: announcements on top, login card below */
+.auth-layout-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  width: 450px;
+  max-width: calc(100vw - 32px);
+}
+
+/* ── Announcements panel (corporate) ── */
+.auth-announcements-panel {
+  width: 100%;
+  max-height: 340px;
+  overflow-y: auto;
+  background: #fff;
+  border-radius: 10px 10px 0 0;
+  border: none;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.12);
+  animation: slideUp 0.6s ease-in-out;
+}
+
+/* Scrollbar styling */
+.auth-announcements-panel::-webkit-scrollbar {
+  width: 4px;
+}
+.auth-announcements-panel::-webkit-scrollbar-thumb {
+  background: #c0c8d4;
+  border-radius: 4px;
+}
+
+/* Header bar */
+.auth-announcements-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: linear-gradient(135deg, #003d6b, #005b99);
+  color: #fff;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+.auth-announcements-header-icon {
+  font-size: 15px;
+  opacity: 0.9;
+}
+
+/* Collapse overrides */
+.auth-announcements-collapse.ant-collapse {
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+}
+.auth-announcements-collapse .ant-collapse-item {
+  border: none !important;
+  border-bottom: 1px solid #f0f0f0 !important;
+  border-radius: 0 !important;
+}
+.auth-announcements-collapse .ant-collapse-item:last-child {
+  border-bottom: none !important;
+}
+.auth-announcements-collapse .ant-collapse-header {
+  background: #fff !important;
+  border-radius: 0 !important;
+  padding: 10px 16px !important;
+}
+.auth-announcements-collapse .ant-collapse-content {
+  background: #fafbfc !important;
+  border-top: 1px solid #eef1f5 !important;
+}
+.auth-announcements-collapse .ant-collapse-content-box {
+  padding: 14px 16px !important;
+}
+
+/* Label row */
+.auth-announcement-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.auth-announcement-label-icon {
+  font-size: 14px;
+}
+.auth-announcement-label-title {
+  font-weight: 600;
+  font-size: 12.5px;
+  color: #1a1a1a;
+}
+.auth-announcement-label-tag {
+  font-size: 10px !important;
+  line-height: 16px !important;
+  padding: 0 5px !important;
+  margin: 0 !important;
+  border-radius: 3px !important;
+}
+
+/* Body content */
+.auth-announcement-content {
+  font-size: 12px;
+  line-height: 1.7;
+  color: #333;
+  word-break: break-word;
+}
+.auth-announcement-meta {
+  margin-top: 10px;
+  font-size: 11px;
+  color: #999;
+  border-top: 1px solid #eef1f5;
+  padding-top: 8px;
+}
+
+/* Body HTML elements */
+.auth-announcement-body ul {
+  margin: 4px 0 4px 16px;
+  padding: 0;
+}
+.auth-announcement-body li {
+  margin-bottom: 3px;
+}
+.auth-announcement-body h3 {
+  margin: 10px 0 6px;
+  font-size: 14px;
+  color: #003d6b;
+}
+.auth-announcement-body h4 {
+  margin: 8px 0 4px;
+  font-size: 13px;
+  color: #1a3a5c;
+}
+
+/* ── Login Card ── */
+/* When announcements panel is present, soften top corners of card */
+.auth-announcements-panel + .auth-card {
+  border-radius: 0 0 10px 10px !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
 }
 
 /* Card styling */
@@ -82,6 +224,13 @@
 }
 
 @media (max-width: 500px) {
+  .auth-layout-wrapper {
+    width: 100%;
+    max-width: 360px;
+  }
+  .auth-announcements-panel {
+    max-height: 260px;
+  }
   .auth-card {
     width: 100%;
     max-width: 360px;
@@ -89,6 +238,12 @@
 
   .auth-title {
     font-size: 1.2rem;
+  }
+}
+
+@media (min-width: 501px) and (max-width: 800px) {
+  .auth-layout-wrapper {
+    width: 450px;
   }
 }
 

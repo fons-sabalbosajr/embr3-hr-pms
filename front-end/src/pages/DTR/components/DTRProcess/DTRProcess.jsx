@@ -329,6 +329,37 @@ const DTRProcess = ({ currentUser }) => {
         });
       });
 
+      // ── Merge WFH prescribed times for current month ──
+      try {
+        const wfhRes = await axiosInstance.get("/work-from-home/public", {
+          params: { start: startOfMonth, end: endOfMonth },
+        });
+        const wfhRecords = wfhRes.data?.data || [];
+        wfhRecords.forEach((w) => {
+          const wfhStart = dayjs(w.date).startOf("day");
+          const wfhEnd = w.endDate ? dayjs(w.endDate).startOf("day") : wfhStart;
+          let d = wfhStart;
+          while (d.isBefore(wfhEnd.add(1, "day"))) {
+            const dateKey = d.format("YYYY-MM-DD");
+            const targets = w.empId ? [w.empId] : Object.keys(logsByEmpDay);
+            targets.forEach((empKey) => {
+              if (!logsByEmpDay[empKey]) logsByEmpDay[empKey] = {};
+              if (!logsByEmpDay[empKey][dateKey]) {
+                logsByEmpDay[empKey][dateKey] = {
+                  "Time In": null, "Break Out": null, "Break In": null, "Time Out": null,
+                };
+              }
+              const entry = logsByEmpDay[empKey][dateKey];
+              if (!entry["Time In"] && w.timeIn) entry["Time In"] = w.timeIn;
+              if (!entry["Break Out"] && w.breakOut) entry["Break Out"] = w.breakOut;
+              if (!entry["Break In"] && w.breakIn) entry["Break In"] = w.breakIn;
+              if (!entry["Time Out"] && w.timeOut) entry["Time Out"] = w.timeOut;
+            });
+            d = d.add(1, "day");
+          }
+        });
+      } catch (_) { /* WFH merge optional */ }
+
       setDtrLogs(logsByEmpDay);
     } catch (error) {
       console.error("Failed to fetch DTR logs:", error);
@@ -809,6 +840,48 @@ const DTRProcess = ({ currentUser }) => {
           );
         });
       });
+
+      // ── Merge WFH prescribed times for dates without biometric data ──
+      try {
+        const wfhRes = await axiosInstance.get("/work-from-home/public", {
+          params: { start: cutStartParam, end: cutEndParam },
+        });
+        const wfhRecords = wfhRes.data?.data || [];
+        wfhRecords.forEach((w) => {
+          // Determine which empId(s) this WFH record applies to
+          const wfhStart = dayjs(w.date).startOf("day");
+          const wfhEnd = w.endDate ? dayjs(w.endDate).startOf("day") : wfhStart;
+          let d = wfhStart;
+          while (d.isBefore(wfhEnd.add(1, "day"))) {
+            const dateKey = d.format("YYYY-MM-DD");
+            // If empId specified, apply only to that employee; otherwise apply to all
+            const targets = w.empId ? [w.empId] : Object.keys(logsByEmpDay);
+            targets.forEach((empKey) => {
+              if (!logsByEmpDay[empKey]) logsByEmpDay[empKey] = {};
+              if (!logsByEmpDay[empKey][dateKey]) {
+                logsByEmpDay[empKey][dateKey] = {
+                  "Time In": [],
+                  "Break Out": [],
+                  "Break In": [],
+                  "Time Out": [],
+                  "OT In": [],
+                  "OT Out": [],
+                };
+              }
+              const entry = logsByEmpDay[empKey][dateKey];
+              if ((!entry["Time In"] || !entry["Time In"].length) && w.timeIn)
+                entry["Time In"] = [w.timeIn];
+              if ((!entry["Break Out"] || !entry["Break Out"].length) && w.breakOut)
+                entry["Break Out"] = [w.breakOut];
+              if ((!entry["Break In"] || !entry["Break In"].length) && w.breakIn)
+                entry["Break In"] = [w.breakIn];
+              if ((!entry["Time Out"] || !entry["Time Out"].length) && w.timeOut)
+                entry["Time Out"] = [w.timeOut];
+            });
+            d = d.add(1, "day");
+          }
+        });
+      } catch (_) { /* WFH merge is optional */ }
 
       setDtrLogs(logsByEmpDay);
     } catch (error) {

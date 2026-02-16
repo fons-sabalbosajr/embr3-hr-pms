@@ -65,13 +65,30 @@ const BiometricsData = ({ employee }) => {
   const [dateRange, setDateRange] = useState(null);
   const [stateFilter, setStateFilter] = useState([]);
 
+  // Build the set of all candidate IDs for display & highlight
+  const candidateIds = useMemo(() => {
+    if (!employee) return new Set();
+    const norm = (v) => v ? String(v).replace(/\D/g, "").replace(/^0+/, "") : "";
+    const ids = new Set();
+    if (employee.empId) ids.add(norm(employee.empId));
+    if (employee.empNo) ids.add(norm(employee.empNo));
+    if (Array.isArray(employee.alternateEmpIds)) {
+      employee.alternateEmpIds.forEach((a) => {
+        const d = norm(a);
+        if (d) ids.add(d);
+      });
+    }
+    ids.delete("");
+    return ids;
+  }, [employee]);
+
   const { isDemoActive, isDemoUser, allowSubmissions, isPrivileged } =
     useDemoMode();
   const demoReadOnly =
     isDemoActive && isDemoUser && !allowSubmissions && !isPrivileged;
   const demoDisabled = isDemoActive && isDemoUser && !isPrivileged;
 
-  // Permission check: developer or canManipulateBiometrics
+  // Permission check: only developer or users with Edit Time Records privilege
   const canEdit =
     !demoDisabled &&
     (user?.userType === "developer" || user?.canManipulateBiometrics === true);
@@ -81,64 +98,93 @@ const BiometricsData = ({ employee }) => {
     if (!employee) return;
     setLoading(true);
     try {
-      const digitsEmpId = employee.empId
-        ? employee.empId.replace(/\D/g, "").replace(/^0+/, "")
-        : undefined;
-      const attempts = [
-        { label: "normalizedEmpId", value: employee.normalizedEmpId },
-        { label: "digitsEmpId", value: digitsEmpId },
-        { label: "empNo", value: employee.empNo },
-        { label: "empIdRaw", value: employee.empId },
-      ].filter(
-        (a, idx, arr) =>
-          a.value && arr.findIndex((b) => b.value === a.value) === idx
-      );
+      // Build a unified set of all candidate AC-Nos from primary + alternates
+      const normalize = (v) =>
+        v ? String(v).replace(/\D/g, "").replace(/^0+/, "") : "";
+      const candidateSet = new Set();
+      const rawCandidates = [];
 
-      // Helper: fetch ALL pages for a given acNo value (server caps at 500/page)
-      const fetchAllPages = async (acNoVal) => {
-        const PAGE_SIZE = 500;
-        let page = 1;
-        let allLogs = [];
-        let hasMore = true;
-        while (hasMore) {
-          const resp = await axiosInstance.get(
-            `/dtrlogs/merged?acNo=${acNoVal}&limit=${PAGE_SIZE}&page=${page}`
-          );
-          const logs = resp?.data?.data || [];
-          const total = resp?.data?.total ?? logs.length;
-          allLogs = allLogs.concat(logs);
-          hasMore = allLogs.length < total && logs.length === PAGE_SIZE;
-          page++;
-        }
-        return allLogs;
-      };
-
-      let found = false;
-      let lastLogs = [];
-      for (const attempt of attempts) {
-        try {
-          const logs = await fetchAllPages(attempt.value);
-          if (logs.length > 0) {
-            const sorted = [...logs].sort(
-              (a, b) => dayjs(a?.time).valueOf() - dayjs(b?.time).valueOf()
-            );
-            setDtrLogs(sorted);
-            setIdentifierUsed(attempt.label);
-            found = true;
-            break;
+      // Primary empId
+      if (employee.empId) {
+        rawCandidates.push(employee.empId);
+        const d = normalize(employee.empId);
+        if (d) candidateSet.add(d);
+      }
+      // empNo
+      if (employee.empNo) {
+        rawCandidates.push(employee.empNo);
+        const d = normalize(employee.empNo);
+        if (d) candidateSet.add(d);
+      }
+      // normalizedEmpId
+      if (employee.normalizedEmpId) {
+        rawCandidates.push(employee.normalizedEmpId);
+        const d = normalize(employee.normalizedEmpId);
+        if (d) candidateSet.add(d);
+      }
+      // All alternateEmpIds
+      if (Array.isArray(employee.alternateEmpIds)) {
+        employee.alternateEmpIds.forEach((alt) => {
+          if (alt) {
+            rawCandidates.push(alt);
+            const d = normalize(alt);
+            if (d) candidateSet.add(d);
           }
-          lastLogs = logs;
-        } catch (err) {
-          console.warn(`Attempt ${attempt.label} failed`, err);
-        }
+        });
       }
-      if (!found) {
-        const sorted = [...(lastLogs || [])].sort(
-          (a, b) => dayjs(a?.time).valueOf() - dayjs(b?.time).valueOf()
-        );
-        setDtrLogs(sorted);
-        setIdentifierUsed(attempts.length ? "none-found" : "no-attempts");
+
+      const acNos = Array.from(candidateSet).filter(Boolean);
+      const identLabel =
+        acNos.length > 1
+          ? `empId + ${acNos.length - 1} alternate(s)`
+          : acNos.length === 1
+          ? "empId"
+          : "none";
+
+      if (!acNos.length) {
+        setDtrLogs([]);
+        setIdentifierUsed("no-ids");
+        setLoading(false);
+        return;
       }
+
+      // Fetch ALL pages using combined acNo list and empIds in a single query
+      const PAGE_SIZE = 500;
+      let page = 1;
+      let allLogs = [];
+      let hasMore = true;
+      const acNoParam = acNos.join(",");
+      const empIdParam = employee.empId || "";
+
+      while (hasMore) {
+        const resp = await axiosInstance.get("/dtrlogs/merged", {
+          params: {
+            acNo: acNoParam,
+            empIds: empIdParam,
+            limit: PAGE_SIZE,
+            page,
+          },
+        });
+        const logs = resp?.data?.data || [];
+        const total = resp?.data?.total ?? logs.length;
+        allLogs = allLogs.concat(logs);
+        hasMore = allLogs.length < total && logs.length === PAGE_SIZE;
+        page++;
+      }
+
+      // Deduplicate by _id (multiple candidate IDs may fetch overlapping results)
+      const seen = new Set();
+      const deduped = allLogs.filter((log) => {
+        if (!log._id || seen.has(log._id)) return false;
+        seen.add(log._id);
+        return true;
+      });
+
+      const sorted = deduped.sort(
+        (a, b) => dayjs(a?.time).valueOf() - dayjs(b?.time).valueOf()
+      );
+      setDtrLogs(sorted);
+      setIdentifierUsed(sorted.length > 0 ? identLabel : "none-found");
     } catch (error) {
       swalError("Failed to fetch DTR logs.");
       console.error("Error fetching DTR logs:", error);
@@ -170,13 +216,14 @@ const BiometricsData = ({ employee }) => {
       data = data.filter((r) => stateFilter.includes(r.state));
     }
 
-    // Text search (AC-No or Name)
+    // Text search (AC-No, Name, or empId)
     if (searchText.trim()) {
       const q = searchText.trim().toLowerCase();
       data = data.filter(
         (r) =>
           (r.acNo || "").toLowerCase().includes(q) ||
-          (r.name || "").toLowerCase().includes(q)
+          (r.name || "").toLowerCase().includes(q) ||
+          (r.empId || "").toLowerCase().includes(q)
       );
     }
 
@@ -189,8 +236,18 @@ const BiometricsData = ({ employee }) => {
     const filtered = filteredLogs.length;
     const timeIns = filteredLogs.filter((r) => r.state === "C/In").length;
     const timeOuts = filteredLogs.filter((r) => r.state === "C/Out").length;
-    return { total, filtered, timeIns, timeOuts };
+    // Collect unique AC-Nos found in the data
+    const acNosFound = new Set(
+      dtrLogs.map((r) => r.acNo).filter(Boolean)
+    );
+    return { total, filtered, timeIns, timeOuts, acNosFound };
   }, [dtrLogs, filteredLogs]);
+
+  // Determine primary AC-No for highlight coloring
+  const primaryAcNo = useMemo(() => {
+    if (!employee?.empId) return "";
+    return employee.empId.replace(/\D/g, "").replace(/^0+/, "");
+  }, [employee]);
 
   // ── Columns ────────────────────────────────────────────────────────
   const columns = useMemo(() => {
@@ -201,6 +258,20 @@ const BiometricsData = ({ employee }) => {
         key: "acNo",
         width: 80,
         ellipsis: true,
+        render: (val) => {
+          if (!val || val === "-") return "-";
+          const norm = String(val).replace(/\D/g, "").replace(/^0+/, "");
+          const isPrimary = norm === primaryAcNo;
+          const isAlternate = !isPrimary && candidateIds.has(norm);
+          return (
+            <Tag
+              color={isPrimary ? "blue" : isAlternate ? "orange" : "default"}
+              style={{ fontSize: 11, margin: 0 }}
+            >
+              {val}
+            </Tag>
+          );
+        },
       },
       {
         title: "Name",
@@ -385,11 +456,29 @@ const BiometricsData = ({ employee }) => {
           </Button>
           {identifierUsed && (
             <Tag
-              color={identifierUsed === "none-found" ? "red" : "blue"}
+              color={identifierUsed === "none-found" || identifierUsed === "no-ids" ? "red" : "blue"}
               style={{ fontSize: 11, lineHeight: "18px", height: 20 }}
             >
-              Source: {identifierUsed}
+              {identifierUsed}
             </Tag>
+          )}
+          {/* Show the AC-Nos actually found in data */}
+          {stats.acNosFound.size > 0 && (
+            <span style={{ fontSize: 11, color: "#888" }}>
+              IDs: {Array.from(stats.acNosFound).map((id) => {
+                const norm = String(id).replace(/\D/g, "").replace(/^0+/, "");
+                const isPrimary = norm === primaryAcNo;
+                return (
+                  <Tag
+                    key={id}
+                    color={isPrimary ? "blue" : "orange"}
+                    style={{ fontSize: 10, margin: "0 2px", lineHeight: "16px", height: 18 }}
+                  >
+                    {id}
+                  </Tag>
+                );
+              })}
+            </span>
           )}
         </Space>
         <Space size={6}>
@@ -411,7 +500,7 @@ const BiometricsData = ({ employee }) => {
       <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
         <Input
           size="small"
-          placeholder="Search AC-No or Name"
+          placeholder="Search AC-No, Name, or ID"
           prefix={<SearchOutlined style={{ color: "var(--app-text-muted, #bfbfbf)" }} />}
           value={searchText}
           onChange={(e) => setSearchText(e.target.value)}

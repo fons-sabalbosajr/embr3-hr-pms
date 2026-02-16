@@ -514,6 +514,8 @@ const DTRDataTab = () => {
               dataSource={previewSample}
               size="small"
               rowKey={(r) => r.no || r.empId || JSON.stringify(r)}
+              style={{ fontSize: 11 }}
+              className="compact-modal-table"
               pagination={{
                 current: previewPage,
                 pageSize: previewPageSize,
@@ -642,6 +644,8 @@ const DTRDataTab = () => {
             size="small"
             rowKey={(r) => r.no || r.empId || JSON.stringify(r)}
             loading={editLogsLoading}
+            style={{ fontSize: 11 }}
+            className="compact-modal-table"
             pagination={{
               current: editLogsPage,
               pageSize: editLogsPageSize,

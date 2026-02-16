@@ -99,6 +99,18 @@ const PRIORITY_COLORS = {
   critical: "error",
 };
 
+const PUBLISH_PLACE_OPTIONS = [
+  { value: "popup", label: "In-App Pop-up" },
+  { value: "login", label: "Login Page" },
+  { value: "both", label: "Both (Pop-up & Login)" },
+];
+
+const PUBLISH_PLACE_COLORS = {
+  popup: "blue",
+  login: "purple",
+  both: "cyan",
+};
+
 const TARGET_MODE_LABELS = {
   all: "All Employees",
   division: "By Division",
@@ -613,6 +625,7 @@ const AnnouncementManager = () => {
       type: "announcement",
       priority: "normal",
       showPopup: true,
+      publishPlace: "popup",
       active: true,
     });
     setModalOpen(true);
@@ -622,6 +635,7 @@ const AnnouncementManager = () => {
     setEditing(record);
     form.setFieldsValue({
       ...record,
+      publishPlace: record.publishPlace || "popup",
       publishAt: record.publishAt ? dayjs(record.publishAt) : null,
       expiresAt: record.expiresAt ? dayjs(record.expiresAt) : null,
     });
@@ -775,12 +789,14 @@ const AnnouncementManager = () => {
       key: "visibility",
       width: 110,
       align: "center",
-      render: (_, r) => (
-        <Space size={4} wrap>
-          {r.showPopup && (
-            <Tooltip title="Shown as in-app pop-up">
+      render: (_, r) => {
+        const place = r.publishPlace || "popup";
+        const placeLabel = PUBLISH_PLACE_OPTIONS.find((o) => o.value === place)?.label || place;
+        return (
+          <Space size={4} wrap>
+            <Tooltip title={`Publish: ${placeLabel}`}>
               <Tag
-                color="blue"
+                color={PUBLISH_PLACE_COLORS[place] || "blue"}
                 style={{
                   fontSize: 10,
                   padding: "0 4px",
@@ -788,34 +804,29 @@ const AnnouncementManager = () => {
                   margin: 0,
                 }}
               >
-                <EyeOutlined /> Pop-up
+                <EyeOutlined /> {place === "both" ? "Pop-up & Login" : place === "login" ? "Login" : "Pop-up"}
               </Tag>
             </Tooltip>
-          )}
-          {r.emailSent && (
-            <Tooltip title="Click to view recipient emails">
-              <Tag
-                color="green"
-                style={{
-                  fontSize: 10,
-                  padding: "0 4px",
-                  lineHeight: "18px",
-                  margin: 0,
-                  cursor: "pointer",
-                }}
-                onClick={() => setRecipientRecord(r)}
-              >
-                <MailOutlined /> {r.emailRecipientCount}
-              </Tag>
-            </Tooltip>
-          )}
-          {!r.showPopup && !r.emailSent && (
-            <Text type="secondary" style={{ fontSize: 11 }}>
-              —
-            </Text>
-          )}
-        </Space>
-      ),
+            {r.emailSent && (
+              <Tooltip title="Click to view recipient emails">
+                <Tag
+                  color="green"
+                  style={{
+                    fontSize: 10,
+                    padding: "0 4px",
+                    lineHeight: "18px",
+                    margin: 0,
+                    cursor: "pointer",
+                  }}
+                  onClick={() => setRecipientRecord(r)}
+                >
+                  <MailOutlined /> {r.emailRecipientCount}
+                </Tag>
+              </Tooltip>
+            )}
+          </Space>
+        );
+      },
     },
     {
       title: "Schedule",
@@ -1201,23 +1212,23 @@ const AnnouncementManager = () => {
 
           <Divider style={{ margin: "8px 0 12px" }} />
 
-          <Row gutter={24}>
-            <Col>
+          <Row gutter={16}>
+            <Col span={12}>
               <Form.Item
-                name="showPopup"
-                label="Show In-App Pop-up"
-                valuePropName="checked"
-                style={{ marginBottom: 0 }}
+                name="publishPlace"
+                label="Publish Place"
+                tooltip="Choose where this announcement appears: in-app pop-up after login, on the login page itself, or both."
+                style={{ marginBottom: 12 }}
               >
-                <Switch checkedChildren="Yes" unCheckedChildren="No" />
+                <Select options={PUBLISH_PLACE_OPTIONS} />
               </Form.Item>
             </Col>
-            <Col>
+            <Col span={12}>
               <Form.Item
                 name="active"
                 label="Status"
                 valuePropName="checked"
-                style={{ marginBottom: 0 }}
+                style={{ marginBottom: 12 }}
               >
                 <Switch checkedChildren="Active" unCheckedChildren="Inactive" />
               </Form.Item>
@@ -1360,11 +1371,16 @@ const AnnouncementManager = () => {
                 </Tag>
               </Descriptions.Item>
               <Descriptions.Item label="Pop-up">
-                {previewRecord.showPopup ? (
+                {previewRecord.publishPlace === "popup" || previewRecord.publishPlace === "both" ? (
                   <Tag color="blue">Enabled</Tag>
                 ) : (
                   <Tag>Disabled</Tag>
                 )}
+              </Descriptions.Item>
+              <Descriptions.Item label="Publish Place">
+                <Tag color={PUBLISH_PLACE_COLORS[previewRecord.publishPlace || "popup"]}>
+                  {PUBLISH_PLACE_OPTIONS.find((o) => o.value === (previewRecord.publishPlace || "popup"))?.label || "Pop-up"}
+                </Tag>
               </Descriptions.Item>
               <Descriptions.Item label="Created">
                 {dayjs(previewRecord.createdAt).format("MMM D, YYYY h:mm A")}

@@ -189,8 +189,8 @@ const accessGroups = [
       },
       {
         key: "canManipulateBiometrics",
-        label: "Can Manipulate Biometrics",
-        description: "Allows user to override or change biometrics data.",
+        label: "Can Edit Time Records",
+        description: "Allows user to add, edit, or delete biometrics time records in employee reports.",
       },
     ],
   },

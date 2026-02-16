@@ -111,21 +111,38 @@ export const getRecentAttendance = async (req, res) => {
     const employeeMap = new Map();
     const employees = await Employee.find({}).lean();
     for (const emp of employees) {
-      const normalizedEmpId = (emp.empId || "").replace(/-/g, "").replace(/^0+/, "");
+      // Map primary empId (strip ALL non-digits + leading zeros for consistency with DTRLog.normalizedAcNo)
+      const normalizedEmpId = (emp.empId || "").replace(/\D/g, "").replace(/^0+/, "");
       if (normalizedEmpId) {
         employeeMap.set(normalizedEmpId, emp);
+      }
+      // Also map alternateEmpIds so biometric AC-Nos stored as alternates are matched
+      if (Array.isArray(emp.alternateEmpIds)) {
+        for (const altId of emp.alternateEmpIds) {
+          const normalizedAlt = String(altId).replace(/\D/g, "").replace(/^0+/, "");
+          if (normalizedAlt && !employeeMap.has(normalizedAlt)) {
+            employeeMap.set(normalizedAlt, emp);
+          }
+        }
       }
     }
 
     // Collect raw logs per employee-date key
+    const rawLogCount = logs.length;
+    let matchedLogCount = 0;
+    const unmatchedAcNos = new Set();
     const rawByKey = {};
     logs.forEach((log) => {
       const acNo = log["AC-No"] || "-";
       if (!acNo || acNo === "-") return;
-      const normalizedAcNo = String(acNo).replace(/-/g, "").replace(/^0+/, "");
+      const normalizedAcNo = String(acNo).replace(/\D/g, "").replace(/^0+/, "");
       if (!normalizedAcNo) return;
       const employee = employeeMap.get(normalizedAcNo);
-      if (!employee) return;
+      if (!employee) {
+        unmatchedAcNos.add(acNo);
+        return;
+      }
+      matchedLogCount++;
 
       const dateKey = dayjs(log.Time).format("YYYY-MM-DD");
       const key = `${acNo}-${dateKey}`;
@@ -211,7 +228,16 @@ export const getRecentAttendance = async (req, res) => {
       }
     }
 
-    res.json({ success: true, data: result });
+    res.json({
+      success: true,
+      data: result,
+      meta: {
+        rawLogCount,
+        matchedLogCount,
+        groupedRowCount: result.length,
+        unmatchedAcNos: Array.from(unmatchedAcNos),
+      },
+    });
   } catch (error) {
     console.error("Error in getAttendance:", error);
     res.status(500).json({ success: false, message: "Server Error" });
@@ -220,7 +246,7 @@ export const getRecentAttendance = async (req, res) => {
 
 export const getLogsByAcNo = async (req, res) => {
   try {
-    const { acNo, acNos, startDate, endDate } = req.query;
+    const { acNo, acNos, empId, startDate, endDate } = req.query;
 
     // Allow single acNo or multiple via acNos (comma-separated or repeated param)
     let acList = [];
@@ -231,9 +257,31 @@ export const getLogsByAcNo = async (req, res) => {
       acList = String(acNo).split(",").map((s) => s.trim()).filter(Boolean);
     }
 
-    if (!acList.length) return res.status(400).json({ success: false, message: 'acNo or acNos is required' });
+    // If empId is provided, resolve employee's primary + alternate IDs into acList
+    if (empId) {
+      const emp = await Employee.findOne({ empId: String(empId).trim() }).lean();
+      if (emp) {
+        const allIds = [emp.empId, ...(emp.alternateEmpIds || []), emp.empNo]
+          .filter(Boolean)
+          .map((v) => String(v).replace(/\D/g, "").replace(/^0+/, ""))
+          .filter(Boolean);
+        acList = [...new Set([...acList, ...allIds])];
+      }
+    }
 
-    const filter = { 'AC-No': { $in: acList } };
+    if (!acList.length) return res.status(400).json({ success: false, message: 'acNo, acNos, or empId is required' });
+
+    // Query using both raw AC-No and normalizedAcNo for robustness
+    const normalizedList = acList
+      .map((v) => String(v).replace(/\D/g, "").replace(/^0+/, ""))
+      .filter(Boolean);
+    const filterOr = [
+      { 'AC-No': { $in: acList } },
+    ];
+    if (normalizedList.length) {
+      filterOr.push({ normalizedAcNo: { $in: normalizedList } });
+    }
+    const filter = { $or: filterOr };
     if (startDate && endDate) {
       filter.Time = { $gte: new Date(startDate), $lte: new Date(endDate) };
     }

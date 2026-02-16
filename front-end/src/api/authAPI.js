@@ -1,9 +1,9 @@
 import axiosInstance from './axiosInstance';
-import { secureStore } from '../../utils/secureStorage';
+import { secureSessionStore } from '../../utils/secureStorage';
 
 export const login = async (credentials) => {
   const res = await axiosInstance.post('/users/login', credentials);
-  secureStore('token', res.data.token);
+  secureSessionStore('token', res.data.token);
   return res.data;
 };
 

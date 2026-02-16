@@ -68,6 +68,11 @@ import {
   FileSearchOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
+  SearchOutlined,
+  ExportOutlined,
+  StopOutlined,
+  SendOutlined,
+  WarningOutlined,
 } from "@ant-design/icons";
 
 const { Title, Text } = Typography;
@@ -134,12 +139,15 @@ const DevSettings = () => {
   const [attendancePage, setAttendancePage] = useState(1);
   const [attendancePageSize, setAttendancePageSize] = useState(10);
   const [attendanceTotal, setAttendanceTotal] = useState(0);
+  const [attendanceMeta, setAttendanceMeta] = useState(null);
+  const [unmatchedModalOpen, setUnmatchedModalOpen] = useState(false);
 
   const filteredAttendance = useMemo(() => {
     const q = (attendanceNameFilter || "").trim().toLowerCase();
     if (!q) return attendanceData || [];
     return (attendanceData || []).filter((r) =>
-      (r.name || "").toLowerCase().includes(q)
+      (r.name || "").toLowerCase().includes(q) ||
+      (r.empId || "").toLowerCase().includes(q)
     );
   }, [attendanceData, attendanceNameFilter]);
 
@@ -2084,8 +2092,19 @@ const DevSettings = () => {
       setAttendanceData(formatted);
       setAttendanceTotal(formatted.length);
       setAttendancePage(1);
+
+      // Store diagnostic meta from server
+      const meta = payload?.meta || null;
+      setAttendanceMeta(meta);
       if (!formatted.length) {
         swalInfo("No attendance rows found for the selected range.");
+      } else if (meta) {
+        swalSuccess(
+          `Raw logs: ${meta.rawLogCount} | ` +
+          `Matched: ${meta.matchedLogCount} | ` +
+          `Grouped rows: ${meta.groupedRowCount}` +
+          (meta.unmatchedAcNos?.length ? ` | Unmatched IDs: ${meta.unmatchedAcNos.length}` : "")
+        );
       } else {
         swalSuccess(`Loaded ${formatted.length} attendance rows`);
       }
@@ -2149,10 +2168,11 @@ const DevSettings = () => {
     <>
       <Section title="Attendance Preview (Developer)">
         <Space direction="vertical" style={{ width: "100%" }}>
-          <Row gutter={[12, 12]} align="middle">
+          <Row gutter={[8, 8]} align="middle">
             <Col>
               <DatePicker.RangePicker
                 format="MM/DD/YYYY"
+                size="small"
                 onChange={(vals) => {
                   setAttendanceRange(vals);
                 }}
@@ -2160,21 +2180,25 @@ const DevSettings = () => {
             </Col>
             <Col>
               <Input
-                placeholder="Filter by employee name"
+                placeholder="Filter by name or ID"
+                prefix={<SearchOutlined style={{ color: "#bbb" }} />}
                 value={attendanceNameFilter}
                 onChange={(e) => {
                   setAttendanceNameFilter(e.target.value);
                   setAttendancePage(1);
                 }}
                 style={{ width: 220 }}
+                size="small"
                 allowClear
               />
             </Col>
             <Col>
               <Button
+                icon={<EyeOutlined />}
                 onClick={() => fetchAttendancePreview(attendanceRange)}
                 loading={attendanceLoading}
                 disabled={!attendanceRange || attendanceRange.length !== 2}
+                size="small"
               >
                 Preview
               </Button>
@@ -2182,27 +2206,61 @@ const DevSettings = () => {
             <Col>
               <Button
                 type="primary"
+                icon={<SendOutlined />}
                 onClick={() => publishOverride(true)}
                 disabled={!attendanceRange || attendanceRange.length !== 2}
+                size="small"
               >
-                Publish as Override
+                Publish Override
               </Button>
             </Col>
             <Col>
-              <Button danger onClick={() => publishOverride(false)}>
+              <Button
+                danger
+                icon={<StopOutlined />}
+                onClick={() => publishOverride(false)}
+                size="small"
+              >
                 Disable Override
               </Button>
             </Col>
+            <Col>
+              <Button
+                icon={<ExportOutlined />}
+                onClick={() => exportAttendanceCsv()}
+                disabled={!attendanceData || !attendanceData.length}
+                size="small"
+              >
+                Export CSV
+              </Button>
+            </Col>
+            {attendanceMeta?.unmatchedAcNos?.length > 0 && (
               <Col>
                 <Button
-                  onClick={() => exportAttendanceCsv()}
-                  disabled={!attendanceData || !attendanceData.length}
+                  icon={<WarningOutlined />}
+                  onClick={() => setUnmatchedModalOpen(true)}
+                  size="small"
+                  style={{ color: "#fa8c16", borderColor: "#fa8c16" }}
                 >
-                  Export CSV
+                  Unmatched IDs ({attendanceMeta.unmatchedAcNos.length})
                 </Button>
               </Col>
+            )}
           </Row>
-          
+
+          {attendanceMeta && (
+            <div style={{ fontSize: 12, color: "#888" }}>
+              Raw logs: <b>{attendanceMeta.rawLogCount}</b> &nbsp;|&nbsp;
+              Matched: <b>{attendanceMeta.matchedLogCount}</b> &nbsp;|&nbsp;
+              Grouped rows: <b>{attendanceMeta.groupedRowCount}</b>
+              {attendanceMeta.unmatchedAcNos?.length > 0 && (
+                <span style={{ color: "#fa8c16", marginLeft: 8 }}>
+                  | Unmatched AC-Nos: <b>{attendanceMeta.unmatchedAcNos.length}</b>
+                </span>
+              )}
+            </div>
+          )}
+
           <Table
             className="compact-table"
             columns={attendanceColumns}
@@ -2226,6 +2284,51 @@ const DevSettings = () => {
           />
         </Space>
       </Section>
+
+      {/* Unmatched AC-Nos Modal */}
+      <Modal
+        title={
+          <span>
+            <WarningOutlined style={{ color: "#fa8c16", marginRight: 8 }} />
+            Unmatched Biometric AC-Nos
+          </span>
+        }
+        open={unmatchedModalOpen}
+        onCancel={() => setUnmatchedModalOpen(false)}
+        footer={[
+          <Button key="close" onClick={() => setUnmatchedModalOpen(false)}>
+            Close
+          </Button>,
+        ]}
+        width={480}
+      >
+        <p style={{ marginBottom: 12, color: "#666", fontSize: 13 }}>
+          These biometric AC-No values from DTR logs don't match any employee
+          record (primary or alternate IDs). You may need to add them as
+          <b> alternateEmpIds</b> on the corresponding employee.
+        </p>
+        <Table
+          size="small"
+          pagination={false}
+          scroll={{ y: 300 }}
+          dataSource={(attendanceMeta?.unmatchedAcNos || []).map((id, i) => ({
+            key: i,
+            acNo: id,
+          }))}
+          columns={[
+            {
+              title: "#",
+              width: 50,
+              render: (_, __, idx) => idx + 1,
+            },
+            {
+              title: "AC-No",
+              dataIndex: "acNo",
+              key: "acNo",
+            },
+          ]}
+        />
+      </Modal>
     </>
   );
 

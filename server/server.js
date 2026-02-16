@@ -4,6 +4,7 @@ import connectDB from "./config/db.js";
 import { ensureUserTypes } from "./utils/bootstrap.js";
 import { initSocket } from "./socket.js";
 import { verifyEmailTransport } from "./utils/email.js";
+import Settings from "./models/Settings.js";
 import app from "./app.js";
 
 // Prefer PORT for Render/Heroku compatibility, fallback to SERVER_PORT and 5000 locally
@@ -17,6 +18,16 @@ initSocket(server);
 // --- Start Server ---
 connectDB().then(async () => {
   await ensureUserTypes(); // Run bootstrap logic after DB connection
+
+  // Migrate sessionTimeout: bump from old 30-min default to 480 (8h) if unchanged
+  try {
+    const s = await Settings.getSingleton();
+    if (s?.security?.sessionTimeout === 30) {
+      s.security.sessionTimeout = 480;
+      await s.save();
+      console.log("[Migration] sessionTimeout bumped 30m → 480m (8h)");
+    }
+  } catch (_) {}
 
   // Start listening ASAP so Render can detect the open port even if email verification is slow
   server.listen(PORT, HOST, () => {

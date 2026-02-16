@@ -4,6 +4,7 @@ import { requirePermissions } from "../middleware/permissionMiddleware.js";
 import {
   getAnnouncements,
   getActiveAnnouncements,
+  getLoginAnnouncements,
   createAnnouncement,
   updateAnnouncement,
   deleteAnnouncement,
@@ -15,6 +16,9 @@ import {
 } from "../controllers/announcementController.js";
 
 const router = Router();
+
+// Public (no auth) — announcements shown on the login page
+router.get("/login", getLoginAnnouncements);
 
 // Public-ish: any authenticated user can see active announcements (for pop-up)
 router.get("/active", verifyToken, getActiveAnnouncements);

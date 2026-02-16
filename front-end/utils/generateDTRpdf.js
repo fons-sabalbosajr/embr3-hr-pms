@@ -294,6 +294,52 @@ export async function generateDTRPdf({
     ...suspensions,
   ];
 
+  // ---------- Fetch WFH records for the cut-off period ----------
+  const wfhDays = new Set();
+  try {
+    const hasToken = !!(secureSessionGet("token") || secureRetrieve("token"));
+    if (hasToken && selectedRecord && selectedRecord.DTR_Cut_Off) {
+      const wfhStart = parseCutoff(selectedRecord.DTR_Cut_Off.start).format("YYYY-MM-DD");
+      const wfhEnd = parseCutoff(selectedRecord.DTR_Cut_Off.end).format("YYYY-MM-DD");
+      const empIds = [employee.empId, ...(employee.alternateEmpIds || [])].filter(Boolean);
+
+      // Fetch individual WFH records AND WFH Group records in parallel
+      const [wfhRes, groupRes] = await Promise.all([
+        axiosInstance.get("/work-from-home/public", {
+          params: { start: wfhStart, end: wfhEnd },
+        }),
+        axiosInstance.get("/wfh-groups/public", {
+          params: { start: wfhStart, end: wfhEnd },
+        }).catch(() => ({ data: { data: [] } })),
+      ]);
+
+      (wfhRes.data?.data || []).forEach((w) => {
+        if (w.empId && !empIds.includes(w.empId)) return;
+        const ws = dayjs(w.date).startOf("day");
+        const we = w.endDate ? dayjs(w.endDate).startOf("day") : ws;
+        let d = ws;
+        while (d.isSameOrBefore(we, "day")) {
+          wfhDays.add(d.format("YYYY-MM-DD"));
+          d = d.add(1, "day");
+        }
+      });
+
+      // WFH Group records — check if employee is a member
+      (groupRes.data?.data || []).forEach((g) => {
+        const memberIds = (g.members || []).map((m) => m.empId);
+        const isMember = empIds.some((id) => memberIds.includes(id));
+        if (!isMember) return;
+        const gs = dayjs(g.startDate).startOf("day");
+        const ge = dayjs(g.endDate).startOf("day");
+        let d = gs;
+        while (d.isSameOrBefore(ge, "day")) {
+          wfhDays.add(d.format("YYYY-MM-DD"));
+          d = d.add(1, "day");
+        }
+      });
+    }
+  } catch (_) { /* WFH lookup optional */ }
+
   // ---------- Build Rows for the entire calendar month ----------
   const rows = [];
   const referenceDate = start;
@@ -356,6 +402,8 @@ export async function generateDTRPdf({
       status = "Sunday";
     } else if (dayOfWeek === 6) {
       status = "Saturday";
+    } else if (wfhDays.has(dateKey)) {
+      status = "WFH (see attch.)";
     }
 
     const isInCutOff =
@@ -745,6 +793,49 @@ export async function generateBatchDTRPdf(printerTray) {
       ...suspensions,
     ];
 
+    // Fetch WFH records for the cut-off period
+    const wfhDaysBatch = new Set();
+    try {
+      const empIds = [employee.empId, ...(employee.alternateEmpIds || [])].filter(Boolean);
+      const wfhStart = cutOffStart.format("YYYY-MM-DD");
+      const wfhEnd = cutOffEnd.format("YYYY-MM-DD");
+
+      // Fetch individual WFH records AND WFH Group records in parallel
+      const [wfhRes, groupRes] = await Promise.all([
+        axiosInstance.get("/work-from-home/public", {
+          params: { start: wfhStart, end: wfhEnd },
+        }),
+        axiosInstance.get("/wfh-groups/public", {
+          params: { start: wfhStart, end: wfhEnd },
+        }).catch(() => ({ data: { data: [] } })),
+      ]);
+
+      (wfhRes.data?.data || []).forEach((w) => {
+        if (w.empId && !empIds.includes(w.empId)) return;
+        const ws = dayjs(w.date).startOf("day");
+        const we = w.endDate ? dayjs(w.endDate).startOf("day") : ws;
+        let d = ws;
+        while (d.isSameOrBefore(we, "day")) {
+          wfhDaysBatch.add(d.format("YYYY-MM-DD"));
+          d = d.add(1, "day");
+        }
+      });
+
+      // WFH Group records — check if employee is a member
+      (groupRes.data?.data || []).forEach((g) => {
+        const memberIds = (g.members || []).map((m) => m.empId);
+        const isMember = empIds.some((id) => memberIds.includes(id));
+        if (!isMember) return;
+        const gs = dayjs(g.startDate).startOf("day");
+        const ge = dayjs(g.endDate).startOf("day");
+        let d = gs;
+        while (d.isSameOrBefore(ge, "day")) {
+          wfhDaysBatch.add(d.format("YYYY-MM-DD"));
+          d = d.add(1, "day");
+        }
+      });
+    } catch (_) { /* WFH lookup optional */ }
+
     let currentDate = startOfMonth.clone();
 
     while (currentDate.isSameOrBefore(endOfMonth, "day")) {
@@ -778,6 +869,8 @@ export async function generateBatchDTRPdf(printerTray) {
         status = "Sunday";
       } else if (dayOfWeek === 6) {
         status = "Saturday";
+      } else if (wfhDaysBatch.has(dateKey)) {
+        status = "WFH (see attch.)";
       }
 
       // Correctly find logs using full empId

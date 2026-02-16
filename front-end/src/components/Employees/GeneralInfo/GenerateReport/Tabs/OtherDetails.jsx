@@ -43,11 +43,13 @@ const docColors = {
  * required by the generateDTRPdf utility.
  * Uses chronological position-based detection to assign Time In, Break Out,
  * Break In, Time Out — the biometric State field is not trusted.
+ * Also merges WFH prescribed times for dates that have no biometric punches.
  * @param {Array} logs - The flat array of log objects.
  * @param {Object} employee - The employee object.
+ * @param {Array} [wfhRecords] - Optional WFH records to merge.
  * @returns {Object} - The transformed logs.
  */
-const transformLogsForDTR = (logs, employee) => {
+const transformLogsForDTR = (logs, employee, wfhRecords = []) => {
   const dtrLogs = {};
   const empId = employee.empId;
   dtrLogs[empId] = {};
@@ -68,6 +70,24 @@ const transformLogsForDTR = (logs, employee) => {
     if (resolved.breakOut) dtrLogs[empId][dateKey]["Break Out"] = resolved.breakOut;
     if (resolved.breakIn) dtrLogs[empId][dateKey]["Break In"] = resolved.breakIn;
     if (resolved.timeOut) dtrLogs[empId][dateKey]["Time Out"] = resolved.timeOut;
+  });
+
+  // Merge WFH prescribed times for dates without biometric data
+  wfhRecords.forEach((w) => {
+    const start = dayjs(w.date).startOf("day");
+    const end = w.endDate ? dayjs(w.endDate).startOf("day") : start;
+    let d = start;
+    while (d.isBefore(end.add(1, "day"))) {
+      const dateKey = d.format("YYYY-MM-DD");
+      if (!dtrLogs[empId][dateKey]) dtrLogs[empId][dateKey] = {};
+      const entry = dtrLogs[empId][dateKey];
+      // Only fill slots that are still empty
+      if (!entry["Time In"] && w.timeIn) entry["Time In"] = w.timeIn;
+      if (!entry["Break Out"] && w.breakOut) entry["Break Out"] = w.breakOut;
+      if (!entry["Break In"] && w.breakIn) entry["Break In"] = w.breakIn;
+      if (!entry["Time Out"] && w.timeOut) entry["Time Out"] = w.timeOut;
+      d = d.add(1, "day");
+    }
   });
 
   return dtrLogs;
@@ -174,7 +194,16 @@ const OtherDetails = ({ employee }) => {
             params: { employeeId: employee._id, startDate: startLocal, endDate: endLocal }
           });
 
-          const dtrLogs = transformLogsForDTR(logsRes.data.data, employee);
+          // Fetch WFH records for the same period
+          let wfhRecords = [];
+          try {
+            const wfhRes = await axiosInstance.get('/work-from-home/public', {
+              params: { empId: employee.empId, start: startLocal, end: endLocal }
+            });
+            wfhRecords = wfhRes.data?.data || [];
+          } catch (_) { /* WFH data optional */ }
+
+          const dtrLogs = transformLogsForDTR(logsRes.data.data, employee, wfhRecords);
 
           // Pass sanitized cut-off to the PDF generator
           const sanitizedRecord = {

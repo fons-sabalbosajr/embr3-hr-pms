@@ -15,6 +15,8 @@ const announcementSchema = new mongoose.Schema(
     active: { type: Boolean, default: true },
     // Pop-up in-app announcement (shown once per user)
     showPopup: { type: Boolean, default: true },
+    // Where to display: "popup" | "login" | "both"
+    publishPlace: { type: String, default: "popup", enum: ["popup", "login", "both"] },
     // Email blast tracking
     emailSent: { type: Boolean, default: false },
     emailSentAt: { type: Date },

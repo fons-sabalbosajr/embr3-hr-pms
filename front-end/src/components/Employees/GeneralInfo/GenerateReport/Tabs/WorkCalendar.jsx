@@ -30,6 +30,7 @@ const WorkCalendar = ({ employee }) => {
   // National public holidays from external API (Nager)
   const [nationalHolidays, setNationalHolidays] = useState([]);
   const [suspensions, setSuspensions] = useState([]);
+  const [wfhRecords, setWfhRecords] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [selectedLog, setSelectedLog] = useState(null);
@@ -132,6 +133,31 @@ const WorkCalendar = ({ employee }) => {
     fetchSuspensions();
   }, []);
 
+  // Fetch WFH records (public endpoint, optionally filter by empId)
+  useEffect(() => {
+    const fetchWfh = async () => {
+      try {
+        const params = {};
+        if (employee?.empId) params.empId = employee.empId;
+        const res = await axiosInstance.get("/work-from-home/public", { params });
+        setWfhRecords(res.data.data || []);
+      } catch (e) {
+        // silent fail
+      }
+    };
+    fetchWfh();
+  }, [employee?.empId]);
+
+  // Helper: check if a date falls within a WFH record
+  const getWfhForDate = (dateStr) => {
+    const d = dayjs(dateStr).startOf("day");
+    return wfhRecords.find((w) => {
+      const start = dayjs(w.date).startOf("day");
+      const end = w.endDate ? dayjs(w.endDate).startOf("day") : start;
+      return d.isSame(start) || d.isSame(end) || (d.isAfter(start) && d.isBefore(end.add(1, "day")));
+    });
+  };
+
   // Helper to group logs by day and compute summary using chronological position
   const getDailySummary = (date) => {
     const target = dayjs(date).tz("Asia/Manila").format("YYYY-MM-DD");
@@ -141,12 +167,19 @@ const WorkCalendar = ({ employee }) => {
 
     const resolved = resolveTimePunches(dailyLogs, { format: "h:mm A" });
 
+    // If this date has a WFH record and biometric data is missing, use WFH prescribed times
+    const wfh = getWfhForDate(target);
+    const isWfh = !!wfh;
+
     return {
-      timeIn: resolved.timeIn || null,
-      breakOut: resolved.breakOut || null,
-      breakIn: resolved.breakIn || null,
-      timeOut: resolved.timeOut || null,
+      timeIn: resolved.timeIn || (isWfh ? wfh.timeIn : null) || null,
+      breakOut: resolved.breakOut || (isWfh ? wfh.breakOut : null) || null,
+      breakIn: resolved.breakIn || (isWfh ? wfh.breakIn : null) || null,
+      timeOut: resolved.timeOut || (isWfh ? wfh.timeOut : null) || null,
       rawLogs: dailyLogs,
+      date: target,
+      isWfh,
+      wfhAttachment: isWfh ? wfh.attachmentUrl : null,
     };
   };
 
@@ -223,12 +256,44 @@ const WorkCalendar = ({ employee }) => {
     });
   });
 
-  // Logs — one event per day
+  // WFH records → entryType 'wfh'
+  wfhRecords.forEach((w, idx) => {
+    const start = dayjs(w.date).format("YYYY-MM-DD");
+    const end = w.endDate
+      ? dayjs(w.endDate).add(1, "day").format("YYYY-MM-DD")
+      : dayjs(w.date).add(1, "day").format("YYYY-MM-DD");
+    events.push({
+      id: `wfh-${idx}`,
+      title: "WFH",
+      start,
+      end,
+      allDay: true,
+      color: "#096dd9",
+      extendedProps: { entryType: "wfh", attachment: w.attachmentUrl },
+    });
+  });
+
+  // Logs — one event per day (biometric punches)
   const uniqueDates = Array.from(
     new Set(
       logs.map((l) => dayjs(l.time).tz("Asia/Manila").format("YYYY-MM-DD"))
     )
   );
+
+  // Also include WFH-only dates that have no biometric punches
+  wfhRecords.forEach((w) => {
+    const start = dayjs(w.date).startOf("day");
+    const end = w.endDate ? dayjs(w.endDate).startOf("day") : start;
+    let d = start;
+    while (d.isBefore(end.add(1, "day"))) {
+      const dateStr = d.format("YYYY-MM-DD");
+      if (!uniqueDates.includes(dateStr)) {
+        uniqueDates.push(dateStr);
+      }
+      d = d.add(1, "day");
+    }
+  });
+
   uniqueDates.forEach((date, idx) => {
     events.push({
       id: `log-${idx}`,
@@ -259,10 +324,23 @@ const WorkCalendar = ({ employee }) => {
         { label: "Time Out", icon: <FaSignOutAlt />, value: summary.timeOut },
       ];
 
+      // Status color: green = complete, orange = partial, red = incomplete
+      const filledCount = [summary.timeIn, summary.breakOut, summary.breakIn, summary.timeOut].filter(Boolean).length;
+      const statusBorder = filledCount === 4 ? "#52c41a" : filledCount >= 2 ? "#faad14" : "#cf1322";
+      const punchCount = summary.rawLogs?.length || 0;
+
       return (
         <Popover
           content={
             <div style={{ fontSize: "11px", lineHeight: "1.2" }}>
+              {summary.isWfh && (
+                <div style={{ marginBottom: 2, fontWeight: 700, color: "#096dd9", fontSize: 10 }}>
+                  🏠 Work From Home
+                </div>
+              )}
+              <div style={{ marginBottom: 4, fontWeight: 600, fontSize: 10, color: statusBorder }}>
+                {filledCount}/4 slots filled &bull; {punchCount} punch{punchCount !== 1 ? "es" : ""}
+              </div>
               {rows.map((r) => (
                 <div
                   key={r.label}
@@ -279,7 +357,13 @@ const WorkCalendar = ({ employee }) => {
           trigger="hover"
         >
           <div
-            style={{ fontSize: "11px", lineHeight: "1.2", cursor: "pointer" }}
+            style={{
+              fontSize: "11px",
+              lineHeight: "1.2",
+              cursor: "pointer",
+              borderLeft: `3px solid ${statusBorder}`,
+              paddingLeft: 4,
+            }}
             onClick={() => onClick(summary)}
           >
             {rows.map((r) => (
@@ -401,6 +485,33 @@ const WorkCalendar = ({ employee }) => {
           }}
         >
           {arg.event.title}
+        </div>
+      );
+    }
+
+    // WFH events
+    if (arg.event.extendedProps?.entryType === "wfh") {
+      return (
+        <div
+          style={{
+            fontSize: 9,
+            fontWeight: 600,
+            color: "#fff",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            height: "100%",
+            width: "100%",
+            textAlign: "center",
+            lineHeight: 1.2,
+            whiteSpace: "normal",
+            padding: "2px",
+            pointerEvents: "none",
+            background: "#096dd9",
+            letterSpacing: "0.5px",
+          }}
+        >
+          WFH
         </div>
       );
     }

@@ -79,6 +79,56 @@ const ViewDTR = ({
   const [saveToTrayLoading, setSaveToTrayLoading] = React.useState(false);
 
   React.useEffect(() => {
+    // Fetch WFH records for date range and build lookup
+    const fetchWfhDays = async () => {
+      try {
+        const s = startDate.format("YYYY-MM-DD");
+        const e = endDate.format("YYYY-MM-DD");
+        const empIds = [employee.empId, ...(employee.alternateEmpIds || [])].filter(Boolean);
+
+        // Fetch individual WFH records AND WFH Group records in parallel
+        const [indivRes, groupRes] = await Promise.all([
+          axiosInstance.get("/work-from-home/public", { params: { start: s, end: e } }),
+          axiosInstance.get("/wfh-groups/public", { params: { start: s, end: e } }).catch(() => ({ data: { data: [] } })),
+        ]);
+
+        const wfhSet = new Set();
+
+        // Individual WFH records
+        (indivRes.data?.data || []).forEach((w) => {
+          // Only include records that match this employee (or org-wide with no empId)
+          if (w.empId && !empIds.includes(w.empId)) return;
+          const ws = dayjs(w.date).startOf("day");
+          const we = w.endDate ? dayjs(w.endDate).startOf("day") : ws;
+          let d = ws;
+          while (d.isSameOrBefore(we, "day")) {
+            wfhSet.add(d.format("YYYY-MM-DD"));
+            d = d.add(1, "day");
+          }
+        });
+
+        // WFH Group records — check if employee is a member
+        (groupRes.data?.data || []).forEach((g) => {
+          const memberIds = (g.members || []).map((m) => m.empId);
+          const isMember = empIds.some((id) => memberIds.includes(id));
+          if (!isMember) return;
+          const gs = dayjs(g.startDate).startOf("day");
+          const ge = dayjs(g.endDate).startOf("day");
+          let d = gs;
+          while (d.isSameOrBefore(ge, "day")) {
+            wfhSet.add(d.format("YYYY-MM-DD"));
+            d = d.add(1, "day");
+          }
+        });
+
+        return wfhSet;
+      } catch (_) {
+        return new Set();
+      }
+    };
+
+    const buildRows = async () => {
+    const wfhDays = await fetchWfhDays();
     // Build holiday/suspension lookup map; expand ranges
     const holidayMap = {};
     holidaysPH.forEach((h) => {
@@ -327,9 +377,14 @@ const ViewDTR = ({
       const trainingLabel = getTrainingLabelForDay(dateKey) || "";
       const isTraining = Boolean(trainingLabel) && !timeIn && !breakOut && !breakIn && !timeOut;
 
+      // Check if this day is a WFH day
+      const isWfh = wfhDays.has(dateKey);
+
       // If no normal punches but there are OT punches on weekend, show OT as the day's punches
       let rowStatus = "";
-      if (isWeekend && (otIn || otOut)) {
+      if (isWfh && !isWeekend && !isHoliday) {
+        rowStatus = "WFH (see attch.)";
+      } else if (isWeekend && (otIn || otOut)) {
         // treat as worked day (show OT times)
         timeIn = timeIn || otIn;
         timeOut = timeOut || otOut;
@@ -389,6 +444,8 @@ const ViewDTR = ({
     }
 
     setTableData(rows);
+    };
+    buildRows();
   }, [employee, dtrLogs, selectedRecord, holidaysPH]);
 
   const columns = [
@@ -504,10 +561,12 @@ const ViewDTR = ({
       dataIndex: "status",
       key: "status",
       align: "center",
-      width: 110,
+      width: 120,
       render: (_, record) =>
         record.isWeekend || record.isHoliday || record.isTraining
           ? { children: null, props: { colSpan: 0 } }
+          : record.status === "WFH (see attch.)"
+          ? <Tag color="blue" style={{ fontSize: 10 }}>WFH (see attch.)</Tag>
           : record.status,
     },
     // Reminder column removed: single consolidated button is provided above the table.

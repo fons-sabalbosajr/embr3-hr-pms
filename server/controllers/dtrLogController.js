@@ -348,8 +348,8 @@ export const deleteDTRLog = async (req, res) => {
   try {
     const callerId = req.user?.id || req.user?._id;
     const caller = callerId ? await User.findById(callerId) : null;
-    if (!caller || !(caller.isAdmin || caller.canManageNotifications || caller.canAccessNotifications || caller.canSeeDev || caller.canManipulateBiometrics || caller.userType === 'developer')) {
-      return res.status(403).json({ success: false, message: 'Forbidden: insufficient permissions to delete dtr log' });
+    if (!caller || !(caller.canManipulateBiometrics || caller.userType === 'developer')) {
+      return res.status(403).json({ success: false, message: 'Forbidden: only developers or users with Edit Time Records permission can delete time records' });
     }
 
     const { id } = req.params;
@@ -374,22 +374,55 @@ export const updateDTRLog = async (req, res) => {
       return res.status(401).json({ success: false, message: 'Unauthorized' });
     }
 
-  const allowedToManage = !!(caller.isAdmin || caller.canManageNotifications || caller.canAccessNotifications || caller.canSeeDev || caller.canManipulateBiometrics || caller.userType === 'developer');
+  const allowedToManage = !!(caller.canManipulateBiometrics || caller.userType === 'developer');
     if (!allowedToManage) {
-      console.warn('updateDTRLog: permission denied', { callerId, caller: { id: caller._id || caller.id, isAdmin: caller.isAdmin, canManageNotifications: caller.canManageNotifications, canAccessNotifications: caller.canAccessNotifications, canSeeDev: caller.canSeeDev, userType: caller.userType } });
-      return res.status(403).json({ success: false, message: 'Forbidden: insufficient permissions' });
+      console.warn('updateDTRLog: permission denied', { callerId, caller: { id: caller._id || caller.id, userType: caller.userType, canManipulateBiometrics: caller.canManipulateBiometrics } });
+      return res.status(403).json({ success: false, message: 'Forbidden: only developers or users with Edit Time Records permission can edit time records' });
     }
 
     const { id } = req.params;
     const body = req.body || {};
-    const allowed = ['hidden'];
+    const allowed = ['hidden', 'State', 'New State', 'Time', 'AC-No', 'Name'];
     const changes = {};
     Object.keys(body).forEach(k => { if (allowed.includes(k)) changes[k] = body[k]; });
+    // If Time is updated as string, convert to Date
+    if (changes.Time && typeof changes.Time === 'string') {
+      changes.Time = new Date(changes.Time);
+    }
     const updated = await DTRLog.findByIdAndUpdate(id, { $set: changes }, { new: true });
     if (!updated) return res.status(404).json({ success: false, message: 'Not found' });
     res.json({ success: true, data: updated });
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, message: 'Failed to update dtr log' });
+  }
+};
+
+// Create a single DTR log entry (for biometrics data editing)
+export const createDTRLogEntry = async (req, res) => {
+  try {
+    const callerId = req.user?.id || req.user?._id;
+    const caller = callerId ? await User.findById(callerId) : null;
+    if (!caller || !(caller.canManipulateBiometrics || caller.userType === 'developer')) {
+      return res.status(403).json({ success: false, message: 'Forbidden: only developers or users with Edit Time Records permission can add time records' });
+    }
+
+    const { 'AC-No': acNo, Name, Time, State, 'New State': newState } = req.body;
+    if (!acNo || !Time || !State) {
+      return res.status(400).json({ success: false, message: 'AC-No, Time, and State are required' });
+    }
+
+    const log = await DTRLog.create({
+      'AC-No': acNo,
+      Name: Name || '',
+      Time: new Date(Time),
+      State: State,
+      'New State': newState || '',
+    });
+
+    res.status(201).json({ success: true, data: log });
+  } catch (err) {
+    console.error('createDTRLogEntry error:', err);
+    res.status(500).json({ success: false, message: 'Failed to create DTR log entry' });
   }
 };
