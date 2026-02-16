@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  App as AntApp,
   Alert,
   Button,
   Checkbox,
@@ -20,6 +19,7 @@ import {
 } from "antd";
 import dayjs from "dayjs";
 import axiosInstance from "../../../api/axiosInstance";
+import { swalSuccess, swalError } from "../../../utils/swalHelper";
 import demoActions from "../../../utils/demoActionsRegistry";
 import { secureStore } from "../../../../utils/secureStorage";
 
@@ -76,7 +76,6 @@ const MAX_END = dayjs("2025-11-30T23:59:59");
 
 const DemoModeSettings = ({ settings, onUpdated }) => {
   const [form] = Form.useForm();
-  const { message } = AntApp.useApp();
   const [saving, setSaving] = useState(false);
   const autoSaveTimer = useRef(null);
 
@@ -174,9 +173,9 @@ const DemoModeSettings = ({ settings, onUpdated }) => {
         secureStore("appSettings", res.data);
       } catch (_) {}
       onUpdated?.(res.data);
-      message.success("Demo mode settings saved");
+      swalSuccess("Demo mode settings saved");
     } catch (e) {
-      message.error(
+      swalError(
         e?.response?.data?.message || "Failed to save demo settings"
       );
     } finally {

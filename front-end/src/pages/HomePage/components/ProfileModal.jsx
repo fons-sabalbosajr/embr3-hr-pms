@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback } from "react";
-import { Modal, Typography, Divider, Space, Button, Slider, notification } from "antd";
+import { Modal, Typography, Divider, Space, Button, Slider } from "antd";
+import { swalSuccess, swalError } from "../../../utils/swalHelper";
 import {
   UserOutlined,
   IdcardOutlined,
@@ -33,8 +34,8 @@ const ProfileModal = ({ open, onClose, user }) => {
     if (!file) return;
     const isImage = file.type.startsWith("image/");
     const isLt10M = file.size / 1024 / 1024 < 10;
-    if (!isImage) { notification.error({ message: "Only image files are allowed." }); return; }
-    if (!isLt10M) { notification.error({ message: "Image must be smaller than 10 MB." }); return; }
+    if (!isImage) { swalError("Only image files are allowed."); return; }
+    if (!isLt10M) { swalError("Image must be smaller than 10 MB."); return; }
     const reader = new FileReader();
     reader.onload = () => {
       setImageSrc(reader.result);
@@ -86,12 +87,12 @@ const ProfileModal = ({ open, onClose, user }) => {
         // Skip cache-busting for data: URLs (base64) – they are unique by content
         const finalUrl = avatarUrl.startsWith('data:') ? avatarUrl : `${avatarUrl}${avatarUrl.includes("?") ? "&" : "?"}v=${Date.now()}`;
         updateCurrentUser({ ...user, avatarUrl: finalUrl });
-        notification.success({ message: "Profile photo updated!" });
+        swalSuccess("Profile photo updated!");
       }
       setCropModalOpen(false);
       setImageSrc(null);
     } catch (e) {
-      notification.error({ message: e.response?.data?.message || "Failed to upload photo." });
+      swalError(e.response?.data?.message || "Failed to upload photo.");
     } finally {
       setUploading(false);
     }

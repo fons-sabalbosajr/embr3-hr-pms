@@ -6,13 +6,13 @@ import {
   Select,
   InputNumber,
   Space,
-  notification,
   Row,
   Col,
 } from "antd";
 import { MinusCircleOutlined, PlusOutlined } from "@ant-design/icons";
 import axiosInstance from "../../../../api/axiosInstance";
 import { secureGet } from "../../../../../utils/secureStorage";
+import { swalSuccess, swalError } from "../../../../utils/swalHelper";
 
 const { Option } = Select;
 
@@ -36,19 +36,14 @@ const EditSalaryInfo = ({ onClose, salaryData }) => {
   const onFinish = async (values) => {
     try {
       await axiosInstance.put(`/employee-salaries/${salaryData._id}`, values);
-      notification.success({
-        message: "Success",
-        description: "Employee salary information updated successfully!",
-      });
+      swalSuccess("Employee salary information updated successfully!");
       onClose();
     } catch (error) {
       console.error("Failed to update employee salary:", error);
-      notification.error({
-        message: "Error",
-        description:
-          error.response?.data?.message ||
-          "Failed to update employee salary information.",
-      });
+      swalError(
+        error.response?.data?.message ||
+          "Failed to update employee salary information."
+      );
     }
   };
 

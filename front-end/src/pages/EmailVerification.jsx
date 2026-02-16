@@ -1,7 +1,8 @@
 // src/pages/EmailVerification.jsx
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { message, Spin, Result, Button } from "antd";
+import { Spin, Result, Button } from "antd";
+import { swalSuccess, swalError } from "../utils/swalHelper";
 import { CheckCircleOutlined, CloseCircleOutlined } from "@ant-design/icons";
 import axios from "../api/axiosInstance";
 
@@ -19,7 +20,7 @@ const EmailVerification = () => {
         const res = await axios.get(`/users/verify/${token}`);
         if (isMounted) {
           setStatus("success");
-          message.success("Email verified successfully!");
+          swalSuccess("Email verified successfully!");
           setTimeout(() => {
             navigate("/auth?verified=true");
           }, 3000);
@@ -27,7 +28,7 @@ const EmailVerification = () => {
       } catch (err) {
         if (isMounted) {
           setStatus("error");
-          message.error("Invalid or expired verification link.");
+          swalError("Invalid or expired verification link.");
           setTimeout(() => {
             navigate("/auth");
           }, 3000);

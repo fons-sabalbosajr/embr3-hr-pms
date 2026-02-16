@@ -5,14 +5,13 @@ import {
   Button,
   Space,
   Input,
-  message,
-  Popconfirm,
   Card,
   Row,
   Col,
   Modal,
   Form,
 } from "antd";
+import { swalSuccess, swalError, swalWarning, swalConfirm } from "../../../../utils/swalHelper";
 import {
   DownloadOutlined,
   EditOutlined,
@@ -44,7 +43,7 @@ const EmployeeTab = () => {
       setData(rows);
       setFiltered(rows);
     } catch {
-      message.error("Failed to load employees");
+      swalError("Failed to load employees");
     } finally {
       setLoading(false);
     }
@@ -74,27 +73,27 @@ const EmployeeTab = () => {
     try {
       const values = await form.validateFields();
       await axiosInstance.put(`/employees/${editing._id}`, values);
-      message.success("Employee updated");
+      swalSuccess("Employee updated");
       setEditModalOpen(false);
       setEditing(null);
       fetchData();
     } catch {
-      message.error("Update failed");
+      swalError("Update failed");
     }
   };
 
   const handleDelete = async (id) => {
     try {
       await axiosInstance.delete(`/employees/${id}`);
-      message.success("Deleted");
+      swalSuccess("Deleted");
       fetchData();
     } catch {
-      message.error("Delete failed");
+      swalError("Delete failed");
     }
   };
 
   const exportCsv = () => {
-    if (!data?.length) return message.warning("No data to export");
+    if (!data?.length) return swalWarning("No data to export");
     const rows = data.map((r) => ({
       empId: r.empId,
       name: r.name,
@@ -126,14 +125,22 @@ const EmployeeTab = () => {
           <Button icon={<EditOutlined />} size="small" onClick={() => openEdit(record)}>
             Edit
           </Button>
-          <Popconfirm
-            title="Delete this employee?"
-            onConfirm={() => handleDelete(record._id)}
+          <Button
+            danger
+            icon={<DeleteOutlined />}
+            size="small"
+            onClick={() =>
+              swalConfirm({
+                title: "Delete this employee?",
+                confirmText: "Delete",
+                dangerMode: true,
+              }).then((result) => {
+                if (result.isConfirmed) handleDelete(record._id);
+              })
+            }
           >
-            <Button danger icon={<DeleteOutlined />} size="small">
-              Delete
-            </Button>
-          </Popconfirm>
+            Delete
+          </Button>
         </Space>
       ),
     },

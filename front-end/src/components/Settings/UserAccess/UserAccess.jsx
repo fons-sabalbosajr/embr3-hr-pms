@@ -18,8 +18,6 @@ import {
   theme,
   Tabs,
   Input,
-  Popconfirm,
-  App as AntApp,
   Select,
   Alert,
 } from "antd";
@@ -50,6 +48,7 @@ import {
 } from "@ant-design/icons";
 import axiosInstance from "../../../api/axiosInstance";
 import useAuth from "../../../hooks/useAuth";
+import { swalSuccess, swalError, swalConfirm } from "../../../utils/swalHelper";
 import UserAvatar from "../../common/UserAvatar";
 import dayjs from "dayjs";
 
@@ -250,8 +249,9 @@ const dangerZone = {
 const UserAccess = () => {
   const { user: currentUser, updateCurrentUser } = useAuth();
   const { token: themeToken } = theme.useToken();
-  const { message: antMsg } = AntApp.useApp();
   const [activeTab, setActiveTab] = useState("accounts");
+
+  const isDeveloper = currentUser?.userType === "developer";
 
   // ── Current accounts state ───────────────────────────────────────
   const [users, setUsers] = useState([]);
@@ -283,7 +283,7 @@ const UserAccess = () => {
         );
       }
     } catch (error) {
-      antMsg.error("Failed to fetch users");
+      swalError("Failed to fetch users");
     } finally {
       setLoadingUsers(false);
     }
@@ -298,7 +298,7 @@ const UserAccess = () => {
         setSignups(response.data.data || []);
       }
     } catch (error) {
-      antMsg.error("Failed to fetch signup requests");
+      swalError("Failed to fetch signup requests");
     } finally {
       setLoadingSignups(false);
     }
@@ -327,12 +327,12 @@ const UserAccess = () => {
         if (currentUser._id === userId) {
           updateCurrentUser(updatedUser);
         }
-        antMsg.success("Updated successfully.");
+        swalSuccess("Updated successfully.");
       } else {
-        antMsg.error(response.data.message || "Failed to update user access");
+        swalError(response.data.message || "Failed to update user access");
       }
     } catch (error) {
-      antMsg.error("Failed to update user access");
+      swalError("Failed to update user access");
     }
   };
 
@@ -351,12 +351,12 @@ const UserAccess = () => {
     try {
       const res = await axiosInstance.put(`/users/${userId}/approve`);
       if (res.data.success) {
-        antMsg.success(res.data.message || "User approved");
+        swalSuccess(res.data.message || "User approved");
         fetchSignups();
         fetchUsers();
       }
     } catch (error) {
-      antMsg.error("Failed to approve user");
+      swalError("Failed to approve user");
     }
   };
 
@@ -373,13 +373,13 @@ const UserAccess = () => {
         reason: rejectReason,
       });
       if (res.data.success) {
-        antMsg.success("User rejected");
+        swalSuccess("User rejected");
         setRejectModalVisible(false);
         setRejectTarget(null);
         fetchSignups();
       }
     } catch (error) {
-      antMsg.error("Failed to reject user");
+      swalError("Failed to reject user");
     }
   };
 
@@ -387,12 +387,12 @@ const UserAccess = () => {
     try {
       const res = await axiosInstance.delete(`/users/${userId}`);
       if (res.data.success) {
-        antMsg.success("User deleted");
+        swalSuccess("User deleted");
         fetchSignups();
         fetchUsers();
       }
     } catch (error) {
-      antMsg.error("Failed to delete user");
+      swalError("Failed to delete user");
     }
   };
 
@@ -682,47 +682,23 @@ const UserAccess = () => {
           <Space size={4}>
             {status === "pending" && (
               <>
-                <Popconfirm
-                  title="Approve this account?"
-                  description={`${record.name} will receive an email and can log in.`}
-                  onConfirm={() => handleApprove(record._id)}
-                  okText="Approve"
-                  cancelText="Cancel"
-                >
-                  <Button type="primary" size="small" icon={<CheckOutlined />}>
+                <Button type="primary" size="small" icon={<CheckOutlined />} onClick={async () => { const r = await swalConfirm({ title: "Approve this account?", text: `${record.name} will receive an email and can log in.` }); if (r.isConfirmed) handleApprove(record._id); }}>
                     Approve
-                  </Button>
-                </Popconfirm>
+                </Button>
                 <Button size="small" danger icon={<StopOutlined />} onClick={() => handleRejectClick(record)}>
                   Reject
                 </Button>
               </>
             )}
             {status === "rejected" && (
-              <Popconfirm
-                title="Approve this previously rejected account?"
-                onConfirm={() => handleApprove(record._id)}
-                okText="Approve"
-                cancelText="Cancel"
-              >
-                <Button type="primary" size="small" icon={<CheckOutlined />}>
+              <Button type="primary" size="small" icon={<CheckOutlined />} onClick={async () => { const r = await swalConfirm({ title: "Approve this previously rejected account?" }); if (r.isConfirmed) handleApprove(record._id); }}>
                   Approve
-                </Button>
-              </Popconfirm>
+              </Button>
             )}
             {status === "approved" && (
               <Tag color="green" icon={<CheckCircleOutlined />}>Approved</Tag>
             )}
-            <Popconfirm
-              title="Delete this account permanently?"
-              description="This action cannot be undone."
-              onConfirm={() => handleDeleteUser(record._id)}
-              okText="Delete"
-              cancelText="Cancel"
-              okButtonProps={{ danger: true }}
-            >
-              <Button size="small" danger type="text" icon={<DeleteOutlined />} />
-            </Popconfirm>
+            <Button size="small" danger type="text" icon={<DeleteOutlined />} onClick={async () => { const r = await swalConfirm({ title: "Delete this account permanently?", text: "This action cannot be undone.", dangerMode: true }); if (r.isConfirmed) handleDeleteUser(record._id); }} />
           </Space>
         );
       },
@@ -934,7 +910,13 @@ const UserAccess = () => {
             >
               <List
                 itemLayout="horizontal"
-                dataSource={dangerZone.permissions}
+                dataSource={
+                  isDeveloper
+                    ? dangerZone.permissions
+                    : dangerZone.permissions.filter(
+                        (p) => p.key !== "canAccessDeveloper" && p.key !== "canSeeDev"
+                      )
+                }
                 renderItem={renderPermItem}
               />
               <div style={{ marginTop: 16 }}>
@@ -947,7 +929,7 @@ const UserAccess = () => {
                   }
                   style={{ marginTop: 8 }}
                 >
-                  <Radio value="developer">Developer</Radio>
+                  {isDeveloper && <Radio value="developer">Developer</Radio>}
                   <Radio value="administrator">Administrator</Radio>
                   <Radio value="co-admin">Co-Admin</Radio>
                   <Radio value="guest">Guest User</Radio>

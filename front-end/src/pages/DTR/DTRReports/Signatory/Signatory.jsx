@@ -2,12 +2,11 @@ import React, { useState, useEffect, useMemo } from "react";
 import useDemoMode from "../../../../hooks/useDemoMode";
 import { secureSessionGet, secureSessionStore } from "../../../../../utils/secureStorage";
 import { buildColorMapFromList, pickTagColor, TAG_COLOR_PALETTE } from "../../../../utils/tagColors";
+import { swalSuccess, swalError, swalWarning, swalConfirm } from "../../../../utils/swalHelper";
 import {
   Table,
   Card,
-  message,
   Button,
-  Popconfirm,
   Tag,
   Typography,
   Form,
@@ -118,7 +117,7 @@ const Signatory = () => {
       );
       setAllRegularEmployees(regularEmployees);
     } catch (error) {
-      message.error("Failed to fetch regular employees.");
+      swalError("Failed to fetch regular employees.");
     }
   };
 
@@ -135,7 +134,7 @@ const Signatory = () => {
       });
       setSectionOrUnitOptions(sortedOptions);
     } catch (error) {
-      message.error("Failed to fetch section/unit options.");
+      swalError("Failed to fetch section/unit options.");
     }
   };
 
@@ -172,7 +171,7 @@ const Signatory = () => {
       }
       fetchSignatories();
     } catch (error) {
-      message.error("Failed to sync chiefs as signatories.");
+      swalError("Failed to sync chiefs as signatories.");
       setLoading(false);
     }
   };
@@ -183,7 +182,7 @@ const Signatory = () => {
       const res = await getSignatoryEmployees();
       setSignatories(res.data);
     } catch (error) {
-      message.error("Failed to fetch signatories.");
+      swalError("Failed to fetch signatories.");
     } finally {
       setLoading(false);
     }
@@ -258,7 +257,7 @@ const Signatory = () => {
 
         if (editingSignatory) {
           await updateEmployeeSignatory(editingSignatory._id, payload);
-          message.success("Signatory updated successfully!");
+          swalSuccess("Signatory updated successfully!");
         } else {
           const targetEmployee = allRegularEmployees.find(
             (emp) => emp.empId === payload.empId
@@ -266,7 +265,7 @@ const Signatory = () => {
 
           if (targetEmployee) {
             if (targetEmployee.isSignatory) {
-              message.error("This employee is already a signatory.");
+              swalError("This employee is already a signatory.");
               return;
             }
 
@@ -280,9 +279,9 @@ const Signatory = () => {
             await updateEmployeeSignatory(targetEmployee._id, updatePayload);
             // Mark this signatory as session-new for demo delete allowance
             markSessionNew(targetEmployee._id);
-            message.success("Employee designated as signatory successfully!");
+            swalSuccess("Employee designated as signatory successfully!");
           } else {
-            message.error("Employee not found with the provided Employee ID.");
+            swalError("Employee not found with the provided Employee ID.");
           }
         }
 
@@ -290,14 +289,14 @@ const Signatory = () => {
         setIsModalVisible(false);
       } catch (error) {
         console.error("Save failed:", error);
-        message.error("Failed to save signatory.");
+        swalError("Failed to save signatory.");
       }
     });
   };
 
   const handleDelete = async (recordId, record) => {
     if (isDemoActive && !isRecordSessionNew(record)) {
-      message.warning("Delete disabled in demo for existing signatories");
+      swalWarning("Delete disabled in demo for existing signatories");
       return;
     }
     try {
@@ -314,10 +313,10 @@ const Signatory = () => {
         remarks: null,
       };
       await updateEmployeeSignatory(recordId, payload);
-      message.success("Signatory status updated successfully!");
+      swalSuccess("Signatory status updated successfully!");
       fetchSignatories();
     } catch (error) {
-      message.error("Failed to update signatory status.");
+      swalError("Failed to update signatory status.");
     }
   };
 
@@ -467,21 +466,18 @@ const Signatory = () => {
               onClick={() => showEditModal(record)}
               disabled={readOnly && isDemoActive && isDemoUser}
             />
-            <Popconfirm
-              title={demoDeleteDisabled ? "Delete disabled in demo for existing entries" : "Are you sure to remove this employee as signatory?"}
-              onConfirm={() => handleDelete(record._id, record)}
-              okText="Yes"
-              cancelText="No"
-              disabled={demoDeleteDisabled}
-            >
-              <Button
-                type="primary"
-                size="small"
-                danger
-                icon={<DeleteOutlined />}
-                disabled={(readOnly && isDemoActive && isDemoUser) || demoDeleteDisabled}
-              />
-            </Popconfirm>
+            <Button
+              type="primary"
+              size="small"
+              danger
+              icon={<DeleteOutlined />}
+              disabled={(readOnly && isDemoActive && isDemoUser) || demoDeleteDisabled}
+              onClick={async () => {
+                if (demoDeleteDisabled) return;
+                const r = await swalConfirm({ title: "Are you sure to remove this employee as signatory?", dangerMode: true });
+                if (r.isConfirmed) handleDelete(record._id, record);
+              }}
+            />
           </span>
         );
       },

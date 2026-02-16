@@ -13,8 +13,8 @@ import {
   Modal,
   Grid,
 } from "antd";
-import useNotify from '../../../../hooks/useNotify';
 import useLoading from '../../../../hooks/useLoading';
+import { swalSuccess, swalError } from "../../../../utils/swalHelper";
 import { SearchOutlined } from "@ant-design/icons";
 import axiosInstance from "../../../../api/axiosInstance";
 import dayjs from "dayjs";
@@ -38,7 +38,6 @@ const { TabPane } = Tabs;
 const Payslip = () => {
   const screens = Grid.useBreakpoint();
   const isMobile = !screens.md;
-  const { notification } = useNotify();
   const { withLoading } = useLoading();
   const [form] = Form.useForm();
   const { shouldHideInDemo } = useDemoMode();
@@ -147,10 +146,7 @@ const Payslip = () => {
       setCombinedData(combined);
     } catch (err) {
       console.error("Failed to fetch combined employee and salary data", err);
-      notification.error({
-        message: "Error",
-        description: "Failed to load employee salary data.",
-      });
+      swalError("Failed to load employee salary data.");
     }
   };
 
@@ -245,19 +241,11 @@ const Payslip = () => {
 
         updateProgress(100);
 
-        notification.success({
-          message: "Success",
-          description: `Payslip ${
-            isNew ? "generated" : "updated"
-          } successfully with No. ${docNo}.`,
-        });
+        swalSuccess(`Payslip ${isNew ? "generated" : "updated"} successfully with No. ${docNo}.`);
         handleCancel();
       } catch (error) {
         console.error("Failed to generate payslip:", error);
-        notification.error({
-          message: "Error",
-          description: "Failed to generate payslip. Please try again.",
-        });
+        swalError("Failed to generate payslip. Please try again.");
       }
     }, "Generating payslip…");
   };

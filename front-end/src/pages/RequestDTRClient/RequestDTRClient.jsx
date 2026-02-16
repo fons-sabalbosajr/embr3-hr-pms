@@ -6,7 +6,6 @@ import {
   Form,
   Input,
   DatePicker,
-  message,
   Modal,
   AutoComplete,
   ConfigProvider,
@@ -14,6 +13,7 @@ import {
   Result,
   theme,
 } from "antd";
+import { swalWarning, swalError } from "../../utils/swalHelper";
 import { Link } from "react-router-dom";
 import {
   CalendarOutlined,
@@ -187,12 +187,12 @@ const RequestDTRClient = () => {
         error.response?.status === 429 ||
         error.response?.data?.code === "REQUEST_LIMIT_REACHED"
       ) {
-        message.warning(
+        swalWarning(
           error.response?.data?.message ||
             "You already have pending requests. Please wait for HR to process them."
         );
       } else {
-        message.error("An error occurred while submitting your request.");
+        swalError("An error occurred while submitting your request.");
       }
       console.error("DTR request error:", error);
     } finally {

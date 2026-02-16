@@ -6,8 +6,6 @@ import {
   Form,
   Input,
   Select,
-  notification,
-  Popconfirm,
   InputNumber,
   Radio,
   Space,
@@ -18,6 +16,7 @@ import {
 } from "antd";
 import { PlusOutlined, EditOutlined, DeleteOutlined } from "@ant-design/icons";
 import axiosInstance from "../../api/axiosInstance.js";
+import { swalSuccess, swalError, swalWarning, swalConfirm } from "../../utils/swalHelper";
 import useDemoMode from "../../hooks/useDemoMode";
 
 const { Option } = Select;
@@ -35,10 +34,7 @@ const DeductionSettings = () => {
       const response = await axiosInstance.get("/deduction-types");
       setDeductionTypes(response.data);
     } catch (error) {
-      notification.error({
-        message: "Error fetching deduction types",
-        description: "Could not fetch deduction types from the server.",
-      });
+      swalError("Could not fetch deduction types from the server.");
     }
   };
 
@@ -61,13 +57,10 @@ const DeductionSettings = () => {
   const handleDelete = async (id) => {
     try {
       await axiosInstance.delete(`/deduction-types/${id}`);
-      notification.success({ message: "Deduction type deleted successfully" });
+      swalSuccess("Deduction type deleted successfully");
       fetchDeductionTypes(); // Refresh the list
     } catch (error) {
-      notification.error({
-        message: "Error deleting deduction type",
-        description: "This deduction type might be in use.",
-      });
+      swalError("This deduction type might be in use.");
     }
   };
 
@@ -80,15 +73,11 @@ const DeductionSettings = () => {
           `/deduction-types/${editingDeduction._id}`,
           values,
         );
-        notification.success({
-          message: "Deduction type updated successfully",
-        });
+        swalSuccess("Deduction type updated successfully");
       } else {
         // Create new deduction
         const { data } = await axiosInstance.post("/deduction-types", values);
-        notification.success({
-          message: "Deduction type added successfully",
-        });
+        swalSuccess("Deduction type added successfully");
         // Track as newly added for this session (allow delete even in demo)
         if (data && (data._id || data.id)) {
           setNewlyAddedIds(
@@ -100,10 +89,7 @@ const DeductionSettings = () => {
       setIsModalOpen(false);
       form.resetFields();
     } catch (error) {
-      notification.error({
-        message: "Validation Failed",
-        description: "Please check the form fields.",
-      });
+      swalError("Please check the form fields.");
     }
   };
 
@@ -188,22 +174,24 @@ const DeductionSettings = () => {
           >
             Edit
           </Button>
-          <Popconfirm
-            title="Delete this deduction type?"
-            onConfirm={() => handleDelete(record._id)}
-            okText="Yes"
-            cancelText="No"
+          <Button
+            size="small"
+            icon={<DeleteOutlined />}
+            danger
             disabled={!canDelete(record)}
+            onClick={async () => {
+              const result = await swalConfirm({
+                title: "Delete this deduction type?",
+                text: "This action cannot be undone.",
+                confirmText: "Yes",
+                cancelText: "No",
+                dangerMode: true,
+              });
+              if (result.isConfirmed) handleDelete(record._id);
+            }}
           >
-            <Button
-              size="small"
-              icon={<DeleteOutlined />}
-              danger
-              disabled={!canDelete(record)}
-            >
-              Delete
-            </Button>
-          </Popconfirm>
+            Delete
+          </Button>
         </Space>
       ),
     },

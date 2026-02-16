@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import useDemoMode from "../../../hooks/useDemoMode";
 import useAuth from "../../../hooks/useAuth";
+import { swalSuccess, swalError, swalWarning, swalConfirm } from "../../../utils/swalHelper";
 import {
   secureSessionGet,
   secureSessionStore,
@@ -17,11 +18,9 @@ import {
   Tag,
   Transfer,
   Checkbox,
-  message,
   Popover,
   Dropdown,
   Menu,
-  Popconfirm,
   Grid,
 } from "antd";
 import { PlusOutlined, EditOutlined, DeleteOutlined } from "@ant-design/icons";
@@ -210,7 +209,7 @@ const Trainings = () => {
 
       if (editingTraining) {
         await axiosInstance.put(`/trainings/${editingTraining._id}`, payload);
-        message.success("Training updated successfully ✅");
+        swalSuccess("Training updated successfully ✅");
       } else {
         const res = await axiosInstance.post("/trainings", payload);
         const createdId =
@@ -221,7 +220,7 @@ const Trainings = () => {
           // Fallback: mark via signature if id is not returned
           markSessionNew(makeSignature(payload));
         }
-        message.success("Training added successfully ✅");
+        swalSuccess("Training added successfully ✅");
       }
 
       fetchTrainings();
@@ -229,14 +228,14 @@ const Trainings = () => {
       setSelectedParticipants([]);
     } catch (err) {
       console.error("Failed to save training", err);
-      message.error("Failed to save training ❌");
+      swalError("Failed to save training ❌");
     }
   };
 
   const handleDelete = async (id, record) => {
     // In demo mode, only allow delete for session-new items
     if (isDemoActive && !isRecordSessionNew(record)) {
-      message.warning("Delete disabled in demo for existing records");
+      swalWarning("Delete disabled in demo for existing records");
       return;
     }
     try {
@@ -427,26 +426,27 @@ const Trainings = () => {
                 type="primary"
                 disabled={readOnly && isDemoActive && isDemoUser}
               />
-              <Popconfirm
-                title="Delete this training?"
-                description={
-                  demoDeleteDisabled
-                    ? "Deletion is disabled in demo for existing records"
-                    : "This action cannot be undone."
-                }
-                okText="Delete"
-                okButtonProps={{ danger: true, disabled: demoDeleteDisabled }}
-                onConfirm={() => handleDelete(record._id, record)}
+              <Button
+                icon={<DeleteOutlined />}
+                size="small"
+                danger
+                type="primary"
                 disabled={demoDeleteDisabled}
-              >
-                <Button
-                  icon={<DeleteOutlined />}
-                  size="small"
-                  danger
-                  type="primary"
-                  disabled={demoDeleteDisabled}
-                />
-              </Popconfirm>
+                onClick={async () => {
+                  if (demoDeleteDisabled) return;
+                  const result = await swalConfirm({
+                    title: "Delete this training?",
+                    text: demoDeleteDisabled
+                      ? "Deletion is disabled in demo for existing records"
+                      : "This action cannot be undone.",
+                    confirmText: "Delete",
+                    dangerMode: true,
+                  });
+                  if (result.isConfirmed) {
+                    handleDelete(record._id, record);
+                  }
+                }}
+              />
             </Space>
           </div>
         );

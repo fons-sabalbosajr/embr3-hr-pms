@@ -14,7 +14,6 @@ import {
   Spin,
   Dropdown,
   Menu,
-  notification,
   Switch,
   Alert,
   Tag,
@@ -30,6 +29,7 @@ import { generatePaySlipPreviewRegular } from "../../../../../../utils/generateP
 import useDemoMode from "../../../../../hooks/useDemoMode.js";
 import useLoading from "../../../../../hooks/useLoading.js";
 import axiosInstance from "../../../../../api/axiosInstance.js";
+import { swalSuccess, swalError, swalWarning } from "../../../../../utils/swalHelper";
 
 const DeductionRow = ({
   fieldNamePrefix,
@@ -202,7 +202,7 @@ const GeneratePayslipModal = ({
         const response = await axiosInstance.get("/deduction-types");
         setDeductionTypes(response.data);
       } catch (error) {
-        notification.error({ message: "Failed to fetch deduction types" });
+        swalError("Failed to fetch deduction types");
       }
     };
 
@@ -295,10 +295,7 @@ const GeneratePayslipModal = ({
         setPayslipNumber(currentPayslipNo);
       } catch (err) {
         console.error("Failed to fetch next payslip number", err);
-        notification.error({
-          message: "Error",
-          description: "Failed to fetch next payslip number.",
-        });
+        swalError("Failed to fetch next payslip number.");
         setIsPreviewLoading(false);
         return;
       }
@@ -554,10 +551,7 @@ const GeneratePayslipModal = ({
 
   const handleDownloadPayslip = () => {
     if (isDemoActive && isDemoUser) {
-      notification.warning({
-        message: "Download Disabled in Demo",
-        description: "Payslip downloading is not available in demo mode.",
-      });
+      swalWarning("Payslip downloading is not available in demo mode.");
       return;
     }
     if (currentPayslipData) {
@@ -609,11 +603,11 @@ const GeneratePayslipModal = ({
 
   const handleSendPayslip = async () => {
     if (!currentPayslipData || !pdfPreview) {
-      notification.error({ message: "Preview not ready", description: "Generate the payslip first." });
+      swalError("Generate the payslip first.");
       return;
     }
     if (!sendEmail) {
-      notification.error({ message: "Email required", description: "Please enter a recipient email." });
+      swalError("Please enter a recipient email.");
       return;
     }
     setIsSendingEmail(true);
@@ -650,14 +644,12 @@ const GeneratePayslipModal = ({
           const isSimulated = !!sendRes.data?.simulated;
           const wasAlreadySent = !!sendRes.data?.alreadySent; // backward compatibility
           const resendCount = sendRes.data?.resendCount ?? 0;
-          notification.success({
-            message: isSimulated ? "Payslip email simulated" : wasAlreadySent ? "Already emailed" : (resendCount > 0 ? `Payslip re-sent (${resendCount}/5)` : "Payslip email sent"),
-            description: isSimulated
-              ? `Email capture logged server-side. SMTP not configured; no email delivered.`
-              : wasAlreadySent
-              ? `This payslip was already emailed earlier. No duplicate email was sent.`
-              : `Email dispatched to ${sendEmail}`,
-          });
+          swalSuccess(
+            isSimulated ? "Payslip email simulated - Email capture logged server-side. SMTP not configured; no email delivered."
+              : wasAlreadySent ? "Already emailed - This payslip was already emailed earlier."
+              : resendCount > 0 ? `Payslip re-sent (${resendCount}/5) - Email dispatched to ${sendEmail}`
+              : `Payslip email sent - Email dispatched to ${sendEmail}`
+          );
           setIsSendModalOpen(false);
         } else {
           throw new Error(sendRes.data?.message || "Unknown send error");
@@ -665,12 +657,9 @@ const GeneratePayslipModal = ({
       } catch (e) {
         const code = e?.response?.data?.code;
         if (code === 'RESEND_LIMIT_REACHED') {
-          notification.warning({
-            message: 'Resend limit reached',
-            description: e?.response?.data?.message || 'You have reached the maximum number of resends for this payslip.',
-          });
+          swalWarning(e?.response?.data?.message || 'You have reached the maximum number of resends for this payslip.');
         } else {
-          notification.error({ message: "Failed to send", description: e.message });
+          swalError(e.message || "Failed to send");
         }
       } finally {
         setIsSendingEmail(false);

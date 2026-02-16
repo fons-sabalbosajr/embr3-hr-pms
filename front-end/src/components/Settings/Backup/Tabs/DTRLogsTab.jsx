@@ -5,8 +5,6 @@ import {
   Button,
   Space,
   Input,
-  message,
-  Popconfirm,
   Card,
   Row,
   Col,
@@ -14,6 +12,7 @@ import {
   Form,
   DatePicker,
 } from "antd";
+import { swalSuccess, swalError, swalWarning, swalConfirm } from "../../../../utils/swalHelper";
 import {
   DownloadOutlined,
   EditOutlined,
@@ -64,7 +63,7 @@ const DTRLogTab = () => {
       setPage(res.data?.page ?? p);
       setPageSize(res.data?.limit ?? limit);
     } catch {
-      message.error("Failed to load DTR logs");
+      swalError("Failed to load DTR logs");
     } finally {
       setLoading(false);
     }
@@ -84,27 +83,27 @@ const DTRLogTab = () => {
     try {
       const values = await form.validateFields();
       await axiosInstance.put(`/dtrlogs/${editing._id}`, values);
-      message.success("Log updated");
+      swalSuccess("Log updated");
       setEditModalOpen(false);
       setEditing(null);
       fetchData();
     } catch {
-      message.error("Update failed");
+      swalError("Update failed");
     }
   };
 
   const handleDelete = async (record) => {
     try {
       await axiosInstance.delete(`/dtrlogs/${record._id}`);
-      message.success("Deleted");
+      swalSuccess("Deleted");
       fetchData();
     } catch {
-      message.error("Delete failed");
+      swalError("Delete failed");
     }
   };
 
   const exportCsv = () => {
-    if (!data?.length) return message.warning("No data to export");
+    if (!data?.length) return swalWarning("No data to export");
     const rows = data.map((r) => ({
       AC_No: r.acNo,
       Name: r.name,
@@ -145,14 +144,22 @@ const DTRLogTab = () => {
           >
             Edit
           </Button>
-          <Popconfirm
-            title="Delete this log?"
-            onConfirm={() => handleDelete(record)}
+          <Button
+            size="small"
+            danger
+            icon={<DeleteOutlined />}
+            onClick={() =>
+              swalConfirm({
+                title: "Delete this log?",
+                confirmText: "Delete",
+                dangerMode: true,
+              }).then((result) => {
+                if (result.isConfirmed) handleDelete(record);
+              })
+            }
           >
-            <Button size="small" danger icon={<DeleteOutlined />}>
-              Delete
-            </Button>
-          </Popconfirm>
+            Delete
+          </Button>
         </Space>
       ),
     },

@@ -15,7 +15,6 @@ import {
   Menu,
   Tag,
   Badge,
-  App,
   Tooltip,
 } from "antd";
 import {
@@ -46,6 +45,7 @@ import timezone from "dayjs/plugin/timezone";
 import axiosInstance from "../../../../api/axiosInstance";
 import axios from "axios";
 import useLoading from "../../../../hooks/useLoading";
+import { swalSuccess, swalError, swalWarning, swalInfo } from "../../../../utils/swalHelper";
 
 const { Title } = Typography;
 
@@ -199,7 +199,6 @@ const computePositionAcronym = (position) => {
 };
 
 const DTRProcess = ({ currentUser }) => {
-  const { message: appMessage } = App.useApp();
   const { withLoading } = useLoading();
   const [employees, setEmployees] = useState([]);
   const [filteredEmployees, setFilteredEmployees] = useState([]);
@@ -268,7 +267,7 @@ const DTRProcess = ({ currentUser }) => {
       }
     } catch (err) {
       console.error("Failed to fetch employees:", err);
-      appMessage.error("Unable to load employees");
+      swalError("Unable to load employees");
     } finally {
       setEmployeesLoading(false);
     }
@@ -300,7 +299,7 @@ const DTRProcess = ({ currentUser }) => {
       });
       const logsPayload = Array.isArray(res.data) ? res.data : res.data?.data;
       if (!logsPayload) {
-        appMessage.error("Failed to load DTR logs");
+        swalError("Failed to load DTR logs");
         return;
       }
       const logs = logsPayload;
@@ -333,7 +332,7 @@ const DTRProcess = ({ currentUser }) => {
       setDtrLogs(logsByEmpDay);
     } catch (error) {
       console.error("Failed to fetch DTR logs:", error);
-      appMessage.error("Error loading DTR logs");
+      swalError("Error loading DTR logs");
       setDtrLogs({});
     } finally {
       setDtrLogsLoading(false);
@@ -408,7 +407,7 @@ const DTRProcess = ({ currentUser }) => {
 
       let logsPayload = allLogs;
       if (!logsPayload) {
-        appMessage.error("Failed to load DTR logs");
+        swalError("Failed to load DTR logs");
         setDtrLogs({});
         return;
       }
@@ -814,7 +813,7 @@ const DTRProcess = ({ currentUser }) => {
       setDtrLogs(logsByEmpDay);
     } catch (error) {
       console.error("Failed to fetch DTR logs (by record):", error);
-      appMessage.error("Error loading DTR logs for selected record");
+      swalError("Error loading DTR logs for selected record");
       setDtrLogs({});
     } finally {
       setDtrLogsLoading(false);
@@ -836,7 +835,7 @@ const DTRProcess = ({ currentUser }) => {
             : [];
         setDtrRecords(list);
       } catch (err) {
-        appMessage.error("Unable to load DTR records");
+        swalError("Unable to load DTR records");
         setDtrRecords([]);
       }
     };
@@ -1236,14 +1235,14 @@ const DTRProcess = ({ currentUser }) => {
         await logDTRRecord(item.employee, item.selectedRecord, currentUser);
       } catch (err) {
         console.error("Error downloading/logging DTR:", err);
-        appMessage.error("Failed to download or log DTR");
+        swalError("Failed to download or log DTR");
       }
     }, "Downloading DTR…");
   };
 
   const handleDownloadAllDTRs = async () => {
     if (!printerTray.length) {
-      appMessage.warning("Printer tray is empty");
+      swalWarning("Printer tray is empty");
       return;
     }
 
@@ -1251,7 +1250,7 @@ const DTRProcess = ({ currentUser }) => {
       try {
         updateProgress(10, "Generating batch DTR PDF…");
         await generateBatchDTRPdf(printerTray);
-        appMessage.success("Batch DTR PDF downloaded.");
+        swalSuccess("Batch DTR PDF downloaded.");
 
         const total = printerTray.length;
         for (let i = 0; i < total; i++) {
@@ -1274,10 +1273,10 @@ const DTRProcess = ({ currentUser }) => {
           }
         }
 
-        appMessage.success("All DTRs logged successfully.");
+        swalSuccess("All DTRs logged successfully.");
       } catch (err) {
         console.error("Failed to download or log batch DTRs:", err);
-        appMessage.error("Failed to download or log batch DTRs.");
+        swalError("Failed to download or log batch DTRs.");
       }
     }, "Downloading all DTRs…");
   };
@@ -1310,7 +1309,7 @@ const DTRProcess = ({ currentUser }) => {
       };
     } catch (err) {
       console.error("Failed to print/log DTR:", err);
-      appMessage.error("Failed to print DTR");
+      swalError("Failed to print DTR");
     }
   };
 
@@ -1334,12 +1333,12 @@ const DTRProcess = ({ currentUser }) => {
       ];
     });
 
-    appMessage.success(`${employee.name} DTR added to Printer Tray.`);
+    swalSuccess(`${employee.name} DTR added to Printer Tray.`);
   };
 
   const handleClearPrinterTray = () => {
     setPrinterTray([]);
-    appMessage.success("Printer Tray cleared.");
+    swalSuccess("Printer Tray cleared.");
   };
 
   const handleAddSelectedToTray = () => {
@@ -1375,9 +1374,9 @@ const DTRProcess = ({ currentUser }) => {
     });
 
     if (newItemsCount > 0) {
-      appMessage.success(`${newItemsCount} DTR(s) added to Printer Tray.`);
+      swalSuccess(`${newItemsCount} DTR(s) added to Printer Tray.`);
     } else {
-      appMessage.info("Selected DTR(s) are already in the tray.");
+      swalInfo("Selected DTR(s) are already in the tray.");
     }
     setSelectedRowKeys([]);
   };
@@ -1623,7 +1622,7 @@ const DTRProcess = ({ currentUser }) => {
                   onClick={() => {
                     if (!selectedRecord) return;
                     setFilteredEmployees(missingDtrEmployees);
-                    appMessage.warning(
+                    swalWarning(
                       `Showing ${missingDtrEmployees.length} employees with no DTR at all`,
                     );
                   }}

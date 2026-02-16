@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import {
-  message,
   Input,
   Select,
   Button,
@@ -17,6 +16,7 @@ import {
   Descriptions,
   Grid,
 } from "antd";
+import { swalSuccess, swalError } from "../../../utils/swalHelper";
 import {
   DownOutlined,
   PlusOutlined,
@@ -572,7 +572,7 @@ const GenInfo = () => {
                 icon={<UserDeleteOutlined />}
                 onClick={() => {
                   if (!record?._id) {
-                    message.error("Unable to resign: missing employee id");
+                    swalError("Unable to resign: missing employee id");
                     return;
                   }
                   setResignTarget(record);
@@ -702,7 +702,7 @@ const GenInfo = () => {
                 icon={<RollbackOutlined />}
                 onClick={() => {
                   if (!record?._id) {
-                    message.error("Unable to restore: missing employee id");
+                    swalError("Unable to restore: missing employee id");
                     return;
                   }
                   setRestoreTarget(record);
@@ -1014,7 +1014,7 @@ const GenInfo = () => {
                 },
               );
               const deleted = res?.data?.deleted;
-              message.success(
+              swalSuccess(
                 typeof deleted === "number"
                   ? `Deleted ${deleted} resigned employee(s)`
                   : "Resigned employees deleted",
@@ -1030,7 +1030,7 @@ const GenInfo = () => {
                 err?.response?.data?.message ||
                 err?.response?.data?.error ||
                 "Failed to delete resigned employees";
-              message.error(msg);
+              swalError(msg);
             } finally {
               setPurgeSubmitting(false);
             }
@@ -1090,13 +1090,13 @@ const GenInfo = () => {
           cancelButtonProps={{ disabled: resignSubmitting }}
           onOk={async () => {
             if (!resignTarget?._id) {
-              message.error("Unable to resign: missing employee id");
+              swalError("Unable to resign: missing employee id");
               return;
             }
 
             const trimmedReason = resignReason.trim();
             if (!trimmedReason) {
-              message.error("Please enter a reason");
+              swalError("Please enter a reason");
               return;
             }
 
@@ -1113,7 +1113,7 @@ const GenInfo = () => {
                 reason: trimmedReason,
                 resignedAt: resignedAtIso,
               });
-              message.success("Employee marked as resigned");
+              swalSuccess("Employee marked as resigned");
               setResignModalOpen(false);
               setResignTarget(null);
               setResignReason("");
@@ -1124,7 +1124,7 @@ const GenInfo = () => {
                 err?.response?.data?.message ||
                 err?.response?.data?.error ||
                 "Failed to mark employee as resigned";
-              message.error(msg);
+              swalError(msg);
             } finally {
               setResignSubmitting(false);
             }
@@ -1204,13 +1204,13 @@ const GenInfo = () => {
           cancelButtonProps={{ disabled: restoreSubmitting }}
           onOk={async () => {
             if (!restoreTarget?._id) {
-              message.error("Unable to restore: missing employee id");
+              swalError("Unable to restore: missing employee id");
               return;
             }
 
             const trimmedReason = restoreReason.trim();
             if (!trimmedReason) {
-              message.error("Please enter a restoration reason");
+              swalError("Please enter a restoration reason");
               return;
             }
 
@@ -1230,7 +1230,7 @@ const GenInfo = () => {
                   restoredAt: restoredAtIso,
                 },
               );
-              message.success("Employee restored to active list");
+              swalSuccess("Employee restored to active list");
               setRestoreModalOpen(false);
               setRestoreTarget(null);
               setRestoreReason("");
@@ -1242,7 +1242,7 @@ const GenInfo = () => {
                 err?.response?.data?.message ||
                 err?.response?.data?.error ||
                 "Failed to restore employee";
-              message.error(msg);
+              swalError(msg);
             } finally {
               setRestoreSubmitting(false);
             }

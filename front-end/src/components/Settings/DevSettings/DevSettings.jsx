@@ -16,10 +16,8 @@ import {
   InputNumber,
   Switch,
   ColorPicker,
-  App as AntApp,
   Row,
   Col,
-  Popconfirm,
   DatePicker,
   TimePicker,
   Select,
@@ -37,6 +35,7 @@ import axiosInstance from "../../../api/axiosInstance";
 import DemoModeSettings from "./DemoModeSettings";
 import { secureStore, secureSessionGet, secureSessionStore, secureRetrieve } from "../../../../utils/secureStorage";
 import socket from "../../../../utils/socket";
+import { swalSuccess, swalError, swalInfo, swalWarning, swalConfirm } from "../../../utils/swalHelper";
 import "./DevSettings.css";
 import {
   EyeOutlined,
@@ -110,7 +109,6 @@ const DevSettings = () => {
   const [siderCollapsed, setSiderCollapsed] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const [didInitFromUrl, setDidInitFromUrl] = useState(false);
-  const { message } = AntApp.useApp();
 
   // Treat explicit developer userType as developer access as well
   const canSeeDev =
@@ -254,9 +252,9 @@ const DevSettings = () => {
       const payload = { ...(settings || {}), featureMaintenance: featureMaintenanceMap };
       const res = await axiosInstance.put("/settings", payload);
       setSettings(res.data);
-      message.success("Feature maintenance settings saved");
+      swalSuccess("Feature maintenance settings saved");
     } catch {
-      message.error("Failed to save feature maintenance settings");
+      swalError("Failed to save feature maintenance settings");
     } finally {
       setFeatureMaintSaving(false);
     }
@@ -323,7 +321,7 @@ const DevSettings = () => {
         setDrivePath(nextPathOrFolderId);
       }
     } catch (e) {
-      message.error(e?.response?.data?.message || "Failed to load Drive files");
+      swalError(e?.response?.data?.message || "Failed to load Drive files");
     } finally {
       setDriveLoading(false);
     }
@@ -417,7 +415,7 @@ const DevSettings = () => {
       const arr = Array.isArray(rows) ? rows : [];
       setDemoUsers(arr);
     } catch (e) {
-      message.error("Failed to fetch users for demo management");
+      swalError("Failed to fetch users for demo management");
     } finally {
       setDemoUsersLoading(false);
     }
@@ -453,7 +451,7 @@ const DevSettings = () => {
             window.dispatchEvent(new Event("current-user-updated"));
           } catch (_) {}
         }
-        message.success(
+        swalSuccess(
           value
             ? `Marked ${
                 updated.name || updated.fullName || updated.email
@@ -469,7 +467,7 @@ const DevSettings = () => {
     } catch (e) {
       // Revert state
       setDemoUsers(prevUsers);
-      message.error(e?.response?.data?.message || "Failed to update demo flag");
+      swalError(e?.response?.data?.message || "Failed to update demo flag");
     } finally {
       setSavingDemoIds((prev) => {
         const n = new Set(prev);
@@ -499,7 +497,7 @@ const DevSettings = () => {
         : [];
       setEmployees(rows);
     } catch (err) {
-      message.error("Failed to load employees");
+      swalError("Failed to load employees");
     } finally {
       setEmployeesLoading(false);
     }
@@ -518,7 +516,7 @@ const DevSettings = () => {
         : [];
       setResignedEmployees(rows.filter((r) => r.isResigned));
     } catch (err) {
-      message.error("Failed to load resigned employees");
+      swalError("Failed to load resigned employees");
     } finally {
       setResignedLoading(false);
     }
@@ -545,7 +543,7 @@ const DevSettings = () => {
       setBioMeta(data?.biometricMeta || null);
       setBioPage(1);
     } catch (err) {
-      message.error("Failed to load employee records");
+      swalError("Failed to load employee records");
     } finally {
       setEmpRecordsLoading(false);
     }
@@ -564,7 +562,7 @@ const DevSettings = () => {
       setBioMeta(data?.biometricMeta || null);
       setBioPage(1);
     } catch (err) {
-      message.error("Failed to refresh employee records");
+      swalError("Failed to refresh employee records");
     } finally {
       setEmpRecordsLoading(false);
     }
@@ -572,17 +570,17 @@ const DevSettings = () => {
 
   const handleOpenDoc = (doc) => {
     const url = doc?.downloadUrl;
-    if (!url) return message.info("No file available for this document");
+    if (!url) return swalInfo("No file available for this document");
     try {
       window.open(url, "_blank", "noopener,noreferrer");
     } catch (_) {
-      message.error("Failed to open document");
+      swalError("Failed to open document");
     }
   };
 
   const handleDownloadDoc = (doc) => {
     const url = doc?.downloadUrl;
-    if (!url) return message.info("No file available for this document");
+    if (!url) return swalInfo("No file available for this document");
     const a = document.createElement("a");
     a.href = url;
     a.download = doc?.originalFilename || "document";
@@ -594,10 +592,10 @@ const DevSettings = () => {
   const handleDeleteDoc = async (doc) => {
     try {
       await axiosInstance.delete(`/employee-docs/${doc._id}`);
-      message.success("Document deleted");
+      swalSuccess("Document deleted");
       await refreshEmpRecords();
     } catch (e) {
-      message.error(e?.response?.data?.message || "Failed to delete document");
+      swalError(e?.response?.data?.message || "Failed to delete document");
     }
   };
 
@@ -620,7 +618,7 @@ const DevSettings = () => {
       setBioMeta(data?.biometricMeta || null);
       setBioPage(1);
     } catch (e) {
-      message.error("Failed to refresh biometrics");
+      swalError("Failed to refresh biometrics");
     } finally {
       setBioLoading(false);
     }
@@ -646,7 +644,7 @@ const DevSettings = () => {
       setBioMeta(data?.biometricMeta || null);
       setBioPage(nextPage);
     } catch (e) {
-      message.error("Failed to load more biometrics");
+      swalError("Failed to load more biometrics");
     } finally {
       setBioLoading(false);
     }
@@ -701,21 +699,21 @@ const DevSettings = () => {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (e) {
-      message.error("Failed to export CSV");
+      swalError("Failed to export CSV");
     }
   };
 
   const restoreResignedEmployee = async (emp) => {
     try {
       await axiosInstance.put(`/employees/${emp._id}/undo-resign`);
-      message.success("Employee restored (with records)");
+      swalSuccess("Employee restored (with records)");
       // refresh lists
       loadResignedEmployees();
       if (activeTab === "employees") loadAllEmployees();
       setResignedDetailsOpen(false);
       setResignedSelected(null);
     } catch (err) {
-      message.error("Failed to restore employee");
+      swalError("Failed to restore employee");
     }
   };
 
@@ -726,54 +724,34 @@ const DevSettings = () => {
         `/employees/${emp._id}/records`
       );
       const s = summaryRes?.data?.data || {};
-      Modal.confirm({
-        width: 700,
+      const summaryText = [
+        `Docs: ${(s.docs || []).length}`,
+        `Payslip Requests: ${(s.payslipRequests || []).length}`,
+        `DTR Gen Logs: ${(s.dtrGenerationLogs || []).length}`,
+        `Biometric Logs: ${(s.biometricLogs || []).length}`,
+        `DTR Requests: ${(s.dtrRequests || []).length}`,
+        `Salary: ${s.salary ? "Yes" : "No"}`,
+        `Trainings: ${(s.trainings || []).length}`,
+      ].join(" | ");
+      const result = await swalConfirm({
         title: `Delete ${emp.name}?`,
-        okText: "Yes, delete",
-        okButtonProps: { danger: true },
+        text: `This will permanently remove the employee and all linked records. Emp No will be reordered.\n\n${summaryText}`,
+        confirmText: "Yes, delete",
         cancelText: "Cancel",
-        content: (
-          <div style={{ fontSize: 12 }}>
-            <Alert
-              type="warning"
-              showIcon
-              style={{ marginBottom: 8 }}
-              message="This will permanently remove the employee and all linked records. Emp No will be reordered."
-            />
-            <Space size={8} wrap>
-              <Tag>Docs: {(s.docs || []).length}</Tag>
-              <Tag color="green">
-                Payslip Requests: {(s.payslipRequests || []).length}
-              </Tag>
-              <Tag color="geekblue">
-                DTR Gen Logs: {(s.dtrGenerationLogs || []).length}
-              </Tag>
-              <Tag color="blue">
-                Biometric Logs: {(s.biometricLogs || []).length}
-              </Tag>
-              <Tag color="purple">
-                DTR Requests: {(s.dtrRequests || []).length}
-              </Tag>
-              <Tag color={s.salary ? "gold" : "default"}>
-                Salary: {s.salary ? "Yes" : "No"}
-              </Tag>
-              <Tag color="magenta">Trainings: {(s.trainings || []).length}</Tag>
-            </Space>
-          </div>
-        ),
-        onOk: async () => {
-          await axiosInstance.delete(`/employees/${emp._id}`);
-          message.success(
-            "Employee and related records deleted; Emp No reordered"
-          );
-          loadResignedEmployees();
-          if (activeTab === "employees") loadAllEmployees();
-          setResignedDetailsOpen(false);
-          setResignedSelected(null);
-        },
+        dangerMode: true,
       });
+      if (result.isConfirmed) {
+        await axiosInstance.delete(`/employees/${emp._id}`);
+        swalSuccess(
+          "Employee and related records deleted; Emp No reordered"
+        );
+        loadResignedEmployees();
+        if (activeTab === "employees") loadAllEmployees();
+        setResignedDetailsOpen(false);
+        setResignedSelected(null);
+      }
     } catch (err) {
-      message.error(
+      swalError(
         err?.response?.data?.message || "Failed to delete employee"
       );
     }
@@ -799,7 +777,7 @@ const DevSettings = () => {
         `/employees/${selectedEmployee._id}/resign`,
         payload
       );
-      message.success("Employee marked as resigned");
+      swalSuccess("Employee marked as resigned");
       setResignModalOpen(false);
       setSelectedEmployee(null);
       resignForm.resetFields();
@@ -808,7 +786,7 @@ const DevSettings = () => {
       // Also refresh resigned tab data in case it is viewed next
       loadResignedEmployees();
     } catch (err) {
-      message.error(
+      swalError(
         err?.response?.data?.message || "Failed to mark employee as resigned"
       );
     }
@@ -819,12 +797,12 @@ const DevSettings = () => {
       const target = emp || selectedEmployee;
       if (!target) return;
       await axiosInstance.put(`/employees/${target._id}/undo-resign`);
-      message.success("Employee restored");
+      swalSuccess("Employee restored");
       // Refresh lists
       loadAllEmployees();
       loadResignedEmployees();
     } catch (err) {
-      message.error(err?.response?.data?.message || "Failed to undo resign");
+      swalError(err?.response?.data?.message || "Failed to undo resign");
     }
   };
 
@@ -838,19 +816,18 @@ const DevSettings = () => {
     try {
       const values = await editForm.validateFields();
       await axiosInstance.put(`/dev/notifications/${editingRow._id}`, values);
-      message.success("Notification updated");
+      swalSuccess("Notification updated");
       closeEditModal();
       fetchNotifications();
     } catch (err) {
-      message.error("Failed to update notification");
+      swalError("Failed to update notification");
     }
   };
 
   const removeNotification = async (row) => {
     try {
       await axiosInstance.delete(`/dev/notifications/${row._id}`);
-      message.success("Notification deleted");
-      fetchNotifications();
+      swalSuccess("Notification deleted");
       try {
         const { setNotifications: setGlobalNotifications } =
           notificationsContext || {};
@@ -861,7 +838,7 @@ const DevSettings = () => {
         }
       } catch (e) {}
     } catch (err) {
-      message.error("Failed to delete notification");
+      swalError("Failed to delete notification");
     }
   };
 
@@ -872,10 +849,10 @@ const DevSettings = () => {
       } else if (row._source === "dtr") {
         await axiosInstance.put(`/dtr-requests/${row._id}/read`);
       }
-      message.success("Marked as read");
+      swalSuccess("Marked as read");
       fetchNotifications();
     } catch (err) {
-      message.error("Failed to mark as read");
+      swalError("Failed to mark as read");
     }
   };
 
@@ -918,7 +895,7 @@ const DevSettings = () => {
       setAuditPage(page);
       setAuditPageSize(limit);
     } catch (err) {
-      message.error("Failed to load audit logs");
+      swalError("Failed to load audit logs");
     } finally {
       setAuditLoading(false);
     }
@@ -1066,7 +1043,7 @@ const DevSettings = () => {
       }
       setNotifications(unique);
     } catch (err) {
-      message.error("Failed to load requests");
+      swalError("Failed to load requests");
     } finally {
       setNotifLoading(false);
     }
@@ -1087,10 +1064,10 @@ const DevSettings = () => {
           hidden: !row.hidden,
         });
       }
-      message.success("Visibility updated");
+      swalSuccess("Visibility updated");
       fetchNotifications();
     } catch (err) {
-      message.error("Failed to update visibility");
+      swalError("Failed to update visibility");
     }
   };
 
@@ -1099,10 +1076,10 @@ const DevSettings = () => {
       await axiosInstance.put(`/dev/notifications/${row._id}`, {
         dataVisible: !row.dataVisible,
       });
-      message.success("Data visibility updated");
+      swalSuccess("Data visibility updated");
       fetchNotifications();
     } catch (err) {
-      message.error("Failed to update data visibility");
+      swalError("Failed to update data visibility");
     }
   };
 
@@ -1136,7 +1113,7 @@ const DevSettings = () => {
       setBugPage(page);
       setBugPageSize(limit);
     } catch (e) {
-      message.error(e?.response?.data?.message || "Failed to load bug reports");
+      swalError(e?.response?.data?.message || "Failed to load bug reports");
     } finally {
       setBugLoading(false);
     }
@@ -1146,20 +1123,20 @@ const DevSettings = () => {
     try {
       const next = row.status === "resolved" ? "open" : "resolved";
       await axiosInstance.patch(`/bug-report/${row._id}`, { status: next });
-      message.success(next === "resolved" ? "Marked resolved" : "Reopened");
+      swalSuccess(next === "resolved" ? "Marked resolved" : "Reopened");
       fetchBugReports(bugPage, bugPageSize);
     } catch (e) {
-      message.error(e?.response?.data?.message || "Failed to update status");
+      swalError(e?.response?.data?.message || "Failed to update status");
     }
   };
 
   const removeBugReport = async (row) => {
     try {
       await axiosInstance.delete(`/bug-report/${row._id}`);
-      message.success("Deleted");
+      swalSuccess("Deleted");
       fetchBugReports(bugPage, bugPageSize);
     } catch (e) {
-      message.error(e?.response?.data?.message || "Failed to delete bug report");
+      swalError(e?.response?.data?.message || "Failed to delete bug report");
     }
   };
 
@@ -1379,12 +1356,12 @@ const DevSettings = () => {
   const onSaveSettings = async (values) => {
     try {
       await axiosInstance.put("/settings", values);
-      message.success("Settings updated");
+      swalSuccess("Settings updated");
       setSettings(values);
       // Notify ThemeContext to re-fetch and apply CSS variables
       window.dispatchEvent(new Event("app-settings-updated"));
     } catch (err) {
-      message.error(
+      swalError(
         err?.response?.data?.message ||
           err.message ||
           "Failed to update settings"
@@ -1401,9 +1378,9 @@ const DevSettings = () => {
       };
       const res = await axiosInstance.put("/settings", payload);
       setSettings(res.data);
-      message.success("SMTP settings saved");
+      swalSuccess("SMTP settings saved");
     } catch (e) {
-      message.error(e?.response?.data?.message || "Failed to save SMTP");
+      swalError(e?.response?.data?.message || "Failed to save SMTP");
     }
   };
   const [testingSmtp, setTestingSmtp] = useState(false);
@@ -1413,12 +1390,12 @@ const DevSettings = () => {
       setTestingSmtp(true);
       const res = await axiosInstance.post("/dev/test-smtp", vals);
       if (res.data?.success) {
-        message.success(`SMTP test sent to ${res.data.to}`);
+        swalSuccess(`SMTP test sent to ${res.data.to}`);
       } else {
-        message.error(res.data?.message || "SMTP test failed");
+        swalError(res.data?.message || "SMTP test failed");
       }
     } catch (e) {
-      message.error(e?.response?.data?.message || "SMTP test failed");
+      swalError(e?.response?.data?.message || "SMTP test failed");
     } finally {
       setTestingSmtp(false);
     }
@@ -1957,12 +1934,12 @@ const DevSettings = () => {
                   onClick={() => {
                     if (clientRuntime.socketConnected) {
                       socket.disconnect();
-                      message.info("Socket disconnected.");
+                      swalInfo("Socket disconnected.");
                     } else {
                       socket.connect();
                       socket.once("connect", () => {
                         if (user) socket.emit("store-user", user);
-                        message.success("Socket reconnected!");
+                        swalSuccess("Socket reconnected!");
                       });
                     }
                   }}
@@ -2056,7 +2033,7 @@ const DevSettings = () => {
       // Use provided range or fallback to saved attendanceRange in state
       const r = range || attendanceRange;
       if (!r || r.length !== 2) {
-        message.warning("Please select a start and end date to preview.");
+        swalWarning("Please select a start and end date to preview.");
         setAttendanceData([]);
         return;
       }
@@ -2108,9 +2085,9 @@ const DevSettings = () => {
       setAttendanceTotal(formatted.length);
       setAttendancePage(1);
       if (!formatted.length) {
-        message.info("No attendance rows found for the selected range.");
+        swalInfo("No attendance rows found for the selected range.");
       } else {
-        message.success(`Loaded ${formatted.length} attendance rows`);
+        swalSuccess(`Loaded ${formatted.length} attendance rows`);
       }
     } catch (err) {
       console.error("Attendance preview error:", err);
@@ -2118,7 +2095,7 @@ const DevSettings = () => {
         err?.response?.data?.message ||
         err.message ||
         "Failed to load attendance preview";
-      message.error(em);
+      swalError(em);
       setAttendanceData([]);
     } finally {
       setAttendanceLoading(false);
@@ -2143,14 +2120,14 @@ const DevSettings = () => {
       }
       const res = await axiosInstance.put("/settings", payload);
       setSettings(res.data);
-      message.success("Developer override updated");
+      swalSuccess("Developer override updated");
 
       // Trigger global refresh listeners (ThemeContext, Dashboard, etc.)
       try {
         window.dispatchEvent(new Event("app-settings-updated"));
       } catch (_) {}
     } catch (err) {
-      message.error(
+      swalError(
         err?.response?.data?.message || "Failed to update settings"
       );
     } finally {
@@ -2255,7 +2232,7 @@ const DevSettings = () => {
   const exportAttendanceCsv = () => {
     try {
       const rows = filteredAttendance || [];
-      if (!rows.length) return message.info("No attendance rows to export");
+      if (!rows.length) return swalInfo("No attendance rows to export");
 
       const header = ["Emp ID", "Name", "Date", "Time In", "Break Out", "Break In", "Time Out"];
       const lines = [header.join(",")].concat(
@@ -2281,7 +2258,7 @@ const DevSettings = () => {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (e) {
-      message.error("Failed to export attendance CSV");
+      swalError("Failed to export attendance CSV");
     }
   };
 
@@ -2292,24 +2269,24 @@ const DevSettings = () => {
       const res = await axiosInstance.get("/dev/collections");
       if (res.data && res.data.success) setCollections(res.data.data || []);
     } catch (err) {
-      message.error("Failed to load collections");
+      swalError("Failed to load collections");
     } finally {
       setCollectionsLoading(false);
     }
   };
 
   const handleBackup = async () => {
-    if (!selectedCollection) return message.warning("Select collection");
+    if (!selectedCollection) return swalWarning("Select collection");
     try {
       // create async job
       const res = await axiosInstance.post("/dev/backup-jobs", {
         collection: selectedCollection,
         format: backupFormat,
       });
-      message.success("Backup job queued");
+      swalSuccess("Backup job queued");
       fetchJobs();
     } catch (err) {
-      message.error("Failed to queue backup job");
+      swalError("Failed to queue backup job");
     }
   };
 
@@ -2319,7 +2296,7 @@ const DevSettings = () => {
       const res = await axiosInstance.get("/dev/backup-jobs");
       if (res.data && res.data.data) setBackupJobs(res.data.data);
     } catch (err) {
-      message.error("Failed to load backup jobs");
+      swalError("Failed to load backup jobs");
     } finally {
       setJobsLoading(false);
     }
@@ -2328,26 +2305,26 @@ const DevSettings = () => {
   const deleteJob = async (jobId) => {
     try {
       await axiosInstance.delete(`/dev/backup-jobs/${jobId}`);
-      message.success("Job deleted");
+      swalSuccess("Job deleted");
       fetchJobs();
     } catch (err) {
-      message.error("Failed to delete job");
+      swalError("Failed to delete job");
     }
   };
 
   const clearJobs = async (status = "done") => {
     try {
       await axiosInstance.delete(`/dev/backup-jobs`, { params: { status } });
-      message.success("Jobs cleared");
+      swalSuccess("Jobs cleared");
       fetchJobs();
     } catch (err) {
-      message.error("Failed to clear jobs");
+      swalError("Failed to clear jobs");
     }
   };
 
   // Direct download without queueing, using /dev/backup
   const downloadCollectionNow = async () => {
-    if (!selectedCollection) return message.warning("Select collection");
+    if (!selectedCollection) return swalWarning("Select collection");
     try {
       const res = await axiosInstance.get("/dev/backup", {
         params: { collection: selectedCollection, format: backupFormat },
@@ -2376,7 +2353,7 @@ const DevSettings = () => {
       a.remove();
       window.URL.revokeObjectURL(blobUrl);
     } catch (err) {
-      message.error("Failed to download backup");
+      swalError("Failed to download backup");
     }
   };
 
@@ -2410,7 +2387,7 @@ const DevSettings = () => {
       a.remove();
       window.URL.revokeObjectURL(blobUrl);
     } catch (err) {
-      message.error("Failed to download backup");
+      swalError("Failed to download backup");
     }
   };
 
@@ -2439,10 +2416,10 @@ const DevSettings = () => {
       }
       const res = await axiosInstance.put("/settings", payload);
       setSettings(res.data);
-      message.success("Maintenance settings updated");
+      swalSuccess("Maintenance settings updated");
       setMaintenanceEnabled(!!payload.maintenance.enabled);
     } catch (err) {
-      message.error("Failed to update maintenance settings");
+      swalError("Failed to update maintenance settings");
     } finally {
       setMaintenanceLoading(false);
     }
@@ -2660,14 +2637,9 @@ const DevSettings = () => {
                   >
                     Refresh Jobs
                   </Button>
-                  <Popconfirm
-                    title="Clear completed/failed jobs?"
-                    onConfirm={() => clearJobs("done")}
-                  >
-                    <Button size="small" danger>
+                  <Button size="small" danger onClick={async () => { const r = await swalConfirm({ title: "Clear completed/failed jobs?", dangerMode: true }); if (r.isConfirmed) clearJobs("done"); }}>
                       Clear Completed
                     </Button>
-                  </Popconfirm>
                 </Space>
               </Space>
 
@@ -2782,14 +2754,9 @@ const DevSettings = () => {
                         ) : (
                           <Text type="secondary">{row.status}</Text>
                         )}
-                        <Popconfirm
-                          title="Delete this job?"
-                          onConfirm={() => deleteJob(row._id)}
-                        >
-                          <Button size="small" danger>
+                        <Button size="small" danger onClick={async () => { const r = await swalConfirm({ title: "Delete this job?", dangerMode: true }); if (r.isConfirmed) deleteJob(row._id); }}>
                             Delete
                           </Button>
-                        </Popconfirm>
                       </Space>
                     ),
                   },
@@ -2922,28 +2889,12 @@ const DevSettings = () => {
                   Employee Records (collapsible)
                 </Text>
                 <Space>
-                  <Popconfirm
-                    title="Restore this employee?"
-                    okText="Restore"
-                    cancelText="Cancel"
-                    onConfirm={() => restoreResignedEmployee(resignedSelected)}
-                  >
-                    <Button size="small" type="primary">
+                  <Button size="small" type="primary" onClick={async () => { const r = await swalConfirm({ title: "Restore this employee?", confirmText: "Restore", icon: "question" }); if (r.isConfirmed) restoreResignedEmployee(resignedSelected); }}>
                       Restore
                     </Button>
-                  </Popconfirm>
-                  <Popconfirm
-                    title="Delete this employee?"
-                    okText="Delete"
-                    okButtonProps={{ danger: true }}
-                    cancelText="Cancel"
-                    description="This action cannot be undone."
-                    onConfirm={() => deleteResignedEmployee(resignedSelected)}
-                  >
-                    <Button size="small" danger>
+                  <Button size="small" danger onClick={async () => { const r = await swalConfirm({ title: "Delete this employee?", text: "This action cannot be undone.", confirmText: "Delete", dangerMode: true }); if (r.isConfirmed) deleteResignedEmployee(resignedSelected); }}>
                       Delete
                     </Button>
-                  </Popconfirm>
                 </Space>
               </Space>
               <Card
@@ -3072,21 +3023,14 @@ const DevSettings = () => {
                               onClick={() => handleDownloadDoc(row)}
                               disabled={!row.downloadUrl}
                             />
-                            <Popconfirm
-                              title="Delete this document?"
-                              okText="Delete"
-                              okButtonProps={{ danger: true }}
-                              cancelText="Cancel"
-                              onConfirm={() => handleDeleteDoc(row)}
-                            >
-                              <Button
+                            <Button
                                 size="small"
                                 type="primary"
                                 danger
                                 title="Delete"
                                 icon={<DeleteOutlined />}
+                                onClick={async () => { const r = await swalConfirm({ title: "Delete this document?", confirmText: "Delete", dangerMode: true }); if (r.isConfirmed) handleDeleteDoc(row); }}
                               />
-                            </Popconfirm>
                           </Space>
                         ),
                       },
@@ -4118,8 +4062,8 @@ const DevSettings = () => {
                       try {
                         if (row._source === "payslip") await axiosInstance.delete(`/payslip-requests/${row._id || row.id}`);
                         else if (row._source === "dtr") await axiosInstance.delete(`/dtr-requests/${row._id || row.id}`);
-                        message.success("Deleted"); fetchNotifications();
-                      } catch { message.error("Failed to delete"); }
+                        swalSuccess("Deleted"); fetchNotifications();
+                      } catch { swalError("Failed to delete"); }
                     }} disabled={!canSeeDev}>Delete</Button>
                   </>)}
                 </Space>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { Table, Input, Select, DatePicker, Space, Button, Tag, Modal, Form, message, Popconfirm, Grid } from "antd";
+import { Table, Input, Select, DatePicker, Space, Button, Tag, Modal, Form, Grid } from "antd";
+import { swalSuccess, swalError, swalConfirm } from "../../../../utils/swalHelper";
 import useDemoMode from "../../../../hooks/useDemoMode";
 import dayjs from "dayjs";
 import { getEmployeeDocs, updateEmployeeDoc, deleteEmployeeDoc } from "../../../../api/employeeAPI"; // Adjust path as needed
@@ -145,14 +146,14 @@ const SystemReport = () => {
       if (values.docNo !== undefined && values.docNo !== editingRecord.docNo) payload.docNo = values.docNo;
       setLoading(true);
       await updateEmployeeDoc(editingRecord._id, payload);
-      message.success('Report updated');
+      swalSuccess('Report updated');
       setEditModalOpen(false);
       setEditingRecord(null);
       await fetchReports();
     } catch (e) {
       if (e?.errorFields) return; // form validation errors
       console.error(e);
-      message.error(e?.response?.data?.message || 'Failed to update');
+      swalError(e?.response?.data?.message || 'Failed to update');
     } finally {
       setLoading(false);
     }
@@ -162,11 +163,11 @@ const SystemReport = () => {
     try {
       setLoading(true);
       await deleteEmployeeDoc(record._id);
-      message.success('Report deleted');
+      swalSuccess('Report deleted');
       await fetchReports();
     } catch (e) {
       console.error(e);
-      message.error(e?.response?.data?.message || 'Failed to delete');
+      swalError(e?.response?.data?.message || 'Failed to delete');
     } finally {
       setLoading(false);
     }
@@ -331,9 +332,7 @@ const SystemReport = () => {
       render: (_, record) => (
         <Space>
           <Button size="small" onClick={() => openEdit(record)}>Update</Button>
-          <Popconfirm title="Delete this report?" okText="Delete" okButtonProps={{ danger: true }} onConfirm={() => handleDelete(record)}>
-            <Button size="small" danger>Delete</Button>
-          </Popconfirm>
+          <Button size="small" danger onClick={async () => { const r = await swalConfirm({ title: "Delete this report?", confirmText: "Delete", dangerMode: true }); if (r.isConfirmed) handleDelete(record); }}>Delete</Button>
         </Space>
       ),
     }] : []),

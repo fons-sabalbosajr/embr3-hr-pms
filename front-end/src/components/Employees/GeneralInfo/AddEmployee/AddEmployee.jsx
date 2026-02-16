@@ -5,7 +5,6 @@ import {
   Input,
   Button,
   Select,
-  message,
   Spin,
   Row,
   Col,
@@ -13,6 +12,7 @@ import {
   Typography,
 } from "antd";
 import axiosInstance from "../../../../api/axiosInstance";
+import { swalSuccess, swalError } from "../../../../utils/swalHelper";
 
 const { Option } = Select;
 const { Text } = Typography;
@@ -84,7 +84,7 @@ const AddEmployee = ({ onClose, onEmpNoChange }) => {
       }
     } catch (err) {
       console.error("Error fetching latest empNo", err);
-      message.error("Failed to fetch latest employee number");
+      swalError("Failed to fetch latest employee number");
       onEmpNoChange?.("");
     } finally {
       setEmpNoLoading(false);
@@ -118,13 +118,13 @@ const AddEmployee = ({ onClose, onEmpNoChange }) => {
 
       const created = res.data;
 
-      message.success("Employee added successfully");
+      swalSuccess("Employee added successfully");
       // Inform parent of newly created employee so it can open profile or refresh optimistically
       onClose?.(created);
       form.resetFields();
     } catch (error) {
       console.error("Failed to add employee:", error);
-      message.error("Failed to add employee");
+      swalError("Failed to add employee");
     } finally {
       setLoading(false);
     }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback } from "react";
-import { Modal } from "antd";
+import { swalAlert } from "../utils/swalHelper";
 import useAuth from "../hooks/useAuth";
 import { useTheme } from "../context/ThemeContext";
 
@@ -31,10 +31,9 @@ const SessionManager = () => {
     // If warning was shown and user interacted, dismiss it
     if (warningShownRef.current) {
       warningShownRef.current = false;
-      if (modalRef.current) {
-        modalRef.current.destroy();
-        modalRef.current = null;
-      }
+      // SweetAlert2 — close any open session-expiry popup
+      import("sweetalert2").then(({ default: Swal }) => Swal.close());
+      modalRef.current = null;
     }
   }, []);
 
@@ -51,22 +50,20 @@ const SessionManager = () => {
       if (remaining <= 0) {
         // Time's up — log out
         clearInterval(timerRef.current);
-        if (modalRef.current) {
-          modalRef.current.destroy();
-          modalRef.current = null;
-        }
+        import("sweetalert2").then(({ default: Swal }) => Swal.close());
+        modalRef.current = null;
         warningShownRef.current = false;
         logout();
       } else if (remaining <= WARNING_BEFORE_MS && !warningShownRef.current) {
         // Show warning
         warningShownRef.current = true;
-        modalRef.current = Modal.warning({
+        swalAlert({
           title: "Session Expiring",
-          content: `Your session will expire in about ${Math.ceil(remaining / 1000)} seconds due to inactivity. Move your mouse or press a key to stay logged in.`,
-          okText: "Stay Logged In",
-          onOk: () => {
-            resetActivity();
-          },
+          text: `Your session will expire in about ${Math.ceil(remaining / 1000)} seconds due to inactivity. Move your mouse or press a key to stay logged in.`,
+          icon: "warning",
+          confirmText: "Stay Logged In",
+        }).then(() => {
+          resetActivity();
         });
       }
     }, 10_000); // check every 10 seconds
@@ -74,10 +71,8 @@ const SessionManager = () => {
     return () => {
       events.forEach((evt) => window.removeEventListener(evt, resetActivity));
       if (timerRef.current) clearInterval(timerRef.current);
-      if (modalRef.current) {
-        modalRef.current.destroy();
-        modalRef.current = null;
-      }
+      import("sweetalert2").then(({ default: Swal }) => Swal.close());
+      modalRef.current = null;
     };
   }, [isAuthenticated, timeoutMs, isDemo, logout, resetActivity]);
 

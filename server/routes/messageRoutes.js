@@ -10,6 +10,8 @@ import {
   getUnreadCount,
   getMessageableUsers,
   deleteMessage,
+  archiveConversation,
+  deleteConversation,
 } from "../controllers/messageController.js";
 
 const router = Router();
@@ -27,6 +29,10 @@ router.get("/unread-count", getUnreadCount);
 router.get("/conversations", getConversations);
 router.post("/conversations", createConversation);
 router.patch("/conversations/:conversationId", updateConversation);
+
+// Archive / delete a conversation (per-user)
+router.patch("/conversations/:conversationId/archive", archiveConversation);
+router.delete("/conversations/:conversationId", deleteConversation);
 
 // Messages within a conversation
 router.get("/conversations/:conversationId/messages", getMessages);

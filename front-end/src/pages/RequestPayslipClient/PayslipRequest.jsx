@@ -6,12 +6,12 @@ import {
   Form,
   Input,
   DatePicker,
-  message,
   AutoComplete,
   ConfigProvider,
   Grid,
   theme,
 } from "antd";
+import { swalSuccess, swalError, swalWarning } from "../../utils/swalHelper";
 import { Link } from "react-router-dom";
 import bgImage from "../../assets/bgemb.webp";
 import axiosInstance from "../../api/axiosInstance";
@@ -137,7 +137,7 @@ const PayslipRequest = () => {
       });
 
       if (response.data?.success) {
-        message.success("Payslip request submitted! A confirmation email has been sent to your inbox.");
+        swalSuccess("Payslip request submitted! A confirmation email has been sent to your inbox.");
         form.resetFields();
       } else {
         // Handle limit reached or general failure
@@ -147,9 +147,9 @@ const PayslipRequest = () => {
           response.status === 429 ||
           response.data?.code === "REQUEST_LIMIT_REACHED"
         ) {
-          message.warning(msg);
+          swalWarning(msg);
         } else {
-          message.error(msg);
+          swalError(msg);
         }
       }
     } catch (error) {
@@ -157,12 +157,12 @@ const PayslipRequest = () => {
         error.response?.status === 429 ||
         error.response?.data?.code === "REQUEST_LIMIT_REACHED"
       ) {
-        message.warning(
+        swalWarning(
           error.response?.data?.message ||
             "You already have 3 pending requests. Please wait for HR verification."
         );
       } else {
-        message.error("An error occurred while submitting the request.");
+        swalError("An error occurred while submitting the request.");
       }
       console.error("Payslip request error:", error);
     } finally {

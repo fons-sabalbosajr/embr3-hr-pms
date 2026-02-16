@@ -1,6 +1,7 @@
 import React from "react";
-import { Result, Button, Typography, Modal, Form, Input, message } from "antd";
+import { Result, Button, Typography, Modal, Form, Input } from "antd";
 import axiosInstance from "../api/axiosInstance";
+import { swalSuccess, swalError } from "../utils/swalHelper";
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -44,10 +45,10 @@ class ErrorBoundary extends React.Component {
         name: values.name || undefined,
       };
       await axiosInstance.post(`/bug-report`, payload);
-      message.success("Bug report sent. Thank you!");
+      swalSuccess("Bug report sent. Thank you!");
       this.setState({ reportOpen: false, submitting: false });
     } catch (e) {
-      message.error(e?.response?.data?.message || "Failed to send bug report.");
+      swalError(e?.response?.data?.message || "Failed to send bug report.");
       this.setState({ submitting: false });
     }
   };

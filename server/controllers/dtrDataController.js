@@ -49,8 +49,22 @@ export const deleteDTRDataJob = async (req, res) => {
       try {
         deleteJobs.set(jobId, { status: 'running', total: 0, deleted: 0, recordId: id });
 
-        // Count total logs linked to this DTRData
-        const total = await DTRLog.countDocuments({ DTR_ID: mongoose.Types.ObjectId(id) });
+        const objectId = new mongoose.Types.ObjectId(id);
+
+        // Build a combined filter: logs linked by DTR_ID *or* logs within the cut-off date range
+        const dateFilter = {};
+        if (record.DTR_Cut_Off?.start && record.DTR_Cut_Off?.end) {
+          const start = parseInLocalTz(record.DTR_Cut_Off.start).startOf("day").toDate();
+          const end = parseInLocalTz(record.DTR_Cut_Off.end).endOf("day").toDate();
+          dateFilter.Time = { $gte: start, $lte: end };
+        }
+
+        const combinedFilter = Object.keys(dateFilter).length > 0
+          ? { $or: [{ DTR_ID: objectId }, dateFilter] }
+          : { DTR_ID: objectId };
+
+        // Count total logs to delete
+        const total = await DTRLog.countDocuments(combinedFilter);
         deleteJobs.set(jobId, { status: 'running', total, deleted: 0, recordId: id });
 
         const batchSize = 500;
@@ -58,7 +72,7 @@ export const deleteDTRDataJob = async (req, res) => {
 
         while (true) {
           // fetch a batch of ids
-          const docs = await DTRLog.find({ DTR_ID: mongoose.Types.ObjectId(id) }).select('_id').limit(batchSize).lean();
+          const docs = await DTRLog.find(combinedFilter).select('_id').limit(batchSize).lean();
           if (!docs || docs.length === 0) break;
           const ids = docs.map(d => d._id);
           const del = await DTRLog.deleteMany({ _id: { $in: ids } });

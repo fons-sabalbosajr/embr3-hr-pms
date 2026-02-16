@@ -1,5 +1,5 @@
 import axios from "axios";
-import { message } from "antd";
+import { swalError } from "../utils/swalHelper";
 import { secureRetrieve, secureRemove, secureStore, secureGet, secureSessionGet, secureSessionRemove, secureClearAll } from "../../utils/secureStorage";
 import demoActions from "../utils/demoActionsRegistry";
 
@@ -88,7 +88,7 @@ axiosInstance.interceptors.response.use(
 
       if (!window.__FORBIDDEN_SHOWN__) {
         window.__FORBIDDEN_SHOWN__ = true;
-        message.error("You don’t have permission to access this.");
+        swalError("You don't have permission to access this.");
         setTimeout(() => {
           window.__FORBIDDEN_SHOWN__ = false;
         }, 3000);
@@ -123,7 +123,7 @@ axiosInstance.interceptors.response.use(
       // Avoid spamming message if multiple concurrent 401s
       if (!window.__SESSION_EXPIRED_SHOWN__) {
         window.__SESSION_EXPIRED_SHOWN__ = true;
-        message.error("Session expired. Please log in again.");
+        swalError("Session expired. Please log in again.");
       }
 
       const authPath = `${base}/auth` || "/auth";

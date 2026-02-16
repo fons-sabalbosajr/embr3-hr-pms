@@ -28,9 +28,16 @@ const populateParticipants =
 export const getConversations = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
-    const conversations = await Conversation.find({
-      participants: userId,
-    })
+    const showArchived = req.query.archived === "true";
+
+    const baseFilter = { participants: userId, deletedBy: { $ne: userId } };
+    if (showArchived) {
+      baseFilter.archivedBy = userId;
+    } else {
+      baseFilter.archivedBy = { $ne: userId };
+    }
+
+    const conversations = await Conversation.find(baseFilter)
       .populate("participants", populateParticipants)
       .populate("lastMessage")
       .sort({ lastMessageAt: -1, updatedAt: -1 })
@@ -427,5 +434,62 @@ export const deleteMessage = async (req, res) => {
   } catch (err) {
     console.error("[Messages] deleteMessage error:", err);
     res.status(500).json({ message: "Failed to delete message" });
+  }
+};
+
+/**
+ * PATCH /api/messages/conversations/:conversationId/archive
+ * Toggle archive status for the current user.
+ */
+export const archiveConversation = async (req, res) => {
+  try {
+    const userId = String(req.user.id || req.user._id);
+    const { conversationId } = req.params;
+
+    const conv = await Conversation.findById(conversationId);
+    if (!conv) return res.status(404).json({ message: "Conversation not found" });
+    if (!conv.participants.map(String).includes(userId)) {
+      return res.status(403).json({ message: "Not a participant" });
+    }
+
+    const isArchived = (conv.archivedBy || []).map(String).includes(userId);
+    if (isArchived) {
+      conv.archivedBy = conv.archivedBy.filter((id) => String(id) !== userId);
+    } else {
+      conv.archivedBy.push(userId);
+    }
+    await conv.save();
+
+    res.json({ success: true, archived: !isArchived });
+  } catch (err) {
+    console.error("[Messages] archiveConversation error:", err);
+    res.status(500).json({ message: "Failed to archive conversation" });
+  }
+};
+
+/**
+ * DELETE /api/messages/conversations/:conversationId/remove
+ * Soft-delete (hide) a conversation for the current user.
+ */
+export const deleteConversation = async (req, res) => {
+  try {
+    const userId = String(req.user.id || req.user._id);
+    const { conversationId } = req.params;
+
+    const conv = await Conversation.findById(conversationId);
+    if (!conv) return res.status(404).json({ message: "Conversation not found" });
+    if (!conv.participants.map(String).includes(userId)) {
+      return res.status(403).json({ message: "Not a participant" });
+    }
+
+    if (!(conv.deletedBy || []).map(String).includes(userId)) {
+      conv.deletedBy.push(userId);
+    }
+    await conv.save();
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("[Messages] deleteConversation error:", err);
+    res.status(500).json({ message: "Failed to delete conversation" });
   }
 };

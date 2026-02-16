@@ -5,7 +5,6 @@ import {
   Typography,
   Space,
   Table,
-  message,
   Tooltip,
 } from "antd";
 import {
@@ -19,6 +18,7 @@ import * as XLSX from "xlsx";
 import axios from "axios";
 import "./uploademployee.css";
 import Swal from "sweetalert2";
+import { swalError, swalWarning } from "../../../../utils/swalHelper";
 
 const { Dragger } = Upload;
 const { Text } = Typography;
@@ -35,7 +35,7 @@ const UploadEmployee = ({ onClose }) => {
     });
 
     if (parsed.errors.length) {
-      message.error("CSV parse error.");
+      swalError("CSV parse error.");
       return;
     }
 
@@ -51,7 +51,7 @@ const UploadEmployee = ({ onClose }) => {
     const jsonData = XLSX.utils.sheet_to_json(worksheet);
 
     if (!jsonData.length) {
-      message.error("Excel file is empty.");
+      swalError("Excel file is empty.");
       return;
     }
 
@@ -93,12 +93,12 @@ const UploadEmployee = ({ onClose }) => {
     const fileExt = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
 
     if (!allowedExtensions.includes(fileExt)) {
-      message.error("Unsupported file format.");
+      swalError("Unsupported file format.");
       return false;
     }
 
     if (file.size > 5 * 1024 * 1024) {
-      message.error("File exceeds 5MB limit.");
+      swalError("File exceeds 5MB limit.");
       return false;
     }
 
@@ -122,7 +122,7 @@ const UploadEmployee = ({ onClose }) => {
 
   const handleSubmit = async () => {
     if (!parsedData.length) {
-      return message.warning("No data to submit.");
+      return swalWarning("No data to submit.");
     }
 
     const confirm = await Swal.fire({

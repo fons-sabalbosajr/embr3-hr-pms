@@ -6,7 +6,6 @@ import {
   Select,
   InputNumber,
   Space,
-  notification,
   Row,
   Col,
 } from "antd";
@@ -14,6 +13,7 @@ import { MinusCircleOutlined, PlusOutlined } from "@ant-design/icons";
 import axiosInstance from "../../../../api/axiosInstance";
 import { secureGet } from "../../../../../utils/secureStorage";
 import useDemoMode from "../../../../hooks/useDemoMode";
+import { swalSuccess, swalError } from "../../../../utils/swalHelper";
 
 const { Option } = Select;
 
@@ -51,10 +51,7 @@ const AddSalaryInfo = ({ onClose }) => {
       setExistingSalaryEmployeeIds(existingIds);
     } catch (error) {
       console.error("Failed to fetch employees or salaries:", error);
-      notification.error({
-        message: "Error",
-        description: "Failed to load employee list or existing salaries.",
-      });
+      swalError("Failed to load employee list or existing salaries.");
     }
   };
 
@@ -77,19 +74,14 @@ const AddSalaryInfo = ({ onClose }) => {
 
     try {
       await axiosInstance.post("/employee-salaries", payload);
-      notification.success({
-        message: "Success",
-        description: "Employee salary information added successfully!",
-      });
+      swalSuccess("Employee salary information added successfully!");
       onClose(); // Close modal on success
     } catch (error) {
       console.error("Failed to add employee salary:", error);
-      notification.error({
-        message: "Error",
-        description:
-          error.response?.data?.message ||
-          "Failed to add employee salary information.",
-      });
+      swalError(
+        error.response?.data?.message ||
+          "Failed to add employee salary information."
+      );
     }
   };
 

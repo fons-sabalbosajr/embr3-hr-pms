@@ -6,10 +6,10 @@ import {
   Input,
   DatePicker,
   Form,
-  message,
   Alert,
 } from "antd";
 import { UploadOutlined } from "@ant-design/icons";
+import { swalSuccess, swalError, swalWarning } from "../../utils/swalHelper";
 import * as XLSX from "xlsx";
 import PropTypes from "prop-types";
 import { useState } from "react";
@@ -196,7 +196,7 @@ const ImportDTRModal = ({ open, onClose, currentUser, isDemo }) => {
 
   const openSubmitModal = () => {
     if (uploading || hasSubmitted) {
-      message.warning("Upload in progress or already submitted.");
+      swalWarning("Upload in progress or already submitted.");
       return;
     }
     const hasEmptyRequired = data.some((row) =>
@@ -205,12 +205,12 @@ const ImportDTRModal = ({ open, onClose, currentUser, isDemo }) => {
       )
     );
     if (hasEmptyRequired) {
-      message.error("Please fill all required fields before submitting.");
+      swalError("Please fill all required fields before submitting.");
       return;
     }
     // In demo, enforce a safe max rows limit to keep UX responsive
     if (isDemo && data.length > 1500) {
-      message.warning("Demo mode: Limiting to first 1500 records for simulation.");
+      swalWarning("Demo mode: Limiting to first 1500 records for simulation.");
       setFilteredData((prev) => prev.slice(0, 1500));
       setData((prev) => prev.slice(0, 1500));
     }
@@ -253,7 +253,7 @@ const ImportDTRModal = ({ open, onClose, currentUser, isDemo }) => {
       // In demo mode: simulate success without uploading to server
       if (isDemo) {
         await new Promise((r) => setTimeout(r, 600));
-        message.success("Demo mode: Import simulated successfully (no data saved).");
+        swalSuccess("Demo mode: Import simulated successfully (no data saved).");
         // Log demo import for diagnostics (non-blocking)
         try {
           const total = uploadRows.length;
@@ -275,7 +275,7 @@ const ImportDTRModal = ({ open, onClose, currentUser, isDemo }) => {
       } else {
         const res = await axios.post("/dtr/upload", payload);
         if (res.status === 200) {
-          message.success("DTR Data imported successfully.");
+          swalSuccess("DTR Data imported successfully.");
           setFileUploaded(false);
           setData([]);
           setFilteredData([]);
@@ -283,13 +283,13 @@ const ImportDTRModal = ({ open, onClose, currentUser, isDemo }) => {
           setSubmitModalVisible(false);
           onClose();
         } else {
-          message.error("Unexpected response from server.");
+          swalError("Unexpected response from server.");
           setHasSubmitted(false);
         }
       }
     } catch (err) {
       console.error(err);
-      message.error("Error submitting DTR data.");
+      swalError("Error submitting DTR data.");
       setHasSubmitted(false);
     } finally {
       setUploading(false);

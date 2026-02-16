@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import useDemoMode from "../../../../../hooks/useDemoMode";
 import useAuth from "../../../../../hooks/useAuth";
+import { swalSuccess, swalError, swalWarning, swalConfirm } from "../../../../../utils/swalHelper";
 import {
   Table,
   Button,
@@ -9,13 +10,10 @@ import {
   Input,
   DatePicker,
   Select,
-  message,
   Tag,
   Space,
   Typography,
   Alert,
-  Popconfirm,
-  App as AntApp,
 } from "antd";
 import {
   SearchOutlined,
@@ -60,7 +58,6 @@ const BiometricsData = ({ employee }) => {
   const [editingLog, setEditingLog] = useState(null);
   const [identifierUsed, setIdentifierUsed] = useState(null);
   const [form] = Form.useForm();
-  const { message: antMsg } = AntApp.useApp();
   const { user } = useAuth();
 
   // ── Filters ────────────────────────────────────────────────────────
@@ -143,7 +140,7 @@ const BiometricsData = ({ employee }) => {
         setIdentifierUsed(attempts.length ? "none-found" : "no-attempts");
       }
     } catch (error) {
-      antMsg.error("Failed to fetch DTR logs.");
+      swalError("Failed to fetch DTR logs.");
       console.error("Error fetching DTR logs:", error);
     } finally {
       setLoading(false);
@@ -264,21 +261,23 @@ const BiometricsData = ({ employee }) => {
               icon={<EditOutlined />}
               onClick={() => handleEdit(record)}
             />
-            <Popconfirm
-              title="Delete this record?"
-              description="This action cannot be undone."
-              onConfirm={() => handleDelete(record._id)}
-              okText="Delete"
-              cancelText="Cancel"
-              okButtonProps={{ danger: true }}
-            >
-              <Button
-                type="text"
-                size="small"
-                danger
-                icon={<DeleteOutlined />}
-              />
-            </Popconfirm>
+            <Button
+              type="text"
+              size="small"
+              danger
+              icon={<DeleteOutlined />}
+              onClick={async () => {
+                const result = await swalConfirm({
+                  title: "Delete this record?",
+                  text: "This action cannot be undone.",
+                  confirmText: "Delete",
+                  dangerMode: true,
+                });
+                if (result.isConfirmed) {
+                  handleDelete(record._id);
+                }
+              }}
+            />
           </Space>
         ),
       });
@@ -290,7 +289,7 @@ const BiometricsData = ({ employee }) => {
   // ── Handlers ───────────────────────────────────────────────────────
   const handleAdd = () => {
     if (!canEdit) {
-      antMsg.warning("You don't have permission to add biometrics records.");
+      swalWarning("You don't have permission to add biometrics records.");
       return;
     }
     setEditingLog(null);
@@ -300,7 +299,7 @@ const BiometricsData = ({ employee }) => {
 
   const handleEdit = (record) => {
     if (!canEdit) {
-      antMsg.warning("You don't have permission to edit biometrics records.");
+      swalWarning("You don't have permission to edit biometrics records.");
       return;
     }
     setEditingLog(record);
@@ -313,15 +312,15 @@ const BiometricsData = ({ employee }) => {
 
   const handleDelete = async (id) => {
     if (!canEdit) {
-      antMsg.warning("You don't have permission to delete biometrics records.");
+      swalWarning("You don't have permission to delete biometrics records.");
       return;
     }
     try {
       await axiosInstance.delete(`/dtrlogs/${id}`);
-      antMsg.success("Record deleted.");
+      swalSuccess("Record deleted.");
       robustFetchDtrLogs();
     } catch (error) {
-      antMsg.error("Failed to delete record.");
+      swalError("Failed to delete record.");
       console.error("Error deleting DTR log:", error);
     }
   };
@@ -339,15 +338,15 @@ const BiometricsData = ({ employee }) => {
 
       if (editingLog) {
         await axiosInstance.put(`/dtrlogs/${editingLog._id}`, payload);
-        antMsg.success("Record updated.");
+        swalSuccess("Record updated.");
       } else {
         await axiosInstance.post("/dtrlogs", payload);
-        antMsg.success("Record added.");
+        swalSuccess("Record added.");
       }
       setIsModalVisible(false);
       robustFetchDtrLogs();
     } catch (error) {
-      antMsg.error("Failed to save record.");
+      swalError("Failed to save record.");
       console.error("Error saving DTR log:", error);
     }
   };

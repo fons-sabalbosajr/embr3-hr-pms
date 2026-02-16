@@ -9,7 +9,6 @@ import {
   Input,
   DatePicker,
   Select,
-  message,
   Typography,
   Upload,
   Switch,
@@ -21,6 +20,7 @@ import dayjs from "dayjs";
 import axiosInstance from "../../api/axiosInstance";
 import { fetchPhilippineHolidays } from "../../api/holidayPH";
 import useDemoMode from "../../hooks/useDemoMode";
+import { swalSuccess, swalError, swalWarning, swalInfo } from "../../utils/swalHelper";
 import useLoading from "../../hooks/useLoading";
 import { secureSessionGet, secureSessionStore } from "../../../utils/secureStorage";
 
@@ -133,7 +133,7 @@ const LocalHolidays = () => {
     if (isDemoActive && isDemoUser && res?.data?.data?._id) {
       markSessionNew(res.data.data._id);
     }
-    message.success("Local holiday saved");
+    swalSuccess("Local holiday saved");
     setOpen(false);
     form.resetFields();
     load();
@@ -141,13 +141,13 @@ const LocalHolidays = () => {
 
   const remove = async (record) => {
     if (isDemoActive && isDemoUser && !demoNewIds.includes(record.key)) {
-      message.warning(
+      swalWarning(
         "Delete is disabled in demo mode. You can only delete items you added this session."
       );
       return;
     }
     await axiosInstance.delete(`/local-holidays/${record.key}`);
-    message.success("Deleted");
+    swalSuccess("Deleted");
     load();
   };
 
@@ -175,7 +175,7 @@ const LocalHolidays = () => {
       notes: values.notes,
     };
     await axiosInstance.put(`/local-holidays/${editing.key}`, payload);
-    message.success("Updated");
+    swalSuccess("Updated");
     setEditOpen(false);
     setEditing(null);
     load();
@@ -214,9 +214,9 @@ const LocalHolidays = () => {
       if (!rows.length) throw new Error("No rows parsed");
       setPreviewRows(rows);
       setPreviewModalOpen(true);
-      message.info(`${rows.length} rows parsed. Preview before confirm.`);
+      swalInfo(`${rows.length} rows parsed. Preview before confirm.`);
     } catch (e) {
-      message.error(e.message || "Failed to parse file");
+      swalError(e.message || "Failed to parse file");
     } finally {
       setUploading(false);
     }
@@ -231,13 +231,13 @@ const LocalHolidays = () => {
           rows: previewRows,
         });
         updateProgress(90, "Finalising…");
-        message.success("Bulk upload complete");
+        swalSuccess("Bulk upload complete");
         setPreviewModalOpen(false);
         setBulkOpen(false);
         setPreviewRows([]);
         load();
       } catch (e) {
-        message.error(e?.response?.data?.message || "Bulk upload failed");
+        swalError(e?.response?.data?.message || "Bulk upload failed");
       }
     }, "Uploading holidays…");
   };
@@ -472,7 +472,7 @@ const Suspensions = () => {
     if (isDemoActive && isDemoUser && res?.data?.data?._id) {
       markSessionNew(res.data.data._id);
     }
-    message.success("Suspension saved");
+    swalSuccess("Suspension saved");
     setOpen(false);
     form.resetFields();
     load();
@@ -480,13 +480,13 @@ const Suspensions = () => {
 
   const remove = async (record) => {
     if (isDemoActive && isDemoUser && !demoNewIds.includes(record.key)) {
-      message.warning(
+      swalWarning(
         "Delete is disabled in demo mode. You can only delete items you added this session."
       );
       return;
     }
     await axiosInstance.delete(`/suspensions/${record.key}`);
-    message.success("Deleted");
+    swalSuccess("Deleted");
     load();
   };
 
@@ -522,7 +522,7 @@ const Suspensions = () => {
       active: values.active,
     };
     await axiosInstance.put(`/suspensions/${editing.key}`, payload);
-    message.success("Updated");
+    swalSuccess("Updated");
     setEditOpen(false);
     setEditing(null);
     load();
@@ -561,9 +561,9 @@ const Suspensions = () => {
       if (!rows.length) throw new Error("No rows parsed");
       setPreviewRows(rows);
       setPreviewModalOpen(true);
-      message.info(`${rows.length} rows parsed. Preview before confirm.`);
+      swalInfo(`${rows.length} rows parsed. Preview before confirm.`);
     } catch (e) {
-      message.error(e.message || "Failed to parse file");
+      swalError(e.message || "Failed to parse file");
     } finally {
       setUploading(false);
     }
@@ -578,13 +578,13 @@ const Suspensions = () => {
           rows: previewRows,
         });
         updateProgress(90, "Finalising…");
-        message.success("Bulk upload complete");
+        swalSuccess("Bulk upload complete");
         setPreviewModalOpen(false);
         setBulkOpen(false);
         setPreviewRows([]);
         load();
       } catch (e) {
-        message.error(e?.response?.data?.message || "Bulk upload failed");
+        swalError(e?.response?.data?.message || "Bulk upload failed");
       }
     }, "Uploading suspensions…");
   };

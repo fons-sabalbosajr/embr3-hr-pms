@@ -1,6 +1,7 @@
 import React from "react";
 import useDemoMode from "../../../../../hooks/useDemoMode";
-import { Table, Button, message } from "antd";
+import { Table, Button } from "antd";
+import { swalWarning } from "../../../../../utils/swalHelper";
 import dayjs from "dayjs";
 
 const DailyLogsTable = ({ dailySummary, onSendReminder }) => {
@@ -82,7 +83,7 @@ const DailyLogsTable = ({ dailySummary, onSendReminder }) => {
             if (onSendReminder) {
               onSendReminder(record);
             } else {
-              message.warning("Under Maintenance: Reminder feature coming soon.");
+              swalWarning("Under Maintenance: Reminder feature coming soon.");
             }
           }}
         >

@@ -13,11 +13,11 @@ import {
   Button,
   Space,
   Divider,
-  message,
   Spin,
   DatePicker,
 } from "antd";
 import axiosInstance from "../../api/axiosInstance";
+import { swalConfirm, swalSuccess, swalError, swalWarning } from "../../utils/swalHelper";
 import { generateDTRPdf } from "../../../utils/generateDTRpdf";
 import { resolveTimePunches } from "../../../utils/resolveTimePunches";
 import {
@@ -235,9 +235,11 @@ const Dashboard = () => {
         const anchorEnd = overrideEnabled ? override.endDate : latestCutoffEndDate;
         if (!anchorEnd) return;
 
-        // Pick the last 2 days (looking back from month end) that actually have logs.
-        // This avoids showing a near-zero count when the last calendar day has no records.
-        const monthEnd = dayjs(anchorEnd).endOf("month");
+        // When using a developer override, honour the exact selected end date;
+        // otherwise fall back to the end of the month derived from the cutoff.
+        const rangeEnd = overrideEnabled
+          ? dayjs(anchorEnd).endOf("day")
+          : dayjs(anchorEnd).endOf("month");
         const buildParamsForDay = (d) => {
           // NOTE: Do NOT force recordName here.
           // Some months/days can be split across different DTRData imports; recordName filtering can cause undercounts.
@@ -276,7 +278,7 @@ const Dashboard = () => {
         const found = []; // newest-first
         const cache = new Map(); // day -> logs
         for (let i = 0; i <= maxLookbackDays; i++) {
-          const d = monthEnd.subtract(i, 'day').format('YYYY-MM-DD');
+          const d = rangeEnd.subtract(i, 'day').format('YYYY-MM-DD');
           // Prefer working days (Mon-Fri) when we need to look back
           if (i > 0 && !isWeekday(d)) continue;
           const logs = await fetchLogsForDay(d);
@@ -290,7 +292,7 @@ const Dashboard = () => {
         // Fallback: if we didn't find 2 working days with records, include weekend days too.
         if (found.length < 2) {
           for (let i = 0; i <= maxLookbackDays; i++) {
-            const d = monthEnd.subtract(i, 'day').format('YYYY-MM-DD');
+            const d = rangeEnd.subtract(i, 'day').format('YYYY-MM-DD');
             if (found.includes(d)) continue;
             const logs = cache.has(d) ? cache.get(d) : await fetchLogsForDay(d);
             cache.set(d, logs);
@@ -307,8 +309,8 @@ const Dashboard = () => {
           const [newest, older] = found; // found is newest-first
           days = [older, newest].sort();
         } else {
-          const day2 = monthEnd.format('YYYY-MM-DD');
-          const day1 = monthEnd.subtract(1, 'day').format('YYYY-MM-DD');
+          const day2 = rangeEnd.format('YYYY-MM-DD');
+          const day1 = rangeEnd.subtract(1, 'day').format('YYYY-MM-DD');
           days = [day1, day2];
         }
 
@@ -448,47 +450,28 @@ const Dashboard = () => {
   const { MonthPicker } = DatePicker;
 
   const handleGenerateReports = async (emp) => {
-    // open a modal with MonthPicker to choose the payslip period
-    let selectedPeriod = new Date().toISOString().slice(0, 7);
-    const modal = Modal.confirm({
+    // confirm payslip generation with SweetAlert2
+    const result = await swalConfirm({
       title: "Confirm payslip generation",
-      content: (
-        <div>
-          <div style={{ marginBottom: 8 }}>
-            Generate payslip/report for <strong>{emp.name || emp.empId}</strong>
-          </div>
-          <MonthPicker
-            defaultValue={null}
-            onChange={(date, dateString) => {
-              if (dateString) selectedPeriod = dateString.slice(0, 7);
-            }}
-            placeholder="Select period (month)"
-            style={{ width: "100%" }}
-          />
-        </div>
-      ),
-      okText: "Generate",
+      text: `Generate payslip/report for ${emp.name || emp.empId}?`,
+      icon: "question",
+      confirmText: "Generate",
       cancelText: "Cancel",
-      onOk: async () => {
-        try {
-          setTileLoading((s) => ({ ...s, payslip: true }));
-          const period = selectedPeriod || new Date().toISOString().slice(0, 7);
-          // Redirect to the Payslip Reports page which contains the full payslip
-          // generation UI and rules. Pass empId and period via query string so
-          // the reports page can auto-open the generate modal.
-          navigate(`/dtr/reports?payslip=1&empId=${encodeURIComponent(
-            emp.empId || emp._id
-          )}&period=${encodeURIComponent(period)}`);
-          setEmployeeModalVisible(false);
-        } catch (err) {
-          console.error("Failed to navigate to payslip reports", err);
-          message.error("Failed to open payslip generator");
-        } finally {
-          setTileLoading((s) => ({ ...s, payslip: false }));
-        }
-      },
     });
-    return modal;
+    if (!result.isConfirmed) return;
+    try {
+      setTileLoading((s) => ({ ...s, payslip: true }));
+      const period = new Date().toISOString().slice(0, 7);
+      navigate(`/dtr/reports?payslip=1&empId=${encodeURIComponent(
+        emp.empId || emp._id
+      )}&period=${encodeURIComponent(period)}`);
+      setEmployeeModalVisible(false);
+    } catch (err) {
+      console.error("Failed to navigate to payslip reports", err);
+      swalError("Failed to open payslip generator");
+    } finally {
+      setTileLoading((s) => ({ ...s, payslip: false }));
+    }
   };
 
   const handleOpenDTR = async (emp) => {
@@ -501,7 +484,7 @@ const Dashboard = () => {
       setSelectedDtrRecord(null);
     } catch (err) {
       console.error("Failed to fetch DTR records", err);
-      message.error("Failed to load available biometrics records");
+      swalError("Failed to load available biometrics records");
       setDtrRecordList([]);
     }
   };
@@ -509,7 +492,7 @@ const Dashboard = () => {
   const handleConfirmDtrGeneration = async () => {
     if (!selectedEmployee) return;
     if (!selectedDtrRecord) {
-      message.warning("Please choose a biometrics record (DTR data)");
+      swalWarning("Please choose a biometrics record (DTR data)");
       return;
     }
     try {
@@ -540,7 +523,7 @@ const Dashboard = () => {
       }
 
       if (!dtrLogs.length) {
-        message.warn('No biometric time records found for this employee in the chosen DTR record. Tried name and AC-No variants.');
+        swalWarning('No biometric time records found for this employee in the chosen DTR record. Tried name and AC-No variants.');
         setTileLoading((s) => ({ ...s, dtr: false }));
         return;
       }
@@ -586,12 +569,12 @@ const Dashboard = () => {
         details: { employeeId: selectedEmployee._id || selectedEmployee.empId, recordId: selectedDtrRecord._id },
       });
 
-      message.success("DTR generated");
+      swalSuccess("DTR generated");
       setDtrModalVisible(false);
       setEmployeeModalVisible(false);
     } catch (err) {
       console.error("DTR generation error", err);
-      message.error("Failed to generate DTR");
+      swalError("Failed to generate DTR");
     } finally {
       setTileLoading((s) => ({ ...s, dtr: false }));
     }
@@ -798,7 +781,7 @@ const Dashboard = () => {
                 className="emp-tile emp-tile--amber"
                 onClick={() => {
                   if (demoDisabled) {
-                    message.warning("Generate Reports is disabled in demo mode.");
+                    swalWarning("Generate Reports is disabled in demo mode.");
                     return;
                   }
                   handleGenerateReports(selectedEmployee);
@@ -807,7 +790,7 @@ const Dashboard = () => {
                   if (e.key === "Enter" || e.key === " ") {
                     if (demoDisabled) {
                       e.preventDefault();
-                      message.warning("Generate Reports is disabled in demo mode.");
+                      swalWarning("Generate Reports is disabled in demo mode.");
                       return;
                     }
                     handleGenerateReports(selectedEmployee);
@@ -836,7 +819,7 @@ const Dashboard = () => {
                 className="emp-tile emp-tile--green"
                 onClick={() => {
                   if (demoDisabled) {
-                    message.warning("Open DTR is disabled in demo mode.");
+                    swalWarning("Open DTR is disabled in demo mode.");
                     return;
                   }
                   handleOpenDTR(selectedEmployee);
@@ -845,7 +828,7 @@ const Dashboard = () => {
                   if (e.key === "Enter" || e.key === " ") {
                     if (demoDisabled) {
                       e.preventDefault();
-                      message.warning("Open DTR is disabled in demo mode.");
+                      swalWarning("Open DTR is disabled in demo mode.");
                       return;
                     }
                     handleOpenDTR(selectedEmployee);

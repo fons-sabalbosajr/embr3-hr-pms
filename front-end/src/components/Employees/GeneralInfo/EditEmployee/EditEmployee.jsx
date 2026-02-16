@@ -4,12 +4,12 @@ import {
   Input,
   Select,
   Button,
-  message,
   Divider,
   Space,
   Tag,
 } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
+import { swalSuccess, swalError } from "../../../../utils/swalHelper";
 import axios from "../../../../api/axiosInstance";
 
 const { Option } = Select;
@@ -109,7 +109,7 @@ const EditEmployee = ({ employee, onClose, onUpdated }) => {
       const isUnique = await checkEmpIdUnique(values.empId);
 
       if (!isUnique) {
-        message.error(`Employee ID "${values.empId}" is already taken.`);
+        swalError(`Employee ID "${values.empId}" is already taken.`);
         setLoading(false);
         return;
       }
@@ -130,7 +130,7 @@ const EditEmployee = ({ employee, onClose, onUpdated }) => {
       let emails = toArray(values.emails);
       const bad = emails.filter((e) => !EMAIL_RE.test(e));
       if (bad.length) {
-        message.error(`Invalid email(s): ${bad.join(", ")}`);
+        swalError(`Invalid email(s): ${bad.join(", ")}`);
         setLoading(false);
         return;
       }
@@ -157,12 +157,12 @@ const EditEmployee = ({ employee, onClose, onUpdated }) => {
 
       await axios.put(`/employees/${employee._id}`, payload);
 
-      message.success("Employee updated successfully.");
+      swalSuccess("Employee updated successfully.");
       onUpdated?.({ ...employee, ...payload });
       onClose();
     } catch (err) {
       console.error("Failed to update employee:", err);
-      message.error("Failed to update employee.");
+      swalError("Failed to update employee.");
     } finally {
       setLoading(false);
     }

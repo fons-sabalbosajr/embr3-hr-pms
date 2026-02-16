@@ -5,7 +5,6 @@ import {
   Tag,
   Tooltip,
   Spin,
-  message,
   Space,
   Input,
   Button,
@@ -17,6 +16,7 @@ import {
   Pagination,
   Grid,
 } from "antd";
+import { swalError, swalInfo } from "../../../utils/swalHelper";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc";
 import timezone from "dayjs/plugin/timezone";
@@ -147,11 +147,11 @@ const DTRLogs = () => {
             records.map((r) => ({ label: r.DTR_Record_Name, value: r.DTR_Record_Name }))
           );
         } else {
-          message.error("Failed to load DTR Record Names");
+          swalError("Failed to load DTR Record Names");
         }
       } catch (error) {
         console.error("Failed to load DTR Record Names:", error);
-        message.error("Error loading record names");
+        swalError("Error loading record names");
       }
     };
     fetchRecords();
@@ -191,11 +191,11 @@ const DTRLogs = () => {
           setDtrData(data.data);
         } else {
           setDtrData([]);
-          message.error("Failed to load DTR logs");
+          swalError("Failed to load DTR logs");
         }
       } catch (error) {
         console.error("Failed to fetch DTR logs:", error);
-        message.error("Error loading logs");
+        swalError("Error loading logs");
         setDtrData([]);
       } finally {
         setLoading(false);
@@ -620,7 +620,7 @@ const DTRLogs = () => {
   ];
 
   const handleGenerateDTR = () => {
-    message.info("Generate DTR functionality not implemented.");
+    swalInfo("Generate DTR functionality not implemented.");
   };
 
   return (

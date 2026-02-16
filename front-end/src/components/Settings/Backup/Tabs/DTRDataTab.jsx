@@ -5,7 +5,6 @@ import {
   Button,
   Space,
   Input,
-  message,
   Modal,
   Form,
   DatePicker,
@@ -20,6 +19,7 @@ import {
   DeleteOutlined,
   SearchOutlined,
 } from "@ant-design/icons";
+import { swalSuccess, swalError, swalWarning } from "../../../../utils/swalHelper";
 import axiosInstance from "../../../../api/axiosInstance";
 import dayjs from "dayjs";
 
@@ -104,7 +104,7 @@ const DTRDataTab = () => {
       const rows = res.data?.data ?? res.data ?? [];
       setData(rows);
     } catch {
-      message.error("Failed to load DTR data");
+      swalError("Failed to load DTR data");
     } finally {
       setLoading(false);
     }
@@ -192,20 +192,20 @@ const DTRDataTab = () => {
       };
 
       await axiosInstance.put(`/dtrdatas/${editing._id}`, payload);
-      message.success("Updated");
+      swalSuccess("Updated");
       setEditModalOpen(false);
       setEditing(null);
       fetchData();
     } catch (err) {
       const msg = err?.response?.data?.message;
-      message.error(msg ? `Update failed: ${msg}` : "Update failed");
+      swalError(msg ? `Update failed: ${msg}` : "Update failed");
     }
   };
 
   const handleDelete = async (id) => {
     // open preview modal and load sample
     const rec = data.find((r) => r._id === id) || null;
-    if (!rec) return message.error("Record not found");
+    if (!rec) return swalError("Record not found");
     setPreviewRecord(rec);
     setPreviewModalOpen(true);
 
@@ -239,7 +239,7 @@ const DTRDataTab = () => {
       }
     } catch (e) {
       console.error("Preview load failed", e);
-      message.error("Failed to load preview samples");
+      swalError("Failed to load preview samples");
       setPreviewSample([]);
       setPreviewTotal(0);
     } finally {
@@ -273,9 +273,9 @@ const DTRDataTab = () => {
                 }, 600);
                 fetchData();
                 if (p.data.data.status === "done")
-                  message.success(`Deleted ${p.data.data.deleted} logs`);
+                  swalSuccess(`Deleted ${p.data.data.deleted} logs`);
                 else
-                  message.error(
+                  swalError(
                     `Delete failed: ${p.data.data.message || "error"}`,
                   );
               }
@@ -285,11 +285,11 @@ const DTRDataTab = () => {
           }
         }, 1000);
       } else {
-        message.error("Failed to start delete job");
+        swalError("Failed to start delete job");
       }
     } catch (err) {
       console.error("Start delete failed", err);
-      message.error("Failed to start delete");
+      swalError("Failed to start delete");
     }
   };
 
@@ -300,7 +300,7 @@ const DTRDataTab = () => {
   }, []);
 
   const exportCsv = () => {
-    if (!data?.length) return message.warning("No data to export");
+    if (!data?.length) return swalWarning("No data to export");
     const rows = data.map((r) => ({
       DTR_Record_Name: r.DTR_Record_Name,
       CutOffStart: r.DTR_Cut_Off?.start

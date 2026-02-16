@@ -14,6 +14,10 @@ const conversationSchema = new mongoose.Schema(
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     // Confidential / private conversation — only participants can see it
     isConfidential: { type: Boolean, default: false },
+    // Users who have archived this conversation
+    archivedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+    // Users who have soft-deleted (hidden) this conversation
+    deletedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
     // Cached last message for fast list rendering
     lastMessage: { type: mongoose.Schema.Types.ObjectId, ref: "Message" },
     lastMessageAt: { type: Date },

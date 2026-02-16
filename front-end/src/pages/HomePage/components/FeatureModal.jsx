@@ -1,7 +1,8 @@
-import { Modal, Typography, Divider, Space, Input, Button, message } from "antd";
+import { Modal, Typography, Divider, Space, Input, Button } from "antd";
 import { BulbOutlined } from "@ant-design/icons";
 import { useState } from "react";
 import axiosInstance from "../../../api/axiosInstance";
+import { swalSuccess, swalError, swalWarning } from "../../../utils/swalHelper";
 
 const FeatureModal = ({ open, onClose, user }) => {
   const [featureTitle, setFeatureTitle] = useState("");
@@ -10,7 +11,7 @@ const FeatureModal = ({ open, onClose, user }) => {
 
   const handleSubmit = async () => {
     if (!featureTitle || !featureDescription) {
-      message.warning("Please fill in all fields before submitting.");
+      swalWarning("Please fill in all fields before submitting.");
       return;
     }
     try {
@@ -21,13 +22,13 @@ const FeatureModal = ({ open, onClose, user }) => {
         emailTo: "embrhrpms@gmail.com",
         submittedBy: user?.username || "unknown",
       });
-      message.success("Your suggestion has been sent!");
+      swalSuccess("Your suggestion has been sent!");
       setFeatureTitle("");
       setFeatureDescription("");
       onClose();
     } catch (error) {
       console.error("Feature suggestion failed:", error);
-      message.error("Failed to send suggestion. Try again later.");
+      swalError("Failed to send suggestion. Try again later.");
     } finally {
       setLoading(false);
     }

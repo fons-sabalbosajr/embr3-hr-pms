@@ -7,7 +7,6 @@ import {
   Popover,
   Divider,
   Button,
-  message,
   Modal,
   Descriptions,
   Tag,
@@ -17,6 +16,7 @@ import {
   Collapse,
   Avatar,
 } from "antd";
+import { swalSuccess, swalError, swalWarning, swalInfo, swalConfirm, swalAlert } from "../../utils/swalHelper";
 
 import {
   UserOutlined,
@@ -181,11 +181,11 @@ const HomePage = () => {
   const beforeUploadScreenshot = (file) => {
     const isImage = file.type.startsWith("image/");
     if (!isImage) {
-      message.error("Please upload an image file.");
+      swalError("Please upload an image file.");
       return Upload.LIST_IGNORE;
     }
     if (file.size > 5 * 1024 * 1024) {
-      message.error("Image must be smaller than 5MB.");
+      swalError("Image must be smaller than 5MB.");
       return Upload.LIST_IGNORE;
     }
     const reader = new FileReader();
@@ -210,14 +210,14 @@ const HomePage = () => {
         screenshotBase64: bugScreenshot,
       };
       await axiosInstance.post("/bug-report", payload);
-      message.success("Bug report sent. Thank you!");
+      swalSuccess("Bug report sent. Thank you!");
       bugForm.resetFields();
       setBugScreenshot(null);
       setIsBugOpen(false);
     } catch (err) {
       // Ignore validation errors (they have errorFields)
       if (err?.errorFields) return;
-      message.error(
+      swalError(
         err?.response?.data?.message || "Failed to send bug report."
       );
       console.debug("Bug report failed", err);
@@ -239,7 +239,7 @@ const HomePage = () => {
       const open = rows.filter((r) => r.status !== "resolved").length;
       setBugListStats({ total, open, resolved: total - open });
     } catch {
-      message.error("Failed to load bug reports");
+      swalError("Failed to load bug reports");
     } finally {
       setBugListLoading(false);
     }
@@ -519,7 +519,7 @@ const HomePage = () => {
   // Socket.io connection is managed by AuthContext; listeners are attached above.
 
   const handleLogout = () => {
-    message.success("Logging out...");
+    swalInfo("Logging out...");
     // AuthContext.logout will handle redirect to /auth
     logout();
   };
@@ -594,6 +594,12 @@ const HomePage = () => {
           {
             key: "/messaging/drafts",
             label: "Drafts",
+            className: "messaging-menu-item",
+            permissions: ["canViewMessages"],
+          },
+          {
+            key: "/messaging/archived",
+            label: "Archived",
             className: "messaging-menu-item",
             permissions: ["canViewMessages"],
           },
@@ -758,7 +764,7 @@ const HomePage = () => {
       }
     } catch (error) {
       // Non-fatal; still show modal
-      message.error("Failed to update notification status");
+      swalError("Failed to update notification status");
     }
     setSelectedNotification(n);
     setIsNotificationModalOpen(true);
@@ -1021,7 +1027,7 @@ const HomePage = () => {
                     prev.map((n) => ({ ...n, read: true }))
                   );
                 } catch (error) {
-                  message.error("Failed to mark all notifications as read");
+                  swalError("Failed to mark all notifications as read");
                 }
               }}
             >
@@ -1145,25 +1151,23 @@ const HomePage = () => {
                   // Ask for a pre-generated base64 PDF data URI
                   const pdfBase64 = window.__LAST_GENERATED_PAYSLIP_BASE64__;
                   if (!pdfBase64) {
-                    Modal.info({
+                    swalAlert({
                       title: "Attach Payslip PDF",
-                      content:
-                        'Please generate or open the payslip first so it can be attached. After generating, click "Send Payslip" again.',
+                      text: 'Please generate or open the payslip first so it can be attached. After generating, click "Send Payslip" again.',
+                      icon: "info",
                     });
                     return;
                   }
                   const n = selectedNotification;
-                  const confirm = await new Promise((resolve) => {
-                    Modal.confirm({
-                      title: "Send payslip to employee? ",
-                      content: `Employee ${n.employeeId} • Period ${
-                        n.period || ""
-                      }\n\nThe payslip PDF will be sent to: ${n.email || "the email on file"}`,
-                      onOk: () => resolve(true),
-                      onCancel: () => resolve(false),
-                    });
+                  const result = await swalConfirm({
+                    title: "Send payslip to employee?",
+                    text: `Employee ${n.employeeId} • Period ${
+                      n.period || ""
+                    }\n\nThe payslip PDF will be sent to: ${n.email || "the email on file"}`,
+                    icon: "question",
+                    confirmText: "Send",
                   });
-                  if (!confirm) return;
+                  if (!result.isConfirmed) return;
                   // Call backend to send email
                   await axiosInstance.post(
                     `/payslip-requests/${encodeURIComponent(
@@ -1176,7 +1180,7 @@ const HomePage = () => {
                       ).replace(/\//g, "-")}.pdf`,
                     }
                   );
-                  message.success("Payslip emailed successfully");
+                  swalSuccess("Payslip emailed successfully");
                   // Remove dispatched notification in real-time and close modal
                   setNotifications((prev) =>
                     prev.filter((item) => (item._id || item.id) !== (n._id || n.id))
@@ -1184,7 +1188,7 @@ const HomePage = () => {
                   setIsNotificationModalOpen(false);
                   setSelectedNotification(null);
                 } catch (err) {
-                  message.error(
+                  swalError(
                     err?.response?.data?.message ||
                       "Failed to send payslip email"
                   );
@@ -1203,25 +1207,23 @@ const HomePage = () => {
                 try {
                   const pdfBase64 = window.__LAST_GENERATED_DTR_BASE64__;
                   if (!pdfBase64) {
-                    Modal.info({
+                    swalAlert({
                       title: "Attach DTR PDF",
-                      content:
-                        'Please generate or open the DTR first so it can be attached. After generating, click "Send DTR" again.',
+                      text: 'Please generate or open the DTR first so it can be attached. After generating, click "Send DTR" again.',
+                      icon: "info",
                     });
                     return;
                   }
                   const n = selectedNotification;
                   const startLabel = n.startDate ? new Date(n.startDate).toLocaleDateString() : "";
                   const endLabel = n.endDate ? new Date(n.endDate).toLocaleDateString() : "";
-                  const confirm = await new Promise((resolve) => {
-                    Modal.confirm({
-                      title: "Send DTR to employee?",
-                      content: `Employee ${n.employeeId} • ${startLabel} – ${endLabel}\n\nThe DTR PDF will be sent to: ${n.email || "the email on file"}`,
-                      onOk: () => resolve(true),
-                      onCancel: () => resolve(false),
-                    });
+                  const result = await swalConfirm({
+                    title: "Send DTR to employee?",
+                    text: `Employee ${n.employeeId} • ${startLabel} – ${endLabel}\n\nThe DTR PDF will be sent to: ${n.email || "the email on file"}`,
+                    icon: "question",
+                    confirmText: "Send",
                   });
-                  if (!confirm) return;
+                  if (!result.isConfirmed) return;
                   await axiosInstance.post(
                     `/dtr-requests/${encodeURIComponent(n._id || n.id)}/send-email`,
                     {
@@ -1229,7 +1231,7 @@ const HomePage = () => {
                       filename: `dtr_${n.employeeId}_${startLabel.replace(/\//g, "-")}.pdf`,
                     }
                   );
-                  message.success("DTR emailed successfully");
+                  swalSuccess("DTR emailed successfully");
                   // Remove dispatched notification in real-time and close modal
                   setNotifications((prev) =>
                     prev.filter((item) => (item._id || item.id) !== (n._id || n.id))
@@ -1237,7 +1239,7 @@ const HomePage = () => {
                   setIsNotificationModalOpen(false);
                   setSelectedNotification(null);
                 } catch (err) {
-                  message.error(
+                  swalError(
                     err?.response?.data?.message ||
                       "Failed to send DTR email"
                   );
@@ -2138,6 +2140,14 @@ const HomePage = () => {
                 element={
                   <ProtectedRoute requiredPermissions={["canViewMessages"]}>
                     <Messaging currentUser={user} tab="drafts" />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/messaging/archived"
+                element={
+                  <ProtectedRoute requiredPermissions={["canViewMessages"]}>
+                    <Messaging currentUser={user} tab="archived" />
                   </ProtectedRoute>
                 }
               />

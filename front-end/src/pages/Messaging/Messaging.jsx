@@ -10,14 +10,13 @@ import {
   Typography,
   Grid,
   Empty,
-  Popconfirm,
   Tag,
   Switch,
   Dropdown,
   Divider,
   Select,
-  message as antMsg,
 } from "antd";
+import { swalSuccess, swalError, swalConfirm } from "../../utils/swalHelper";
 import {
   SendOutlined,
   MessageOutlined,
@@ -40,6 +39,8 @@ import {
   ExclamationCircleOutlined,
   UserAddOutlined,
   MoreOutlined,
+  FolderOutlined,
+  RestOutlined,
 } from "@ant-design/icons";
 import axiosInstance from "../../api/axiosInstance";
 import socket from "../../../utils/socket";
@@ -124,14 +125,15 @@ const Messaging = ({ currentUser, tab = "inbox" }) => {
   const fetchConversations = useCallback(async () => {
     try {
       setLoadingConvs(true);
-      const { data } = await axiosInstance.get("/messages/conversations");
+      const params = tab === "archived" ? "?archived=true" : "";
+      const { data } = await axiosInstance.get(`/messages/conversations${params}`);
       setConversations(data);
     } catch (err) {
       console.error("Failed to load conversations:", err);
     } finally {
       setLoadingConvs(false);
     }
-  }, []);
+  }, [tab]);
 
   const fetchMessages = useCallback(
     async (conversationId, pageNum = 1, append = false) => {
@@ -423,7 +425,7 @@ const Messaging = ({ currentUser, tab = "inbox" }) => {
 
   const handleCopyMessage = (content) => {
     navigator.clipboard.writeText(content).catch(() => {});
-    antMsg.success("Copied to clipboard");
+    swalSuccess("Copied to clipboard");
   };
 
   const handleSaveDraft = () => {
@@ -437,11 +439,41 @@ const Messaging = ({ currentUser, tab = "inbox" }) => {
       ];
     });
     setMessageText("");
-    antMsg.success("Draft saved");
+    swalSuccess("Draft saved");
   };
 
   const handleDeleteDraft = (conversationId) => {
     setDrafts((prev) => prev.filter((d) => d.conversationId !== conversationId));
+  };
+
+  const handleArchiveConversation = async (convId, e) => {
+    if (e) e.stopPropagation();
+    try {
+      const { data } = await axiosInstance.patch(`/messages/conversations/${convId}/archive`);
+      swalSuccess(data.archived ? "Conversation archived" : "Conversation unarchived");
+      setConversations((prev) => prev.filter((c) => c._id !== convId));
+      if (activeConvId === convId) {
+        setActiveConvId(null);
+        setMessages([]);
+      }
+    } catch {
+      swalError("Failed to archive conversation");
+    }
+  };
+
+  const handleDeleteConversation = async (convId, e) => {
+    if (e) e.stopPropagation();
+    try {
+      await axiosInstance.delete(`/messages/conversations/${convId}`);
+      swalSuccess("Conversation deleted");
+      setConversations((prev) => prev.filter((c) => c._id !== convId));
+      if (activeConvId === convId) {
+        setActiveConvId(null);
+        setMessages([]);
+      }
+    } catch {
+      swalError("Failed to delete conversation");
+    }
   };
 
   const handleUseDraft = (draft) => {
@@ -494,11 +526,11 @@ const Messaging = ({ currentUser, tab = "inbox" }) => {
         groupName: editGroupName,
         isConfidential: editConfidential,
       });
-      antMsg.success("Conversation updated");
+      swalSuccess("Conversation updated");
       setDetailModalOpen(false);
       fetchConversations();
     } catch (err) {
-      antMsg.error("Failed to update conversation");
+      swalError("Failed to update conversation");
     }
   };
 
@@ -508,12 +540,12 @@ const Messaging = ({ currentUser, tab = "inbox" }) => {
       await axiosInstance.patch(`/messages/conversations/${activeConvId}`, {
         addParticipants: addMemberIds,
       });
-      antMsg.success("Members added");
+      swalSuccess("Members added");
       setAddMembersOpen(false);
       setAddMemberIds([]);
       fetchConversations();
     } catch {
-      antMsg.error("Failed to add members");
+      swalError("Failed to add members");
     }
   };
 
@@ -523,10 +555,10 @@ const Messaging = ({ currentUser, tab = "inbox" }) => {
       await axiosInstance.patch(`/messages/conversations/${activeConvId}`, {
         removeParticipants: [memberId],
       });
-      antMsg.success("Member removed");
+      swalSuccess("Member removed");
       fetchConversations();
     } catch {
-      antMsg.error("Failed to remove member");
+      swalError("Failed to remove member");
     }
   };
 
@@ -613,6 +645,7 @@ const Messaging = ({ currentUser, tab = "inbox" }) => {
       );
     }
     if (tab === "drafts") return [];
+    // For "archived" tab, backend already returns only archived convos, so no extra filter needed
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       list = list.filter((c) => {
@@ -648,6 +681,7 @@ const Messaging = ({ currentUser, tab = "inbox" }) => {
     inbox: { icon: <InboxOutlined />, title: "Inbox" },
     sent: { icon: <MailOutlined />, title: "Sent" },
     drafts: { icon: <FileTextOutlined />, title: "Drafts" },
+    archived: { icon: <FolderOutlined />, title: "Archived" },
   };
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -710,7 +744,7 @@ const Messaging = ({ currentUser, tab = "inbox" }) => {
           ) : filteredConversations.length === 0 ? (
             <Empty
               image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description={searchQuery ? "No results found" : tab === "sent" ? "No sent messages" : "No conversations yet"}
+              description={searchQuery ? "No results found" : tab === "sent" ? "No sent messages" : tab === "archived" ? "No archived conversations" : "No conversations yet"}
               style={{ marginTop: 60 }}
             />
           ) : (
@@ -757,7 +791,44 @@ const Messaging = ({ currentUser, tab = "inbox" }) => {
                     )}
                   </div>
                   <div style={{ textAlign: "right", flexShrink: 0 }}>
-                    {conv.lastMessageAt && <div className="msg-conv-time">{formatTime(conv.lastMessageAt)}</div>}
+                    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                      {conv.lastMessageAt && <div className="msg-conv-time">{formatTime(conv.lastMessageAt)}</div>}
+                      <Dropdown
+                        trigger={["click"]}
+                        menu={{
+                          items: [
+                            tab === "archived"
+                              ? {
+                                  key: "unarchive",
+                                  icon: <RestOutlined />,
+                                  label: "Unarchive",
+                                  onClick: ({ domEvent }) => handleArchiveConversation(conv._id, domEvent),
+                                }
+                              : {
+                                  key: "archive",
+                                  icon: <FolderOutlined />,
+                                  label: "Archive",
+                                  onClick: ({ domEvent }) => handleArchiveConversation(conv._id, domEvent),
+                                },
+                            {
+                              key: "delete",
+                              icon: <DeleteOutlined />,
+                              label: "Delete",
+                              danger: true,
+                              onClick: ({ domEvent }) => handleDeleteConversation(conv._id, domEvent),
+                            },
+                          ],
+                        }}
+                      >
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<MoreOutlined />}
+                          onClick={(e) => e.stopPropagation()}
+                          style={{ fontSize: 14, padding: "0 4px" }}
+                        />
+                      </Dropdown>
+                    </div>
                     {conv.unreadCount > 0 && <Badge count={conv.unreadCount} size="small" className="msg-conv-unread" />}
                   </div>
                 </div>
@@ -913,15 +984,11 @@ const Messaging = ({ currentUser, tab = "inbox" }) => {
                             />
                           </Tooltip>
                           {isMine && (
-                            <Popconfirm
-                              title="Delete this message?" description="This will be deleted for everyone."
-                              onConfirm={() => handleDeleteMessage(msg._id)} okText="Delete" okButtonProps={{ danger: true }}
-                              cancelText="Cancel" placement={isMine ? "topLeft" : "topRight"}
-                            >
                               <Tooltip title="Delete">
-                                <Button type="text" size="small" danger icon={<DeleteOutlined />} className="msg-action-btn" />
+                                <Button type="text" size="small" danger icon={<DeleteOutlined />} className="msg-action-btn"
+                                  onClick={async () => { const r = await swalConfirm({ title: "Delete this message?", text: "This will be deleted for everyone." }); if (r.isConfirmed) handleDeleteMessage(msg._id); }}
+                                />
                               </Tooltip>
-                            </Popconfirm>
                           )}
                         </div>
                       )}
@@ -1082,9 +1149,9 @@ const Messaging = ({ currentUser, tab = "inbox" }) => {
                         <div className="msg-user-list-role">{formatLastActive(p)}</div>
                       </div>
                       {String(p._id) !== userId && activeConv.participants.length > 2 && (
-                        <Popconfirm title={`Remove ${p.name}?`} onConfirm={() => handleRemoveMember(p._id)}>
-                          <Button type="text" size="small" danger icon={<DeleteOutlined />} />
-                        </Popconfirm>
+                          <Button type="text" size="small" danger icon={<DeleteOutlined />}
+                            onClick={async () => { const r = await swalConfirm({ title: `Remove ${p.name}?` }); if (r.isConfirmed) handleRemoveMember(p._id); }}
+                          />
                       )}
                     </div>
                   ))}

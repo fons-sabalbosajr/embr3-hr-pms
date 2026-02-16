@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import useDemoMode from "../../../hooks/useDemoMode";
+import { swalConfirm, swalSuccess, swalError } from "../../../utils/swalHelper";
 import {
   Input,
   Select,
@@ -9,7 +10,6 @@ import {
   Tag,
   Modal,
   Tooltip,
-  notification,
   Tabs,
   Grid,
 } from "antd";
@@ -75,10 +75,7 @@ const SalaryInfo = () => {
       setCombinedData(combined);
     } catch (err) {
       console.error("Failed to fetch combined employee and salary data", err);
-      notification.error({
-        message: "Error",
-        description: "Failed to load employee salary data.",
-      });
+      swalError("Failed to load employee salary data.");
     } finally {
       setLoading(false);
     }
@@ -96,28 +93,21 @@ const SalaryInfo = () => {
   };
 
   const handleDelete = async (id) => {
-    Modal.confirm({
+    const result = await swalConfirm({
       title: "Confirm Delete",
-      content: "Are you sure you want to delete this employee's salary record?",
-      okText: "Delete",
-      okType: "danger",
-      onOk: async () => {
-        try {
-          await axiosInstance.delete(`/employee-salaries/${id}`);
-          notification.success({
-            message: "Success",
-            description: "Employee salary record deleted successfully.",
-          });
-          fetchCombinedData(); // Refresh data
-        } catch (error) {
-          console.error("Failed to delete employee salary record", error);
-          notification.error({
-            message: "Error",
-            description: "Failed to delete employee salary record.",
-          });
-        }
-      },
+      text: "Are you sure you want to delete this employee's salary record?",
+      confirmText: "Delete",
+      dangerMode: true,
     });
+    if (!result.isConfirmed) return;
+    try {
+      await axiosInstance.delete(`/employee-salaries/${id}`);
+      swalSuccess("Employee salary record deleted successfully.");
+      fetchCombinedData(); // Refresh data
+    } catch (error) {
+      console.error("Failed to delete employee salary record", error);
+      swalError("Failed to delete employee salary record.");
+    }
   };
 
   const getFilteredData = (data, tab) => {

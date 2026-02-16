@@ -6,13 +6,13 @@ import {
   Typography,
   Divider,
   Button,
-  message,
   Spin,
   Tooltip,
   Descriptions,
   Space,
   Tag,
 } from "antd";
+import { swalSuccess, swalError, swalWarning, swalInfo, swalConfirm } from "../../../../utils/swalHelper";
 import dayjs from "dayjs";
 import customParseFormat from "dayjs/plugin/customParseFormat";
 import utc from "dayjs/plugin/utc";
@@ -529,7 +529,7 @@ const ViewDTR = ({
     setSaveToTrayLoading(true);
     try {
       await Promise.resolve(onSaveToTray(employee, selectedRecord));
-      message.success("DTR has been added to the Printer Tray!");
+      swalSuccess("DTR has been added to the Printer Tray!");
     } finally {
       setSaveToTrayLoading(false);
     }
@@ -564,15 +564,15 @@ const ViewDTR = ({
       });
   };
 
-  const handleSendAllMissing = () => {
+  const handleSendAllMissing = async () => {
     const hasEmail = Array.isArray(employee.emails) && employee.emails.length > 0;
     if (!hasEmail) {
-      message.warning("Employee has no email inputted yet.");
+      swalWarning("Employee has no email inputted yet.");
       return;
     }
     const missingDates = getMissingDates();
     if (!missingDates.length) {
-      message.info("No missing time records for this cut-off.");
+      swalInfo("No missing time records for this cut-off.");
       return;
     }
 
@@ -580,55 +580,45 @@ const ViewDTR = ({
     const end = dayjs(selectedRecord.DTR_Cut_Off.end).format("MMM D, YYYY");
     const periodLabel = `${start} - ${end}`;
 
-    Modal.confirm({
+    const previewItems = missingDates.slice(0,15).map(d => {
+      const label = dayjs(d.date).isValid() ? dayjs(d.date).format('MMMM D, YYYY') : d.date;
+      const detail = d.missing && d.missing.length ? ` (Missing: ${d.missing.join(', ')})` : '';
+      return `<li>${label}${detail}</li>`;
+    }).join('');
+    const moreText = missingDates.length > 15 ? `<div style="margin-top:6px;color:#888">+ ${missingDates.length - 15} more…</div>` : '';
+    const htmlContent = `
+      <p>This will send an email to <strong>${employee.emails[0]}</strong> listing all days with no time records for <strong>${periodLabel}</strong>.</p>
+      <div style="margin-top:8px;padding:12px;background:#fafafa;border:1px solid #eee;border-radius:6px;text-align:left">
+        <div style="font-weight:600;margin-bottom:6px">Preview (first 15 days shown)</div>
+        <ul style="margin:0;padding-left:18px">${previewItems}</ul>
+        ${moreText}
+      </div>`;
+
+    const result = await swalConfirm({
       title: "Send Reminder for All Missing Days",
-      width: 600,
-      content: (
-        <div style={{ maxHeight: 300, overflowY: 'auto' }}>
-          <p>
-            This will send an email to <strong>{employee.emails[0]}</strong> listing all days with no time records for <strong>{periodLabel}</strong>.
-          </p>
-          <div style={{ marginTop: 8, padding: 12, background: "#fafafa", border: "1px solid #eee", borderRadius: 6 }}>
-            <div style={{ fontWeight: 600, marginBottom: 6 }}>Preview (first 15 days shown)</div>
-              <ul style={{ margin: 0, paddingLeft: 18 }}>
-              {missingDates.slice(0,15).map(d => (
-                <li key={d.date}>
-                  {dayjs(d.date).isValid() ? dayjs(d.date).format('MMMM D, YYYY') : d.date}
-                  {d.missing && d.missing.length ? (
-                    <div style={{ fontSize: 12, color: '#666' }}>Missing: {d.missing.join(', ')}</div>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-            {missingDates.length > 15 && (
-              <div style={{ marginTop: 6, color: '#888' }}>+ {missingDates.length - 15} more…</div>
-            )}
-          </div>
-        </div>
-      ),
-      okText: "Send Reminder",
-      cancelText: "Cancel",
-      onOk: async () => {
-        try {
-          await axiosInstance.post('/notifications/no-time-record/bulk', {
-            employeeId: employee.empId,
-            email: employee.emails[0],
-            name: employee.name,
-            dates: missingDates, // array of {date, missing}
-            periodLabel,
-          });
-          message.success("Bulk reminder sent");
-        } catch (e) {
-          message.error("Failed to send bulk reminder");
-        }
-      }
+      icon: "question",
+      confirmText: "Send Reminder",
     });
+    if (!result.isConfirmed) return;
+
+    try {
+      await axiosInstance.post('/notifications/no-time-record/bulk', {
+        employeeId: employee.empId,
+        email: employee.emails[0],
+        name: employee.name,
+        dates: missingDates,
+        periodLabel,
+      });
+      swalSuccess("Bulk reminder sent");
+    } catch (e) {
+      swalError("Failed to send bulk reminder");
+    }
   };
 
-  const handleSendReminder = (row) => {
+  const handleSendReminder = async (row) => {
     const hasEmail = Array.isArray(employee.emails) && employee.emails.length > 0;
     if (!hasEmail) {
-      message.warning("Employee has no email inputted yet.");
+      swalWarning("Employee has no email inputted yet.");
       return;
     }
     const dateStr = row?.key || row?.date; // key is YYYY-MM-DD; date is MM/DD/YYYY (display)
@@ -641,42 +631,26 @@ const ViewDTR = ({
     if (!row.breakIn) missing.push('Break In');
     if (!row.timeOut) missing.push('Time Out');
 
-    Modal.confirm({
+    const result = await swalConfirm({
       title: "Send No Time Record Reminder",
-      content: (
-        <div style={{ lineHeight: 1.6 }}>
-          <p>
-            This will send an email to <strong>{employee.emails[0]}</strong> notifying that there is no recorded time entry on <strong>{displayDate}</strong>.
-          </p>
-          <div style={{ marginTop: 8, padding: 12, background: "#fafafa", border: "1px solid #eee", borderRadius: 6 }}>
-            <div style={{ fontWeight: 600, marginBottom: 6 }}>Preview</div>
-              <div style={{ fontSize: 13 }}>
-              <p>Good day <strong>{name}</strong>{empId ? ` (ID: ${empId})` : ''},</p>
-              <p>We noticed that the following time entries are missing for <strong>{displayDate}</strong> in the Daily Time Record system:</p>
-              <p style={{ margin: 0, fontSize: 13, color: '#333' }}>{missing.length ? missing.join(', ') : 'No time entries recorded'}</p>
-              <p style={{ marginTop: 12 }}>If you reported for duty on that date, please coordinate with HR or your immediate supervisor to update your record accordingly.</p>
-              <p style={{ marginTop: 12 }}>Thank you,<br/>HR Unit, EMB Region III</p>
-            </div>
-          </div>
-        </div>
-      ),
-      okText: "Send Reminder",
-      cancelText: "Cancel",
-      onOk: async () => {
-        try {
-          await axiosInstance.post("/notifications/no-time-record", {
-            employeeId: empId,
-            email: employee.emails[0],
-            name,
-            date: dateStr,
-            missing,
-          });
-          message.success("Reminder sent");
-        } catch (e) {
-          message.error("Failed to send reminder");
-        }
-      }
+      text: `Send reminder to ${employee.emails[0]} for ${displayDate}?\n\nMissing: ${missing.length ? missing.join(', ') : 'No time entries recorded'}`,
+      icon: "question",
+      confirmText: "Send Reminder",
     });
+    if (!result.isConfirmed) return;
+
+    try {
+      await axiosInstance.post("/notifications/no-time-record", {
+        employeeId: empId,
+        email: employee.emails[0],
+        name,
+        date: dateStr,
+        missing,
+      });
+      swalSuccess("Reminder sent");
+    } catch (e) {
+      swalError("Failed to send reminder");
+    }
   };
 
   return (

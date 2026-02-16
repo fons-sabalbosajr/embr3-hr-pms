@@ -23,12 +23,11 @@ import useDemoMode from "../../../hooks/useDemoMode";
 import { UploadOutlined, UserOutlined, ZoomInOutlined, ZoomOutOutlined } from "@ant-design/icons";
 import UserAvatar from "../../common/UserAvatar";
 import Cropper from 'react-easy-crop';
-import useNotify from '../../../hooks/useNotify';
+import { swalSuccess, swalError, swalInfo } from "../../../utils/swalHelper";
 
 const { Title } = Typography;
 
 const AccountsSettings = () => {
-  const { notification } = useNotify();
   const [loading, setLoading] = useState(false);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [pwdModalOpen, setPwdModalOpen] = useState(false);
@@ -57,9 +56,9 @@ const AccountsSettings = () => {
       // Back end mounts auth routes at /api/users; both /profile and /users/profile are available
       const res = await axiosInstance.put("/users/profile", values);
       updateCurrentUser({ ...user, ...res.data });
-      notification.success({ message: "Profile updated successfully!" });
+      swalSuccess("Profile updated successfully!");
     } catch (error) {
-      notification.error({ message: error.response?.data?.message || "Failed to update profile." });
+      swalError(error.response?.data?.message || "Failed to update profile.");
     } finally {
       setLoading(false);
     }
@@ -67,7 +66,7 @@ const AccountsSettings = () => {
 
   const handlePasswordChange = async (values) => {
     if (values.newPassword !== values.confirmPassword) {
-      notification.error({ message: "New passwords do not match!" });
+      swalError("New passwords do not match!");
       return;
     }
     // Step 1: request email verification
@@ -79,9 +78,9 @@ const AccountsSettings = () => {
       });
       setPendingNewPassword(values.newPassword);
       setPwdModalOpen(true);
-      notification.info({ message: "Verification email sent. Please check your inbox." });
+      swalInfo("Verification email sent. Please check your inbox.");
     } catch (error) {
-      notification.error({ message: error.response?.data?.message || "Failed to start password change." });
+      swalError(error.response?.data?.message || "Failed to start password change.");
     } finally {
       setLoading(false);
     }
@@ -89,7 +88,7 @@ const AccountsSettings = () => {
 
   const submitPasswordConfirm = async () => {
     if (!confirmToken) {
-      notification.error({ message: "Please paste the verification token from your email." });
+      swalError("Please paste the verification token from your email.");
       return;
     }
     setLoading(true);
@@ -98,13 +97,13 @@ const AccountsSettings = () => {
         token: confirmToken,
         newPassword: pendingNewPassword,
       });
-      notification.success({ message: "Password changed successfully!" });
+      swalSuccess("Password changed successfully!");
       setPwdModalOpen(false);
       setConfirmToken("");
       setPendingNewPassword("");
       passwordForm.resetFields();
     } catch (error) {
-      notification.error({ message: error.response?.data?.message || "Failed to change password." });
+      swalError(error.response?.data?.message || "Failed to change password.");
     } finally {
       setLoading(false);
     }
@@ -113,8 +112,8 @@ const AccountsSettings = () => {
   const beforeUpload = (file) => {
     const isImage = file.type.startsWith("image/");
     const isLt5M = file.size / 1024 / 1024 < 5;
-    if (!isImage) notification.error({ message: "You can only upload image files" });
-    if (!isLt5M) notification.error({ message: "Image must be smaller than 5MB" });
+    if (!isImage) swalError("You can only upload image files");
+    if (!isLt5M) swalError("Image must be smaller than 5MB");
     if (!(isImage && isLt5M)) return Upload.LIST_IGNORE;
     // Open cropper
     const reader = new FileReader();
@@ -173,12 +172,12 @@ const AccountsSettings = () => {
         // Skip cache-busting for data: URLs (base64) – they are unique by content
         const finalUrl = avatarUrl.startsWith('data:') ? avatarUrl : `${avatarUrl}${avatarUrl.includes('?') ? '&' : '?'}v=${Date.now()}`;
         updateCurrentUser({ ...user, avatarUrl: finalUrl });
-        notification.success({ message: 'Avatar updated.' });
+        swalSuccess('Avatar updated.');
       }
       setCropModalOpen(false);
       setImageSrc(null);
     } catch (e) {
-      notification.error({ message: e.response?.data?.message || 'Failed to upload avatar.' });
+      swalError(e.response?.data?.message || 'Failed to upload avatar.');
     } finally {
       setAvatarUploading(false);
     }

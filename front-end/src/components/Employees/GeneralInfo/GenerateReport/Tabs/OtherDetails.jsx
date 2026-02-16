@@ -10,12 +10,11 @@ import {
   Input,
   Select,
   DatePicker,
-  message,
-  Popconfirm,
   Tooltip,
   Typography,
 } from "antd";
 import { InfoCircleOutlined, EyeOutlined, DownloadOutlined, DeleteOutlined, LinkOutlined, CalendarOutlined } from "@ant-design/icons";
+import { swalSuccess, swalError, swalWarning, swalInfo, swalConfirm } from "../../../../../utils/swalHelper";
 import useDemoMode from "../../../../../hooks/useDemoMode";
 import dayjs from "dayjs";
 import axiosInstance from "../../../../../api/axiosInstance";
@@ -107,7 +106,7 @@ const OtherDetails = ({ employee }) => {
 
   const handleAddDoc = async (values) => {
     if (demoDisabled) {
-      message.warning("Action disabled in demo mode");
+      swalWarning("Action disabled in demo mode");
       return;
     }
     try {
@@ -120,29 +119,29 @@ const OtherDetails = ({ employee }) => {
       };
       const res = await axiosInstance.post("/employee-docs", payload);
       if (res.data.success) {
-        message.success("Document added successfully");
+        swalSuccess("Document added successfully");
         setAddModalVisible(false);
         form.resetFields();
         fetchDocs();
       }
     } catch (err) {
-      message.error(err.response?.data?.message || "Failed to add document");
+      swalError(err.response?.data?.message || "Failed to add document");
     }
   };
 
   const handleDeleteDoc = async (docId) => {
     if (demoDisabled) {
-      message.warning("Action disabled in demo mode");
+      swalWarning("Action disabled in demo mode");
       return;
     }
     try {
       const res = await axiosInstance.delete(`/employee-docs/${docId}`);
       if (res.data.success) {
-        message.success("Document deleted successfully");
+        swalSuccess("Document deleted successfully");
         fetchDocs();
       }
     } catch (err) {
-      message.error(err.response?.data?.message || "Failed to delete document");
+      swalError(err.response?.data?.message || "Failed to delete document");
     }
   };
 
@@ -153,7 +152,6 @@ const OtherDetails = ({ employee }) => {
     try {
       switch (record.docType) {
         case "DTR": {
-          message.loading({ content: "Generating DTR...", key: "pdf" });
           // Fetch available DTR records and find by record reference (name)
           const listRes = await axiosInstance.get('/dtrdatas');
           const list = listRes?.data?.data || [];
@@ -190,12 +188,11 @@ const OtherDetails = ({ employee }) => {
             selectedRecord: sanitizedRecord,
             download: false, // Opens in new tab
           });
-          message.success({ content: "DTR generated successfully!", key: "pdf" });
+          swalSuccess("DTR generated successfully!");
           break;
         }
 
         case "Payslip": {
-          message.loading({ content: "Opening payslip...", key: "pdf" });
           // Prefer embedded payload saved at generation time
           const payslipData = record.payload;
           const payslipNumber = record.docNo || 0;
@@ -210,7 +207,7 @@ const OtherDetails = ({ employee }) => {
           } else {
             openPayslipInNewTab(payslipData, payslipNumber, isFullMonthRange);
           }
-          message.success({ content: "Payslip opened in a new tab!", key: "pdf" });
+          swalSuccess("Payslip opened in a new tab!");
           break;
         }
 
@@ -221,7 +218,7 @@ const OtherDetails = ({ employee }) => {
       }
     } catch (err) {
       console.error("Failed to generate document:", err);
-      message.error({ content: err.response?.data?.message || "Failed to generate document.", key: "pdf" });
+      swalError(err.response?.data?.message || "Failed to generate document.");
     } finally {
       setIsGenerating(false);
       setGeneratingDocId(null);
@@ -259,7 +256,7 @@ const OtherDetails = ({ employee }) => {
 
   const handleDownloadFile = (r) => {
     const url = getDownloadUrl(r);
-    if (!url) return message.info("No file available for this document");
+    if (!url) return swalInfo("No file available for this document");
     const a = document.createElement('a');
     a.href = url;
     a.download = r?.originalFilename || 'document';
@@ -354,16 +351,24 @@ const OtherDetails = ({ employee }) => {
             />
           </Tooltip>
           {!demoDisabled && record.docType !== "DTR" && (
-            <Popconfirm
-              title="Are you sure you want to delete this document?"
-              okText="Yes"
-              cancelText="No"
-              onConfirm={() => handleDeleteDoc(record._id)}
-            >
-              <Tooltip title="Delete">
-                <Button size="small" type="primary" danger icon={<DeleteOutlined />} />
-              </Tooltip>
-            </Popconfirm>
+            <Tooltip title="Delete">
+              <Button
+                size="small"
+                type="primary"
+                danger
+                icon={<DeleteOutlined />}
+                onClick={async () => {
+                  const result = await swalConfirm({
+                    title: "Delete Document",
+                    text: "Are you sure you want to delete this document?",
+                    confirmText: "Yes",
+                    cancelText: "No",
+                    dangerMode: true,
+                  });
+                  if (result.isConfirmed) handleDeleteDoc(record._id);
+                }}
+              />
+            </Tooltip>
           )}
         </div>
       ),

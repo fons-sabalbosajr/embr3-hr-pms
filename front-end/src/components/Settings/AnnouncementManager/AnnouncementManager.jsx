@@ -17,7 +17,6 @@ import {
   DatePicker,
   Tag,
   Tooltip,
-  Popconfirm,
   Typography,
   Badge,
   Card,
@@ -58,8 +57,8 @@ import {
   FontSizeOutlined,
 } from "@ant-design/icons";
 import axiosInstance from "../../../api/axiosInstance";
-import useNotify from "../../../hooks/useNotify";
 import useLoading from "../../../hooks/useLoading";
+import { swalSuccess, swalError, swalConfirm } from "../../../utils/swalHelper";
 import dayjs from "dayjs";
 
 const { TextArea } = Input;
@@ -554,7 +553,6 @@ const RecipientListModal = ({ record, open, onClose, onReconstructed }) => {
 };
 
 const AnnouncementManager = () => {
-  const { notification, message } = useNotify();
   const { withLoading } = useLoading();
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -578,7 +576,7 @@ const AnnouncementManager = () => {
       const res = await axiosInstance.get("/announcements");
       setData((res.data?.data || []).map((d) => ({ ...d, key: d._id })));
     } catch {
-      message.error("Failed to load announcements");
+      swalError("Failed to load announcements");
     } finally {
       setLoading(false);
     }
@@ -640,26 +638,26 @@ const AnnouncementManager = () => {
       };
       if (editing) {
         await axiosInstance.put(`/announcements/${editing._id}`, payload);
-        message.success("Announcement updated");
+        swalSuccess("Announcement updated");
       } else {
         await axiosInstance.post("/announcements", payload);
-        message.success("Announcement created");
+        swalSuccess("Announcement created");
       }
       setModalOpen(false);
       load();
     } catch (err) {
       if (err?.errorFields) return;
-      message.error(err?.response?.data?.message || "Save failed");
+      swalError(err?.response?.data?.message || "Save failed");
     }
   };
 
   const handleDelete = async (id) => {
     try {
       await axiosInstance.delete(`/announcements/${id}`);
-      message.success("Deleted");
+      swalSuccess("Deleted");
       load();
     } catch {
-      message.error("Delete failed");
+      swalError("Delete failed");
     }
   };
 
@@ -684,16 +682,10 @@ const AnnouncementManager = () => {
           },
         );
         updateProgress(100);
-        notification.success({
-          message: "Email Blast Sent",
-          description: res.data?.message || "Emails dispatched successfully.",
-        });
+        swalSuccess(res.data?.message || "Emails dispatched successfully.");
         load();
       } catch (err) {
-        notification.error({
-          message: "Email Blast Failed",
-          description: err?.response?.data?.message || err.message,
-        });
+        swalError(err?.response?.data?.message || err.message);
       }
     }, "Sending announcement emails…");
   };
@@ -901,22 +893,23 @@ const AnnouncementManager = () => {
               onClick={() => openSendModal(record)}
             />
           </Tooltip>
-          <Popconfirm
-            title="Permanently delete this announcement?"
-            description="This action cannot be undone."
-            onConfirm={() => handleDelete(record._id)}
-            okText="Delete"
-            okButtonProps={{ danger: true }}
-          >
-            <Tooltip title="Delete">
-              <Button
-                size="small"
-                type="text"
-                danger
-                icon={<DeleteOutlined style={{ fontSize: 13 }} />}
-              />
-            </Tooltip>
-          </Popconfirm>
+          <Tooltip title="Delete">
+            <Button
+              size="small"
+              type="text"
+              danger
+              icon={<DeleteOutlined style={{ fontSize: 13 }} />}
+              onClick={async () => {
+                const result = await swalConfirm({
+                  title: "Permanently delete this announcement?",
+                  text: "This action cannot be undone.",
+                  confirmText: "Delete",
+                  dangerMode: true,
+                });
+                if (result.isConfirmed) handleDelete(record._id);
+              }}
+            />
+          </Tooltip>
         </Space>
       ),
     },

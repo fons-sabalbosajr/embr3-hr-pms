@@ -1,11 +1,12 @@
 import { useState, useEffect } from "react";
-import { Tabs, Form, Input, Button, Typography, Card, message, Alert, Space, Tag } from "antd";
+import { Tabs, Form, Input, Button, Typography, Card, Alert, Space, Tag } from "antd";
 import { useNavigate } from "react-router-dom";
 import useAuth from "../../hooks/useAuth";
 import bgImage from "../../assets/bgemb.webp";
 import axios from "../../api/axiosInstance";
 import "./authpage.css";
 import Swal from "sweetalert2";
+import { swalSuccess, swalError, swalWarning } from "../../utils/swalHelper";
 
 const { Title, Text } = Typography;
 
@@ -65,7 +66,7 @@ const AuthPage = () => {
           confirmButtonText: "OK",
         });
       } else {
-        message.error(msg);
+        swalError(msg);
       }
     } finally {
       setLoading(false);
@@ -75,7 +76,7 @@ const AuthPage = () => {
   // --- Signup handler
   const onSignup = async (values) => {
     if (values.password !== values.confirmPassword) {
-      return message.error("Passwords do not match");
+      return swalError("Passwords do not match");
     }
     try {
       setLoading(true);
@@ -92,7 +93,7 @@ const AuthPage = () => {
         setTab("login"); // ✅ Go back to login tab
       });
     } catch (err) {
-      message.error(err.response?.data?.message || "Signup failed");
+      swalError(err.response?.data?.message || "Signup failed");
     } finally {
       setLoading(false);
     }
@@ -102,9 +103,9 @@ const AuthPage = () => {
   const handleResend = async (email) => {
     try {
       await axios.post("/users/resend", { email });
-      message.success("Verification email resent.");
+      swalSuccess("Verification email resent.");
     } catch (err) {
-      message.error(err.response?.data?.message || "Resend failed");
+      swalError(err.response?.data?.message || "Resend failed");
     }
   };
 
@@ -346,7 +347,7 @@ const AuthPage = () => {
                         if (email) {
                           handleResend(email);
                         } else {
-                          message.warning("Enter email first");
+                          swalWarning("Enter email first");
                         }
                       }}
                     >
