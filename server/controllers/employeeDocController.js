@@ -191,7 +191,8 @@ export const deleteEmployeeDoc = async (req, res) => {
       if (storageProvider === 'drive' && fileId) {
         const { storageDelete } = await import('../utils/storageProvider.js');
         await storageDelete(fileId);
-      } else if (reference) {
+      } else if (reference && /[/\\]/.test(reference)) {
+        // Only attempt local file deletion if reference looks like a file path
         const { storageDelete } = await import('../utils/storageProvider.js');
         await storageDelete(reference);
       }

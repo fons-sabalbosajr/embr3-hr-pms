@@ -1,7 +1,9 @@
-import React from "react";
-import { Select, Input, Space, Grid, Modal } from "antd";
+import React, { useMemo } from "react";
+import { Select, Input, Space, Grid, Modal, DatePicker } from "antd";
+import dayjs from "dayjs";
 const { Search } = Input;
 const { useBreakpoint } = Grid;
+const { RangePicker } = DatePicker;
 
 const DTRFilters = ({
   selectedDtrRecord,
@@ -15,9 +17,24 @@ const DTRFilters = ({
   sectionOrUnitFilter,
   setSectionOrUnitFilter,
   dtrLogsLoading,
+  dateRangeFilter,
+  setDateRangeFilter,
+  selectedRecord,
 }) => {
   const screens = useBreakpoint();
   const isMobile = !screens.md;
+
+  // Resolve a dropdown value to an effective record with date range
+  const resolveValue = (val) => {
+    if (!val) return null;
+    if (val.includes("||")) {
+      const [containerName, childStart, childEnd] = val.split("||");
+      const parent = dtrRecords.find((r) => r.DTR_Record_Name === containerName);
+      if (!parent) return null;
+      return { ...parent, DTR_Cut_Off: { start: childStart, end: childEnd } };
+    }
+    return dtrRecords.find((r) => r.DTR_Record_Name === val) || null;
+  };
 
   // Multi-select handler — validates date ranges are the same
   const handleRecordChange = (values) => {
@@ -26,9 +43,7 @@ const DTRFilters = ({
       return;
     }
     // Validate all selected records share the same date range
-    const selectedRecords = values.map((name) =>
-      dtrRecords.find((r) => r.DTR_Record_Name === name)
-    ).filter(Boolean);
+    const selectedRecords = values.map((v) => resolveValue(v)).filter(Boolean);
 
     if (selectedRecords.length < 2) {
       setSelectedDtrRecord(values);
@@ -62,22 +77,51 @@ const DTRFilters = ({
     setSelectedDtrRecord(values);
   };
 
+  // Build dropdown options: containers show their child periods as sub-options
+  const dtrOptions = useMemo(() => {
+    const sorted = [...dtrRecords].sort((a, b) => {
+      const aStart = a.DTR_Cut_Off?.start ? new Date(a.DTR_Cut_Off.start).getTime() : 0;
+      const bStart = b.DTR_Cut_Off?.start ? new Date(b.DTR_Cut_Off.start).getTime() : 0;
+      return bStart - aStart;
+    });
+
+    const opts = [];
+    sorted.forEach((rec) => {
+      // Skip containers — they are managed in DTR Data backups only
+      if (rec.isContainer || rec.childPeriods?.length) return;
+      opts.push({ label: rec.DTR_Record_Name, value: rec.DTR_Record_Name });
+    });
+    return opts;
+  }, [dtrRecords]);
+
   return (
   <Space wrap>
     <Select
       placeholder="Select biometrics cut off"
-      style={{ width: isMobile ? '100%' : 280 }}
+      style={{ width: isMobile ? '100%' : 380 }}
       mode="multiple"
       maxTagCount={2}
-      maxTagTextLength={16}
+      maxTagTextLength={20}
       value={selectedDtrRecord}
       onChange={handleRecordChange}
       loading={dtrLogsLoading}
-      options={dtrRecords.map((rec) => ({
-        label: rec.DTR_Record_Name,
-        value: rec.DTR_Record_Name,
-      }))}
+      options={dtrOptions}
       allowClear
+    />
+    <RangePicker
+      size="middle"
+      style={{ width: isMobile ? '100%' : 240 }}
+      value={dateRangeFilter}
+      onChange={(dates) => setDateRangeFilter(dates)}
+      allowClear
+      disabled={!selectedRecord}
+      placeholder={['Start Date', 'End Date']}
+      disabledDate={(current) => {
+        if (!selectedRecord?.DTR_Cut_Off) return false;
+        const start = dayjs(selectedRecord.DTR_Cut_Off.start).startOf('day');
+        const end = dayjs(selectedRecord.DTR_Cut_Off.end).endOf('day');
+        return current.isBefore(start, 'day') || current.isAfter(end, 'day');
+      }}
     />
     <Search
       placeholder="Search by name, empNo, empId"

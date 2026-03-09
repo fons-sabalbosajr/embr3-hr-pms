@@ -11,6 +11,8 @@ import {
   Descriptions,
   Space,
   Tag,
+  TimePicker,
+  Select,
 } from "antd";
 import { swalSuccess, swalError, swalWarning, swalInfo, swalConfirm } from "../../../../utils/swalHelper";
 import dayjs from "dayjs";
@@ -26,6 +28,12 @@ import {
   MailOutlined,
   SendOutlined,
   UserOutlined,
+  SearchOutlined,
+  ToolOutlined,
+  ClockCircleOutlined,
+  DeleteOutlined,
+  PlusOutlined,
+  ThunderboltOutlined,
 } from "@ant-design/icons";
 import "./viewdtr.css";
 import axios from "axios";
@@ -65,18 +73,64 @@ const ViewDTR = ({
   onSaveToTray,
 }) => {
   const { readOnly, isDemoActive, isDemoUser, shouldHideInDemo } = useDemoMode();
-  if (!employee || !selectedRecord) return null;
 
-  const startDate = parseInLocalTz(selectedRecord.DTR_Cut_Off.start);
-  const endDate = parseInLocalTz(selectedRecord.DTR_Cut_Off.end);
-  const dateRangeStr = `${startDate.format("MMMM D, YYYY")} - ${endDate.format(
-    "MMMM D, YYYY"
-  )}`;
+  const startDate = selectedRecord ? parseInLocalTz(selectedRecord.DTR_Cut_Off.start) : dayjs.invalid();
+  const endDate = selectedRecord ? parseInLocalTz(selectedRecord.DTR_Cut_Off.end) : dayjs.invalid();
+  const dateRangeStr = startDate.isValid() && endDate.isValid()
+    ? `${startDate.format("MMMM D, YYYY")} - ${endDate.format("MMMM D, YYYY")}`
+    : "";
 
   const [tableData, setTableData] = React.useState([]);
   const [loading, setLoading] = React.useState(false);
   const [previewForm48Loading, setPreviewForm48Loading] = React.useState(false);
   const [saveToTrayLoading, setSaveToTrayLoading] = React.useState(false);
+
+  // Find Time Record state
+  const [findTimeModalOpen, setFindTimeModalOpen] = React.useState(false);
+  const [manualEntries, setManualEntries] = React.useState({}); // { "YYYY-MM-DD": { timeIn, breakOut, breakIn, timeOut, source } }
+  const [findSelectedDate, setFindSelectedDate] = React.useState(null);
+  const [findTimeIn, setFindTimeIn] = React.useState(null);
+  const [findBreakOut, setFindBreakOut] = React.useState(null);
+  const [findBreakIn, setFindBreakIn] = React.useState(null);
+  const [findTimeOut, setFindTimeOut] = React.useState(null);
+
+  // Biometric search state
+  const [biometricResults, setBiometricResults] = React.useState({}); // grouped by date from API
+  const [biometricSearchLoading, setBiometricSearchLoading] = React.useState(false);
+  const [resolutionsLoaded, setResolutionsLoaded] = React.useState(false);
+  const [fillAllLoading, setFillAllLoading] = React.useState(false);
+
+  // Load saved resolutions from backend on open
+  React.useEffect(() => {
+    if (!visible || !employee?.empId || !selectedRecord?._id) return;
+    const loadResolutions = async () => {
+      try {
+        const res = await axiosInstance.get("/dtr-resolutions", {
+          params: { empId: employee.empId, recordId: selectedRecord._id },
+        });
+        if (res.data?.success && res.data.data) {
+          const entries = {};
+          for (const [dateKey, r] of Object.entries(res.data.data)) {
+            entries[dateKey] = {
+              timeIn: r.timeIn || "",
+              breakOut: r.breakOut || "",
+              breakIn: r.breakIn || "",
+              timeOut: r.timeOut || "",
+              source: r.source || "manual",
+              _id: r._id,
+            };
+          }
+          setManualEntries(entries);
+        }
+      } catch {
+        // silent fail – entries stay empty
+      } finally {
+        setResolutionsLoaded(true);
+      }
+    };
+    setResolutionsLoaded(false);
+    loadResolutions();
+  }, [visible, employee?.empId, selectedRecord?._id]);
 
   React.useEffect(() => {
     // Fetch WFH records for date range and build lookup
@@ -395,6 +449,16 @@ const ViewDTR = ({
       if (timeIn && !breakOut) breakOut = normalizeTimeWithAmPm("12:00", "PM");
       if (timeOut && !breakIn) breakIn = normalizeTimeWithAmPm("1:00", "PM");
 
+      // Apply manual entries from "Find Time Record" tool
+      const manual = manualEntries[dateKey];
+      let isManualEntry = false;
+      if (manual) {
+        if (manual.timeIn) { timeIn = manual.timeIn; isManualEntry = true; }
+        if (manual.breakOut) { breakOut = manual.breakOut; isManualEntry = true; }
+        if (manual.breakIn) { breakIn = manual.breakIn; isManualEntry = true; }
+        if (manual.timeOut) { timeOut = manual.timeOut; isManualEntry = true; }
+      }
+
       rows.push({
         key: dateKey,
         date: current.format("MM/DD/YYYY"),
@@ -409,6 +473,7 @@ const ViewDTR = ({
         holidayLabel,
         isTraining,
         trainingLabel,
+        isManualEntry,
       });
 
       current = current.add(1, "day");
@@ -446,7 +511,7 @@ const ViewDTR = ({
     setTableData(rows);
     };
     buildRows();
-  }, [employee, dtrLogs, selectedRecord, holidaysPH]);
+  }, [employee, dtrLogs, selectedRecord, holidaysPH, manualEntries]);
 
   const columns = [
     {
@@ -504,6 +569,9 @@ const ViewDTR = ({
                 },
               };
             }
+            if (record.isManualEntry && manualEntries[record.key]?.timeIn) {
+              return <span className="manual-entry-value">{text}</span>;
+            }
             return text;
           },
         },
@@ -512,14 +580,14 @@ const ViewDTR = ({
           dataIndex: "breakOut",
           key: "breakOut",
           width: 70,
-          render: (_, record) =>
-            record.isWeekend || record.isHoliday
-              ? { children: null, props: { colSpan: 0 } }
-              : record.isTraining
-              ? (record.trainingRowSpan === 0
-                  ? { children: null, props: { rowSpan: 0 } }
-                  : { children: null, props: { colSpan: 0 } })
-              : record.breakOut,
+          render: (_, record) => {
+            if (record.isWeekend || record.isHoliday) return { children: null, props: { colSpan: 0 } };
+            if (record.isTraining) return record.trainingRowSpan === 0 ? { children: null, props: { rowSpan: 0 } } : { children: null, props: { colSpan: 0 } };
+            if (record.isManualEntry && manualEntries[record.key]?.breakOut) {
+              return <span className="manual-entry-value">{record.breakOut}</span>;
+            }
+            return record.breakOut;
+          },
         },
       ],
     },
@@ -531,28 +599,28 @@ const ViewDTR = ({
           dataIndex: "breakIn",
           key: "breakIn",
           width: 70,
-          render: (_, record) =>
-            record.isWeekend || record.isHoliday
-              ? { children: null, props: { colSpan: 0 } }
-              : record.isTraining
-              ? (record.trainingRowSpan === 0
-                  ? { children: null, props: { rowSpan: 0 } }
-                  : { children: null, props: { colSpan: 0 } })
-              : record.breakIn,
+          render: (_, record) => {
+            if (record.isWeekend || record.isHoliday) return { children: null, props: { colSpan: 0 } };
+            if (record.isTraining) return record.trainingRowSpan === 0 ? { children: null, props: { rowSpan: 0 } } : { children: null, props: { colSpan: 0 } };
+            if (record.isManualEntry && manualEntries[record.key]?.breakIn) {
+              return <span className="manual-entry-value">{record.breakIn}</span>;
+            }
+            return record.breakIn;
+          },
         },
         {
           title: "Time Out",
           dataIndex: "timeOut",
           key: "timeOut",
           width: 70,
-          render: (_, record) =>
-            record.isWeekend || record.isHoliday
-              ? { children: null, props: { colSpan: 0 } }
-              : record.isTraining
-              ? (record.trainingRowSpan === 0
-                  ? { children: null, props: { rowSpan: 0 } }
-                  : { children: null, props: { colSpan: 0 } })
-              : record.timeOut,
+          render: (_, record) => {
+            if (record.isWeekend || record.isHoliday) return { children: null, props: { colSpan: 0 } };
+            if (record.isTraining) return record.trainingRowSpan === 0 ? { children: null, props: { rowSpan: 0 } } : { children: null, props: { colSpan: 0 } };
+            if (record.isManualEntry && manualEntries[record.key]?.timeOut) {
+              return <span className="manual-entry-value">{record.timeOut}</span>;
+            }
+            return record.timeOut;
+          },
         },
       ],
     },
@@ -575,8 +643,22 @@ const ViewDTR = ({
   const handlePreviewForm48 = async () => {
     setPreviewForm48Loading(true);
     try {
+      // Merge manual entries into dtrLogs for PDF generation
+      let mergedLogs = dtrLogs;
+      if (Object.keys(manualEntries).length > 0) {
+        mergedLogs = JSON.parse(JSON.stringify(dtrLogs || {}));
+        const empId = employee.empId;
+        if (!mergedLogs[empId]) mergedLogs[empId] = {};
+        for (const [dateKey, entry] of Object.entries(manualEntries)) {
+          if (!mergedLogs[empId][dateKey]) mergedLogs[empId][dateKey] = {};
+          if (entry.timeIn) mergedLogs[empId][dateKey]["Time In"] = entry.timeIn;
+          if (entry.breakOut) mergedLogs[empId][dateKey]["Break Out"] = entry.breakOut;
+          if (entry.breakIn) mergedLogs[empId][dateKey]["Break In"] = entry.breakIn;
+          if (entry.timeOut) mergedLogs[empId][dateKey]["Time Out"] = entry.timeOut;
+        }
+      }
       await Promise.resolve(
-        generateDTRPdf({ employee, dtrDays, dtrLogs, selectedRecord })
+        generateDTRPdf({ employee, dtrDays, dtrLogs: mergedLogs, selectedRecord })
       );
     } finally {
       setPreviewForm48Loading(false);
@@ -712,6 +794,268 @@ const ViewDTR = ({
     }
   };
 
+  // ── Find Time Record handlers ──
+  const availableDatesForManual = React.useMemo(() => {
+    return (tableData || [])
+      .filter((r) => !r.isWeekend && !r.isHoliday && !r.isTraining)
+      .map((r) => {
+        const isMissing = !r.timeIn || !r.breakOut || !r.breakIn || !r.timeOut;
+        const hasBio = (biometricResults[r.key] || []).length > 0;
+        let suffix = "";
+        if (isMissing && hasBio) suffix = " ✦ found in DTR Data";
+        else if (isMissing) suffix = " (missing)";
+        return {
+          label: `${r.date}${suffix}`,
+          value: r.key,
+        };
+      });
+  }, [tableData, biometricResults]);
+
+  const openFindTimeModal = async () => {
+    setFindSelectedDate(null);
+    setFindTimeIn(null);
+    setFindBreakOut(null);
+    setFindBreakIn(null);
+    setFindTimeOut(null);
+    setFindTimeModalOpen(true);
+
+    // Search biometric data for this employee across all DTR Data
+    try {
+      setBiometricSearchLoading(true);
+      const s = startDate.format("YYYY-MM-DD");
+      const e = endDate.format("YYYY-MM-DD");
+      const res = await axiosInstance.get("/dtr-resolutions/search-biometric", {
+        params: { empId: employee.empId, startDate: s, endDate: e },
+      });
+      if (res.data?.success) {
+        setBiometricResults(res.data.data || {});
+      }
+    } catch {
+      // silent fail
+    } finally {
+      setBiometricSearchLoading(false);
+    }
+  };
+
+  const handleSelectDateForFind = (dateKey) => {
+    setFindSelectedDate(dateKey);
+    const existing = manualEntries[dateKey];
+    if (existing) {
+      setFindTimeIn(existing.timeIn ? dayjs(existing.timeIn, "h:mm A") : null);
+      setFindBreakOut(existing.breakOut ? dayjs(existing.breakOut, "h:mm A") : null);
+      setFindBreakIn(existing.breakIn ? dayjs(existing.breakIn, "h:mm A") : null);
+      setFindTimeOut(existing.timeOut ? dayjs(existing.timeOut, "h:mm A") : null);
+      return;
+    }
+
+    // Try to auto-populate from biometric search results
+    const bioPunches = biometricResults[dateKey] || [];
+    if (bioPunches.length > 0) {
+      // Group by state-like classification based on time
+      const sorted = [...bioPunches].sort((a, b) => {
+        const ta = dayjs(a.time, "h:mm A");
+        const tb = dayjs(b.time, "h:mm A");
+        return ta.isValid() && tb.isValid() ? (ta.isBefore(tb) ? -1 : 1) : 0;
+      });
+
+      // Find punches by state label
+      const checkIn = sorted.filter((p) => /check.?in|c\/i|time.?in/i.test(p.state) || p.state === "0");
+      const checkOut = sorted.filter((p) => /check.?out|c\/o|time.?out/i.test(p.state) || p.state === "1");
+
+      if (checkIn.length > 0) {
+        setFindTimeIn(dayjs(checkIn[0].time, "h:mm A"));
+      } else if (sorted.length >= 1) {
+        setFindTimeIn(dayjs(sorted[0].time, "h:mm A"));
+      } else {
+        setFindTimeIn(null);
+      }
+
+      if (checkOut.length > 0) {
+        const last = checkOut[checkOut.length - 1];
+        setFindTimeOut(dayjs(last.time, "h:mm A"));
+        // If more than one check-out, first could be break out
+        if (checkOut.length > 1) {
+          setFindBreakOut(dayjs(checkOut[0].time, "h:mm A"));
+        } else {
+          setFindBreakOut(null);
+        }
+      } else if (sorted.length >= 4) {
+        setFindTimeOut(dayjs(sorted[sorted.length - 1].time, "h:mm A"));
+        setFindBreakOut(null);
+      } else {
+        setFindTimeOut(null);
+        setFindBreakOut(null);
+      }
+
+      if (checkIn.length > 1) {
+        setFindBreakIn(dayjs(checkIn[checkIn.length - 1].time, "h:mm A"));
+      } else {
+        setFindBreakIn(null);
+      }
+    } else {
+      // Pre-populate from existing table data
+      const row = (tableData || []).find((r) => r.key === dateKey);
+      setFindTimeIn(row?.timeIn ? dayjs(row.timeIn, "h:mm A") : null);
+      setFindBreakOut(row?.breakOut ? dayjs(row.breakOut, "h:mm A") : null);
+      setFindBreakIn(row?.breakIn ? dayjs(row.breakIn, "h:mm A") : null);
+      setFindTimeOut(row?.timeOut ? dayjs(row.timeOut, "h:mm A") : null);
+    }
+  };
+
+  const handleSaveFindTime = async () => {
+    if (!findSelectedDate) return;
+    const entry = {};
+    if (findTimeIn?.isValid()) entry.timeIn = findTimeIn.format("h:mm A");
+    if (findBreakOut?.isValid()) entry.breakOut = findBreakOut.format("h:mm A");
+    if (findBreakIn?.isValid()) entry.breakIn = findBreakIn.format("h:mm A");
+    if (findTimeOut?.isValid()) entry.timeOut = findTimeOut.format("h:mm A");
+    if (Object.keys(entry).length === 0) {
+      swalWarning("Please enter at least one time value.");
+      return;
+    }
+
+    // Determine source: biometric if punches were found from DTR Data search
+    const hasBiometric = (biometricResults[findSelectedDate] || []).length > 0;
+    const source = hasBiometric ? "biometric" : "manual";
+
+    // Save to backend
+    try {
+      await axiosInstance.post("/dtr-resolutions", {
+        empId: employee.empId,
+        recordId: selectedRecord._id,
+        dateKey: findSelectedDate,
+        ...entry,
+        source,
+      });
+      setManualEntries((prev) => ({ ...prev, [findSelectedDate]: { ...entry, source } }));
+      swalSuccess(`Time record saved for ${dayjs(findSelectedDate).format("MM/DD/YYYY")}`);
+      setFindTimeModalOpen(false);
+    } catch {
+      swalError("Failed to save time record");
+    }
+  };
+
+  const handleRemoveManualEntry = async (dateKey) => {
+    const entry = manualEntries[dateKey];
+    if (entry?._id) {
+      try {
+        await axiosInstance.delete(`/dtr-resolutions/${entry._id}`);
+      } catch {
+        // continue removing locally
+      }
+    }
+    setManualEntries((prev) => {
+      const next = { ...prev };
+      delete next[dateKey];
+      return next;
+    });
+  };
+
+  // ── Fill All Time Records handler ──
+  const resolvePunchesForDate = (bioPunches) => {
+    const sorted = [...bioPunches].sort((a, b) => {
+      const ta = dayjs(a.time, "h:mm A");
+      const tb = dayjs(b.time, "h:mm A");
+      return ta.isValid() && tb.isValid() ? (ta.isBefore(tb) ? -1 : 1) : 0;
+    });
+
+    const checkIn = sorted.filter((p) => /check.?in|c\/i|time.?in/i.test(p.state) || p.state === "0");
+    const checkOut = sorted.filter((p) => /check.?out|c\/o|time.?out/i.test(p.state) || p.state === "1");
+
+    const entry = {};
+
+    if (checkIn.length > 0) {
+      entry.timeIn = dayjs(checkIn[0].time, "h:mm A").format("h:mm A");
+    } else if (sorted.length >= 1) {
+      entry.timeIn = dayjs(sorted[0].time, "h:mm A").format("h:mm A");
+    }
+
+    if (checkOut.length > 0) {
+      const last = checkOut[checkOut.length - 1];
+      entry.timeOut = dayjs(last.time, "h:mm A").format("h:mm A");
+      if (checkOut.length > 1) {
+        entry.breakOut = dayjs(checkOut[0].time, "h:mm A").format("h:mm A");
+      }
+    } else if (sorted.length >= 4) {
+      entry.timeOut = dayjs(sorted[sorted.length - 1].time, "h:mm A").format("h:mm A");
+    }
+
+    if (checkIn.length > 1) {
+      entry.breakIn = dayjs(checkIn[checkIn.length - 1].time, "h:mm A").format("h:mm A");
+    }
+
+    return Object.keys(entry).length > 0 ? entry : null;
+  };
+
+  const handleFillAllTimeRecords = async () => {
+    if (!employee?.empId || !selectedRecord?._id) return;
+
+    setFillAllLoading(true);
+    try {
+      // 1. Search biometric data
+      const s = startDate.format("YYYY-MM-DD");
+      const e = endDate.format("YYYY-MM-DD");
+      const bioRes = await axiosInstance.get("/dtr-resolutions/search-biometric", {
+        params: { empId: employee.empId, startDate: s, endDate: e },
+      });
+      const bioData = bioRes.data?.success ? (bioRes.data.data || {}) : {};
+      setBiometricResults(bioData);
+
+      // 2. Find missing dates (not weekend/holiday/training, and has at least one missing time field, and not already resolved)
+      const missingRows = (tableData || []).filter(
+        (r) =>
+          !r.isWeekend &&
+          !r.isHoliday &&
+          !r.isTraining &&
+          (!r.timeIn || !r.breakOut || !r.breakIn || !r.timeOut) &&
+          !manualEntries[r.key]
+      );
+
+      // 3. For each missing date that has biometric data, resolve time punches
+      const entriesToSave = [];
+      for (const row of missingRows) {
+        const bioPunches = bioData[row.key];
+        if (!bioPunches || bioPunches.length === 0) continue;
+
+        const resolved = resolvePunchesForDate(bioPunches);
+        if (resolved) {
+          entriesToSave.push({ dateKey: row.key, ...resolved, source: "biometric" });
+        }
+      }
+
+      if (entriesToSave.length === 0) {
+        swalInfo("No biometric data found in DTR Data for any of the missing dates.");
+        return;
+      }
+
+      // 4. Bulk save via API
+      const saveRes = await axiosInstance.post("/dtr-resolutions/bulk", {
+        empId: employee.empId,
+        recordId: selectedRecord._id,
+        entries: entriesToSave,
+      });
+
+      if (saveRes.data?.success) {
+        setManualEntries(saveRes.data.data || {});
+        const totalMissing = missingRows.length;
+        const filled = entriesToSave.length;
+        const notFound = totalMissing - filled;
+        swalSuccess(
+          `Filled ${filled} time record${filled !== 1 ? "s" : ""} from DTR Data.` +
+            (notFound > 0 ? ` ${notFound} date${notFound !== 1 ? "s" : ""} had no biometric data.` : "")
+        );
+      }
+    } catch {
+      swalError("Failed to fill time records.");
+    } finally {
+      setFillAllLoading(false);
+    }
+  };
+
+  const manualEntryCount = Object.keys(manualEntries).length;
+
+  if (!employee || !selectedRecord) return null;
+
   return (
     <Modal
       title={
@@ -804,51 +1148,87 @@ const ViewDTR = ({
         ]}
       />
 
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          gap: 8,
-          marginBottom: 8,
-        }}
-      >
-        <div>
-          {!shouldHideInDemo('ui.notifications.quickSend') && (
-            Array.isArray(employee.emails) && employee.emails.length > 0 ? (
-              <Tooltip title="Send one email listing all days in this cut-off with no time records">
-                <Button
-                  icon={<SendOutlined />}
-                  onClick={handleSendAllMissing}
-                  disabled={readOnly && isDemoActive && isDemoUser}
-                >
-                  Send All Missing
-                </Button>
-              </Tooltip>
-            ) : (
-              <Tooltip title="Employee has no email on record">
-                <span>
-                  <Button icon={<MailOutlined />} disabled>
+      <div className="viewdtr-toolbar">
+        {/* ── Tools Group ── */}
+        <div className="viewdtr-toolbar-group">
+          <span className="viewdtr-toolbar-label"><ToolOutlined /> Tools</span>
+          <Space size={6} wrap>
+            <Tooltip title="Search uploaded DTR Data for missing time records">
+              <Button
+                size="small"
+                icon={<SearchOutlined />}
+                onClick={openFindTimeModal}
+              >
+                Find Time Record
+                {manualEntryCount > 0 && (
+                  <Tag color="green" style={{ marginLeft: 4, fontSize: 10 }}>{manualEntryCount}</Tag>
+                )}
+              </Button>
+            </Tooltip>
+            <Tooltip title="Auto-fill all missing time records from uploaded DTR Data">
+              <Button
+                size="small"
+                icon={<ThunderboltOutlined />}
+                onClick={handleFillAllTimeRecords}
+                loading={fillAllLoading}
+                disabled={readOnly && isDemoActive && isDemoUser}
+              >
+                Fill Time Records
+              </Button>
+            </Tooltip>
+            {!shouldHideInDemo('ui.notifications.quickSend') && (
+              Array.isArray(employee.emails) && employee.emails.length > 0 ? (
+                <Tooltip title="Send one email listing all days with no time records">
+                  <Button
+                    size="small"
+                    icon={<SendOutlined />}
+                    onClick={handleSendAllMissing}
+                    disabled={readOnly && isDemoActive && isDemoUser}
+                  >
                     Send All Missing
                   </Button>
-                </span>
-              </Tooltip>
-            )
-          )}
+                </Tooltip>
+              ) : (
+                <Tooltip title="Employee has no email on record">
+                  <span>
+                    <Button size="small" icon={<MailOutlined />} disabled>
+                      Send All Missing
+                    </Button>
+                  </span>
+                </Tooltip>
+              )
+            )}
+          </Space>
         </div>
-        <div>
-          <Button
-            type="primary"
-            onClick={handlePreviewForm48}
-            loading={previewForm48Loading}
-            disabled={(readOnly && isDemoActive && isDemoUser) || saveToTrayLoading}
-            icon={<FilePdfOutlined />}
-          >
-            Preview DTR Form 48
-          </Button>
+
+        {/* ── Output Group ── */}
+        <div className="viewdtr-toolbar-group">
+          <span className="viewdtr-toolbar-label"><FilePdfOutlined /> Output</span>
+          <Space size={6} wrap>
+            <Button
+              size="small"
+              type="primary"
+              onClick={handlePreviewForm48}
+              loading={previewForm48Loading}
+              disabled={(readOnly && isDemoActive && isDemoUser) || saveToTrayLoading}
+              icon={<FilePdfOutlined />}
+            >
+              Preview DTR Form 48
+            </Button>
+            <Button
+              size="small"
+              onClick={handleSaveToTray}
+              loading={saveToTrayLoading}
+              disabled={(readOnly && isDemoActive && isDemoUser) || previewForm48Loading}
+              icon={<InboxOutlined />}
+            >
+              Save to Print Tray
+            </Button>
+          </Space>
         </div>
       </div>
 
-      <Divider />
+      <Divider style={{ margin: "8px 0" }} />
 
       {!Array.isArray(employee.emails) || employee.emails.length === 0 ? (
         <div style={{ marginBottom: 12 }}>
@@ -872,22 +1252,182 @@ const ViewDTR = ({
               ? "holiday-row"
               : record.isTraining
               ? "training-row"
+              : record.isManualEntry
+              ? "manual-entry-row"
               : ""
           }
         />
       </Spin>
 
-      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
-        <Button
-          type="default"
-          onClick={handleSaveToTray}
-          loading={saveToTrayLoading}
-          disabled={(readOnly && isDemoActive && isDemoUser) || previewForm48Loading}
-          icon={<InboxOutlined />}
-        >
-          Save to Print Tray
-        </Button>
-      </div>
+      {/* ── Find Time Record Modal ── */}
+      <Modal
+        title={
+          <Space size={8}>
+            <SearchOutlined />
+            <span>Find Time Record</span>
+          </Space>
+        }
+        open={findTimeModalOpen}
+        onCancel={() => setFindTimeModalOpen(false)}
+        footer={[
+          <Button key="cancel" onClick={() => setFindTimeModalOpen(false)}>Cancel</Button>,
+          <Button
+            key="save"
+            type="primary"
+            icon={<PlusOutlined />}
+            disabled={!findSelectedDate}
+            onClick={handleSaveFindTime}
+          >
+            Save Time Record
+          </Button>,
+        ]}
+        width={560}
+      >
+        <Spin spinning={biometricSearchLoading} tip="Searching uploaded DTR Data...">
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: "block", marginBottom: 6, fontWeight: 500 }}>Select Date:</label>
+            <Select
+              style={{ width: "100%" }}
+              placeholder="Choose a date..."
+              value={findSelectedDate}
+              onChange={handleSelectDateForFind}
+              options={availableDatesForManual}
+              showSearch
+              filterOption={(input, opt) => (opt?.label || "").toLowerCase().includes(input.toLowerCase())}
+            />
+          </div>
+
+          {/* Biometric records found for selected date */}
+          {findSelectedDate && (biometricResults[findSelectedDate] || []).length > 0 && (
+            <div style={{ marginBottom: 12 }}>
+              <Tag color="blue" style={{ marginBottom: 6 }}>
+                <SearchOutlined /> Found {biometricResults[findSelectedDate].length} biometric punch(es) from uploaded DTR Data
+              </Tag>
+              <Table
+                dataSource={biometricResults[findSelectedDate].map((p, i) => ({ ...p, key: i }))}
+                size="small"
+                pagination={false}
+                scroll={{ y: 120 }}
+                columns={[
+                  { title: "Time", dataIndex: "time", key: "time", width: 90 },
+                  { title: "State", dataIndex: "state", key: "state", width: 70 },
+                  { title: "AC-No", dataIndex: "acNo", key: "acNo", width: 80 },
+                  { title: "Source", dataIndex: "source", key: "source" },
+                ]}
+              />
+            </div>
+          )}
+
+          {findSelectedDate && (biometricResults[findSelectedDate] || []).length === 0 && !biometricSearchLoading && (
+            <div style={{ marginBottom: 12 }}>
+              <Tag color="default">No biometric records found for this date — enter times manually below</Tag>
+            </div>
+          )}
+
+          {findSelectedDate && (
+            <div className="find-time-fields">
+              <div className="find-time-field">
+                <label>Time In (AM)</label>
+                <TimePicker
+                  value={findTimeIn}
+                  onChange={setFindTimeIn}
+                  format="h:mm A"
+                  use12Hours
+                  style={{ width: "100%" }}
+                  placeholder="e.g. 8:00 AM"
+                />
+              </div>
+              <div className="find-time-field">
+                <label>Break Out</label>
+                <TimePicker
+                  value={findBreakOut}
+                  onChange={setFindBreakOut}
+                  format="h:mm A"
+                  use12Hours
+                  style={{ width: "100%" }}
+                  placeholder="e.g. 12:00 PM"
+                />
+              </div>
+              <div className="find-time-field">
+                <label>Break In</label>
+                <TimePicker
+                  value={findBreakIn}
+                  onChange={setFindBreakIn}
+                  format="h:mm A"
+                  use12Hours
+                  style={{ width: "100%" }}
+                  placeholder="e.g. 1:00 PM"
+                />
+              </div>
+              <div className="find-time-field">
+                <label>Time Out (PM)</label>
+                <TimePicker
+                  value={findTimeOut}
+                  onChange={setFindTimeOut}
+                  format="h:mm A"
+                  use12Hours
+                  style={{ width: "100%" }}
+                  placeholder="e.g. 5:00 PM"
+                />
+              </div>
+            </div>
+          )}
+        </Spin>
+
+        {/* List of saved entries */}
+        {manualEntryCount > 0 && (
+          <div style={{ marginTop: 16 }}>
+            <Divider style={{ margin: "8px 0" }} />
+            <label style={{ fontWeight: 500, display: "block", marginBottom: 6 }}>
+              Saved Entries ({manualEntryCount})
+            </label>
+            <Table
+              dataSource={Object.entries(manualEntries).map(([dateKey, entry]) => ({
+                key: dateKey,
+                date: dayjs(dateKey).format("MM/DD/YYYY"),
+                ...entry,
+              }))}
+              size="small"
+              pagination={false}
+              scroll={{ y: 150 }}
+              columns={[
+                { title: "Date", dataIndex: "date", key: "date", width: 90 },
+                { title: "Time In", dataIndex: "timeIn", key: "timeIn", width: 75 },
+                { title: "Break Out", dataIndex: "breakOut", key: "breakOut", width: 75 },
+                { title: "Break In", dataIndex: "breakIn", key: "breakIn", width: 75 },
+                { title: "Time Out", dataIndex: "timeOut", key: "timeOut", width: 75 },
+                {
+                  title: "Src",
+                  dataIndex: "source",
+                  key: "source",
+                  width: 50,
+                  render: (v) => (
+                    <Tag color={v === "biometric" ? "blue" : "green"} style={{ fontSize: 10 }}>
+                      {v === "biometric" ? "Bio" : "Man"}
+                    </Tag>
+                  ),
+                },
+                {
+                  title: "",
+                  key: "actions",
+                  width: 35,
+                  render: (_, row) => (
+                    <Tooltip title="Remove this entry">
+                      <Button
+                        type="text"
+                        danger
+                        size="small"
+                        icon={<DeleteOutlined />}
+                        onClick={() => handleRemoveManualEntry(row.key)}
+                      />
+                    </Tooltip>
+                  ),
+                },
+              ]}
+            />
+          </div>
+        )}
+      </Modal>
     </Modal>
   );
 };

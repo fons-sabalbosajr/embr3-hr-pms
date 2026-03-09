@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from "react";
-import { Modal, Typography, Tag, Space, Button, Badge } from "antd";
+import { Modal, Typography, Tag, Space, Button, Badge, Divider } from "antd";
 import {
   BellOutlined,
   RocketOutlined,
@@ -7,24 +7,27 @@ import {
   InfoCircleOutlined,
   LeftOutlined,
   RightOutlined,
+  CalendarOutlined,
+  UserOutlined,
 } from "@ant-design/icons";
 import axiosInstance from "../../api/axiosInstance";
 import useAuth from "../../hooks/useAuth";
+import "./AnnouncementPopup.css";
 
 const { Title, Paragraph } = Typography;
 
 const TYPE_META = {
-  announcement: { icon: <BellOutlined />, color: "#1890ff", label: "Announcement" },
-  "app-update": { icon: <RocketOutlined />, color: "#52c41a", label: "App Update" },
-  maintenance: { icon: <ToolOutlined />, color: "#fa8c16", label: "Maintenance Notice" },
-  general: { icon: <InfoCircleOutlined />, color: "#8c8c8c", label: "General" },
+  announcement: { icon: <BellOutlined />, color: "#1890ff", bg: "linear-gradient(135deg, #1890ff 0%, #096dd9 100%)", label: "Announcement", tagColor: "blue" },
+  "app-update": { icon: <RocketOutlined />, color: "#52c41a", bg: "linear-gradient(135deg, #52c41a 0%, #389e0d 100%)", label: "App Update", tagColor: "green" },
+  maintenance: { icon: <ToolOutlined />, color: "#fa8c16", bg: "linear-gradient(135deg, #fa8c16 0%, #d48806 100%)", label: "Maintenance Notice", tagColor: "orange" },
+  general: { icon: <InfoCircleOutlined />, color: "#8c8c8c", bg: "linear-gradient(135deg, #8c8c8c 0%, #595959 100%)", label: "General", tagColor: "default" },
 };
 
-const PRIORITY_BADGE = {
-  critical: "error",
-  high: "warning",
-  normal: "processing",
-  low: "default",
+const PRIORITY_LABEL = {
+  critical: { color: "#ff4d4f", text: "CRITICAL" },
+  high: { color: "#fa8c16", text: "HIGH PRIORITY" },
+  normal: null,
+  low: null,
 };
 
 /**
@@ -107,83 +110,159 @@ const AnnouncementPopup = () => {
 
   const meta = TYPE_META[current.type] || TYPE_META.general;
   const total = announcements.length;
+  const priorityInfo = PRIORITY_LABEL[current.priority];
+  const formattedDate = new Date(current.createdAt).toLocaleDateString("en-PH", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+  const isHtml = /<[a-z][\s\S]*>/i.test(current.body || "");
 
   return (
     <Modal
       open={visible}
       onCancel={dismiss}
-      footer={
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      footer={null}
+      width={560}
+      centered
+      closable={false}
+      styles={{
+        content: { padding: 0, borderRadius: 12, overflow: "hidden" },
+        body: { padding: 0 },
+      }}
+    >
+      {/* ── Gradient Header Banner ── */}
+      <div
+        style={{
+          background: meta.bg,
+          padding: "28px 32px 20px",
+          position: "relative",
+        }}
+      >
+        {/* Close button */}
+        <button
+          onClick={dismiss}
+          aria-label="Close"
+          style={{
+            position: "absolute", top: 12, right: 16,
+            background: "rgba(255,255,255,0.2)", border: "none", borderRadius: "50%",
+            width: 28, height: 28, cursor: "pointer", color: "#fff", fontSize: 16,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            transition: "background 0.2s",
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.35)")}
+          onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.2)")}
+        >
+          ✕
+        </button>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+          <div
+            style={{
+              background: "rgba(255,255,255,0.2)", borderRadius: 10,
+              width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 20, color: "#fff",
+            }}
+          >
+            {meta.icon}
+          </div>
           <div>
+            <Tag
+              color={meta.tagColor}
+              style={{ marginBottom: 0, fontWeight: 600, fontSize: 11, letterSpacing: 0.5, textTransform: "uppercase" }}
+            >
+              {meta.label}
+            </Tag>
+            {priorityInfo && (
+              <Tag
+                style={{
+                  marginBottom: 0, fontWeight: 700, fontSize: 10, letterSpacing: 0.5,
+                  background: priorityInfo.color, color: "#fff", border: "none",
+                }}
+              >
+                {priorityInfo.text}
+              </Tag>
+            )}
+          </div>
+        </div>
+
+        <Title level={4} style={{ color: "#fff", margin: 0, fontWeight: 700, lineHeight: 1.3 }}>
+          {current.title}
+        </Title>
+      </div>
+
+      {/* ── Body Content ── */}
+      <div style={{ padding: "20px 32px 8px" }}>
+        {isHtml ? (
+          <div
+            className="announcement-html-body"
+            dangerouslySetInnerHTML={{ __html: current.body }}
+          />
+        ) : (
+          <Paragraph
+            style={{
+              whiteSpace: "pre-wrap", fontSize: 14, lineHeight: 1.8,
+              color: "#333", maxHeight: 300, overflowY: "auto", marginBottom: 0,
+            }}
+          >
+            {current.body}
+          </Paragraph>
+        )}
+      </div>
+
+      {/* ── Meta & Footer ── */}
+      <div style={{ padding: "0 32px 20px" }}>
+        <Divider style={{ margin: "16px 0 12px" }} />
+        <div
+          style={{
+            display: "flex", justifyContent: "space-between", alignItems: "center",
+            flexWrap: "wrap", gap: 8,
+          }}
+        >
+          <div style={{ color: "#999", fontSize: 12, display: "flex", alignItems: "center", gap: 12 }}>
+            {current.createdBy && (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                <UserOutlined style={{ fontSize: 11 }} /> {current.createdBy}
+              </span>
+            )}
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <CalendarOutlined style={{ fontSize: 11 }} /> {formattedDate}
+            </span>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             {total > 1 && (
-              <Space size="small">
+              <Space size={4}>
                 <Button
-                  size="small"
+                  size="small" type="text"
                   icon={<LeftOutlined />}
                   disabled={currentIndex === 0}
                   onClick={() => setCurrentIndex((i) => i - 1)}
                 />
-                <span style={{ fontSize: 12, color: "#888" }}>
-                  {currentIndex + 1} of {total}
+                <span style={{ fontSize: 12, color: "#999", minWidth: 40, textAlign: "center" }}>
+                  {currentIndex + 1} / {total}
                 </span>
                 <Button
-                  size="small"
+                  size="small" type="text"
                   icon={<RightOutlined />}
                   disabled={currentIndex === total - 1}
                   onClick={() => setCurrentIndex((i) => i + 1)}
                 />
               </Space>
             )}
-          </div>
-          <Space>
             {total > 1 && (
               <Button size="small" onClick={dismissAll}>
                 Dismiss All
               </Button>
             )}
-            <Button type="primary" onClick={dismiss}>
+            <Button
+              type="primary" onClick={dismiss}
+              style={{ background: meta.color, borderColor: meta.color, fontWeight: 600 }}
+            >
               Got It
             </Button>
-          </Space>
+          </div>
         </div>
-      }
-      width={520}
-      centered
-      closable
-      styles={{
-        header: { background: meta.color, borderRadius: "8px 8px 0 0" },
-      }}
-      title={
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ color: meta.color, fontSize: 20 }}>{meta.icon}</span>
-          <span>{meta.label}</span>
-          {current.priority && current.priority !== "normal" && (
-            <Badge status={PRIORITY_BADGE[current.priority]} text={current.priority.toUpperCase()} />
-          )}
-        </div>
-      }
-    >
-      <Title level={4} style={{ marginTop: 0, marginBottom: 8 }}>
-        {current.title}
-      </Title>
-      <Paragraph
-        style={{
-          whiteSpace: "pre-wrap",
-          fontSize: 14,
-          lineHeight: 1.7,
-          maxHeight: 340,
-          overflowY: "auto",
-        }}
-      >
-        {current.body}
-      </Paragraph>
-      <div style={{ marginTop: 12, color: "#999", fontSize: 12 }}>
-        {current.createdBy && <span>Posted by {current.createdBy} &bull; </span>}
-        {new Date(current.createdAt).toLocaleDateString("en-PH", {
-          year: "numeric",
-          month: "long",
-          day: "numeric",
-        })}
       </div>
     </Modal>
   );

@@ -12,6 +12,16 @@ const dtrDataSchema = new mongoose.Schema(
 
     Uploaded_By: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     Uploaded_Date: { type: Date, default: Date.now },
+
+    // Container fields — populated when this record is created via "Create Container"
+    isContainer: { type: Boolean, default: false },
+    childPeriods: [
+      {
+        name: String,
+        start: Date,
+        end: Date,
+      },
+    ],
   },
   { timestamps: true }
 );

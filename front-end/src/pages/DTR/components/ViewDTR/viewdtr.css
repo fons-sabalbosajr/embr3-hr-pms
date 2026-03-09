@@ -127,3 +127,55 @@
   .view-dtr-modal :where(.ant-table-thead > tr > th) { font-size: 10px; padding: 2px 4px; }
   .view-dtr-modal :where(.ant-table-tbody > tr > td) { padding: 2px 4px; }
 }
+
+/* ─── Grouped Toolbar ─── */
+.viewdtr-toolbar {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.viewdtr-toolbar-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.viewdtr-toolbar-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--app-muted-text-color, #888);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* ─── Manual Entry Highlighting ─── */
+.manual-entry-row > td {
+  background-color: var(--dtr-manual-entry-bg, rgba(82, 196, 26, 0.1)) !important;
+}
+
+.view-dtr-modal :where(.ant-table-tbody > tr.manual-entry-row > td) {
+  background-color: var(--dtr-manual-entry-bg, rgba(82, 196, 26, 0.1)) !important;
+}
+
+.manual-entry-value {
+  color: var(--dtr-manual-entry-color, #52c41a);
+  font-weight: 600;
+}
+
+/* ─── Find Time Record Modal ─── */
+.find-time-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.find-time-field label {
+  display: block;
+  margin-bottom: 4px;
+  font-weight: 500;
+  font-size: 12px;
+  color: var(--app-muted-text-color, #595959);
+}

@@ -1,6 +1,6 @@
 import React from "react";
 import { Popover, Tag, Spin } from "antd";
-import { CalendarFilled, BookFilled, LoadingOutlined } from "@ant-design/icons";
+import { CalendarFilled, BookFilled, LoadingOutlined, ThunderboltOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import isSameOrBefore from "dayjs/plugin/isSameOrBefore";
 import isSameOrAfter from "dayjs/plugin/isSameOrAfter";
@@ -58,6 +58,7 @@ const DTRDayTiles = ({
   divisionColors,
   divisionAcronyms,
   trainingLoading,
+  fillResolutions,
 }) => {
   const loadingIndicator = (
     <LoadingOutlined style={{ fontSize: 10, color: "#8c8c8c" }} spin />
@@ -73,6 +74,10 @@ const DTRDayTiles = ({
 
         const dayLogs = getEmployeeDayLogs(emp, dateKey);
         const hasLogs = hasAnyPunches(dayLogs);
+
+        // Check if this date was filled via Fill Time Records
+        const empFill = fillResolutions?.[emp.empId];
+        const hasFillResolution = empFill?.[dateKey] != null;
 
         const dayOfWeek = dateObj.day();
         const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
@@ -112,6 +117,11 @@ const DTRDayTiles = ({
           backgroundColor: trainingBg,
         };
 
+        const filledStyle = {
+          border: "2px solid #1890ff",
+          backgroundColor: "rgba(24,144,255,0.12)",
+        };
+
         const tileStyle = {
           width: 45,
           minHeight: 48,
@@ -123,6 +133,8 @@ const DTRDayTiles = ({
             ? weekendBg
             : hasLogs
             ? "var(--dtr-haslogs-bg, rgba(82,196,26,0.18))"
+            : hasFillResolution
+            ? "rgba(24,144,255,0.12)"
             : "var(--dtr-empty-bg, rgba(255,255,255,0.06))",
           border: "1px solid var(--app-border-color, rgba(0,0,0,0.12))",
           borderRadius: 4,
@@ -136,11 +148,12 @@ const DTRDayTiles = ({
           gap: 4,
           textAlign: "center",
           whiteSpace: "nowrap",
-          fontWeight: hasLogs ? "600" : "normal",
-          cursor: hasLogs ? "pointer" : "default",
+          fontWeight: (hasLogs || hasFillResolution) ? "600" : "normal",
+          cursor: (hasLogs || hasFillResolution) ? "pointer" : "default",
           ...(isWeekend && hasLogs ? workedWeekendStyle : {}),
           ...(holiday ? holidayStyle : {}),
           ...(isTrainingDay ? trainingStyle : {}),
+          ...(!hasLogs && hasFillResolution && !isWeekend && !holiday && !isTrainingDay ? filledStyle : {}),
         };
 
         // Helper: normalize and sort time strings, returning dayjs objects and formatted strings
@@ -366,6 +379,18 @@ const DTRDayTiles = ({
                       </div>
                     );
                   })
+              : hasFillResolution ? (
+                  <div>
+                    <div style={{ color: "#1890ff", fontWeight: 600, fontSize: 11, marginBottom: 4 }}>
+                      <ThunderboltOutlined style={{ marginRight: 4 }} />
+                      Filled from DTR Data
+                    </div>
+                    {empFill[dateKey].timeIn && <div><strong>Time In:</strong> {empFill[dateKey].timeIn}</div>}
+                    {empFill[dateKey].breakOut && <div><strong>Break Out:</strong> {empFill[dateKey].breakOut}</div>}
+                    {empFill[dateKey].breakIn && <div><strong>Break In:</strong> {empFill[dateKey].breakIn}</div>}
+                    {empFill[dateKey].timeOut && <div><strong>Time Out:</strong> {empFill[dateKey].timeOut}</div>}
+                  </div>
+                )
               : !isTrainingDay && (
                   <div
                     style={{
@@ -381,7 +406,7 @@ const DTRDayTiles = ({
 
         return (
           <Popover
-            key={dayNum}
+            key={dateKey}
             content={popoverContent}
             trigger="click"
             placement="top"
@@ -442,6 +467,11 @@ const DTRDayTiles = ({
                   >
                     OT
                   </Tag>
+                </div>
+              )}
+              {!hasLogs && hasFillResolution && !isWeekend && !holiday && !isTrainingDay && (
+                <div style={{ display: "flex", justifyContent: "center" }}>
+                  <ThunderboltOutlined style={{ color: "#1890ff", fontSize: 12 }} />
                 </div>
               )}
             </div>

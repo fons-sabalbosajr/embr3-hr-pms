@@ -543,21 +543,9 @@ const HomePage = () => {
       {
         key: "messaging",
         icon: <MessageOutlined />,
-        label: (() => {
-          return (
-            <span style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              Messaging
-              {unreadMsgCount > 0 && (
-                <Badge
-                  count={unreadMsgCount}
-                  size="small"
-                  overflowCount={99}
-                  style={{ marginLeft: 8 }}
-                />
-              )}
-            </span>
-          );
-        })(),
+        label: unreadMsgCount > 0
+          ? <span>Messaging <Badge count={unreadMsgCount} size="small" overflowCount={99} /></span>
+          : "Messaging",
         className: "messaging-menu-item",
         permissions: ["canViewMessages"],
         children: [

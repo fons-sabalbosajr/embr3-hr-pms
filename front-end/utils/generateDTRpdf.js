@@ -627,25 +627,31 @@ export async function generateDTRPdf({
 export async function generateBatchDTRPdf(printerTray) {
   if (!printerTray.length) return;
 
-  const docWidth = 100; // Use consistent width
-  const docHeight = 297;
-  const leftMargin = 5;
-  const rightMargin = 5;
-  const centerX = docWidth / 2;
+  // A4 page: 210mm × 297mm — two DTRs side by side (left half + right half)
+  const pageWidth = 210;
+  const pageHeight = 297;
+  const halfWidth = 105; // each DTR gets 105mm
+  const dtrMargin = 5;   // margin within each DTR half
 
   const doc = new jsPDF({
     orientation: "portrait",
     unit: "mm",
-    format: [docWidth, docHeight],
+    format: "a4",
   });
 
   const signatoriesRes = await getSignatoryEmployees();
   const signatories = signatoriesRes.data;
 
+  // Filter out tray items with missing selectedRecord
+  const validTray = printerTray.filter(
+    (item) => item.selectedRecord && item.selectedRecord.DTR_Cut_Off
+  );
+  if (!validTray.length) return;
+
   // Determine overall cut-off range for filename
-  let earliestStart = dayjs(printerTray[0].selectedRecord.DTR_Cut_Off.start);
-  let latestEnd = dayjs(printerTray[0].selectedRecord.DTR_Cut_Off.end);
-  for (const item of printerTray) {
+  let earliestStart = dayjs(validTray[0].selectedRecord.DTR_Cut_Off.start);
+  let latestEnd = dayjs(validTray[0].selectedRecord.DTR_Cut_Off.end);
+  for (const item of validTray) {
     const start = dayjs(item.selectedRecord.DTR_Cut_Off.start);
     const end = dayjs(item.selectedRecord.DTR_Cut_Off.end);
     if (start.isBefore(earliestStart)) earliestStart = start;
@@ -684,33 +690,36 @@ export async function generateBatchDTRPdf(printerTray) {
     }
   };
 
-  for (let i = 0; i < printerTray.length; i++) {
-    const { employee, dtrLogs, selectedRecord } = printerTray[i];
-
-    if (i > 0) doc.addPage([docWidth, docHeight], "portrait");
+  // Render one DTR into a given horizontal offset (xOffset)
+  const renderDTR = async (item, xOffset) => {
+    const { employee, dtrLogs, selectedRecord } = item;
+    const leftMargin = xOffset + dtrMargin;
+    const rightMargin = xOffset + halfWidth - dtrMargin;
+    const contentWidth = halfWidth - dtrMargin * 2;
+    const centerX = xOffset + halfWidth / 2;
 
     doc.setFont("Times", "normal");
-    doc.setFontSize(11);
-    doc.text("CSC Form 48", 5, 6);
-    doc.setFontSize(12);
-    doc.text("DAILY TIME RECORD", centerX, 10, { align: "center" });
     doc.setFontSize(10);
-    doc.text("(Environmental Management Bureau Region 3)", centerX, 15, {
+    doc.text("CSC Form 48", leftMargin, 6);
+    doc.setFontSize(11);
+    doc.text("DAILY TIME RECORD", centerX, 10, { align: "center" });
+    doc.setFontSize(9);
+    doc.text("(Environmental Management Bureau Region 3)", centerX, 14, {
       align: "center",
     });
 
     doc.setFont("Times", "normal");
-    doc.setFontSize(9);
-    doc.text("Name:", 5, 25);
+    doc.setFontSize(8);
+    doc.text("Name:", leftMargin, 22);
     doc.setFont("Times", "bold");
     doc.text(
       `${reformatName(employee.name) || "___________________________"}`,
-      20,
-      25
+      leftMargin + 13,
+      22
     );
 
-  const start = parseCutoffBatch(selectedRecord.DTR_Cut_Off.start);
-  const end = parseCutoffBatch(selectedRecord.DTR_Cut_Off.end);
+    const start = parseCutoffBatch(selectedRecord.DTR_Cut_Off.start);
+    const end = parseCutoffBatch(selectedRecord.DTR_Cut_Off.end);
 
     let cutOffText;
     if (start.isSame(end, "month")) {
@@ -724,15 +733,16 @@ export async function generateBatchDTRPdf(printerTray) {
     }
 
     doc.setFont("Times", "normal");
-    doc.setFontSize(9);
-    doc.text("For the month of:", 5, 29);
+    doc.setFontSize(8);
+    doc.text("For the month of:", leftMargin, 26);
     doc.setFont("Times", "bold");
-    doc.text(cutOffText, 35, 29);
+    doc.text(cutOffText, leftMargin + 28, 26);
 
     doc.setFont("Times", "normal");
-    doc.text(`Office Hours (regular days): _____________________`, 5, 33);
-    doc.text(`Arrival and Departure: ___________________________`, 5, 37);
-    doc.text(`Saturdays: _______________________________________`, 5, 41);
+    doc.setFontSize(7);
+    doc.text("Office Hours (regular days): _______________", leftMargin, 30);
+    doc.text("Arrival and Departure: _____________________", leftMargin, 33);
+    doc.text("Saturdays: ________________________________", leftMargin, 36);
 
     const columns = [
       { header: "Day", dataKey: "day" },
@@ -740,7 +750,7 @@ export async function generateBatchDTRPdf(printerTray) {
       { header: "AM Out", dataKey: "amOut" },
       { header: "PM In", dataKey: "pmIn" },
       { header: "PM Out", dataKey: "pmOut" },
-      { header: "Work Status", dataKey: "status", width: 40 },
+      { header: "Work Status", dataKey: "status" },
     ];
 
     const year = start.year();
@@ -748,38 +758,34 @@ export async function generateBatchDTRPdf(printerTray) {
     const trainings = await fetchEmployeeTrainings(employee.empId);
 
     const rows = [];
-  const referenceDate = parseCutoffBatch(selectedRecord.DTR_Cut_Off.start);
+    const referenceDate = parseCutoffBatch(selectedRecord.DTR_Cut_Off.start);
     const startOfMonth = referenceDate.startOf("month");
     const endOfMonth = referenceDate.endOf("month");
 
-  const cutOffStart = start.startOf('day');
-  const cutOffEnd = end.endOf('day');
+    const cutOffStart = start.startOf('day');
+    const cutOffEnd = end.endOf('day');
 
     // Local holidays and suspensions within cut-off
     let localHolidays = [];
     let suspensions = [];
     try {
-      const start = cutOffStart.format("YYYY-MM-DD");
-      const end = cutOffEnd.format("YYYY-MM-DD");
+      const startStr = cutOffStart.format("YYYY-MM-DD");
+      const endStr = cutOffEnd.format("YYYY-MM-DD");
       const [lhRes, sRes] = await Promise.all([
-        axiosInstance.get(`/local-holidays`, { params: { start, end } }),
-        axiosInstance.get(`/suspensions`, { params: { start, end } }),
+        axiosInstance.get(`/local-holidays`, { params: { start: startStr, end: endStr } }),
+        axiosInstance.get(`/suspensions`, { params: { start: startStr, end: endStr } }),
       ]);
       localHolidays = (lhRes.data?.data || []).map((h) => ({
         date: dayjs(h.date).format("YYYY-MM-DD"),
         endDate: h.endDate ? dayjs(h.endDate).format("YYYY-MM-DD") : null,
         name: h.name,
         type: "Local Holiday",
-        location: h.location,
       }));
       suspensions = (sRes.data?.data || []).map((s) => ({
         date: dayjs(s.date).format("YYYY-MM-DD"),
         endDate: s.endDate ? dayjs(s.endDate).format("YYYY-MM-DD") : null,
         name: s.title,
         type: "Suspension",
-        scope: s.scope,
-        location: s.location,
-        referenceNo: s.referenceNo,
       }));
     } catch {}
 
@@ -800,7 +806,6 @@ export async function generateBatchDTRPdf(printerTray) {
       const wfhStart = cutOffStart.format("YYYY-MM-DD");
       const wfhEnd = cutOffEnd.format("YYYY-MM-DD");
 
-      // Fetch individual WFH records AND WFH Group records in parallel
       const [wfhRes, groupRes] = await Promise.all([
         axiosInstance.get("/work-from-home/public", {
           params: { start: wfhStart, end: wfhEnd },
@@ -821,7 +826,6 @@ export async function generateBatchDTRPdf(printerTray) {
         }
       });
 
-      // WFH Group records — check if employee is a member
       (groupRes.data?.data || []).forEach((g) => {
         const memberIds = (g.members || []).map((m) => m.empId);
         const isMember = empIds.some((id) => memberIds.includes(id));
@@ -839,23 +843,23 @@ export async function generateBatchDTRPdf(printerTray) {
     let currentDate = startOfMonth.clone();
 
     while (currentDate.isSameOrBefore(endOfMonth, "day")) {
-  const dateKey = currentDate.tz(LOCAL_TZ).format("YYYY-MM-DD");
-  const dayNum = currentDate.tz(LOCAL_TZ).date();
-  const dayOfWeek = currentDate.tz(LOCAL_TZ).day();
+      const dateKey = currentDate.tz(LOCAL_TZ).format("YYYY-MM-DD");
+      const dayNum = currentDate.tz(LOCAL_TZ).date();
+      const dayOfWeek = currentDate.tz(LOCAL_TZ).day();
       let dayLogs = {};
       let status = "";
 
       const training = getTrainingOnDay(trainings, dateKey);
       const holiday = allHolidays.find((h) => {
-        const start = dayjs(h.date).format("YYYY-MM-DD");
+        const hStart = dayjs(h.date).format("YYYY-MM-DD");
         if (h.endDate) {
-          const end = dayjs(h.endDate).format("YYYY-MM-DD");
+          const hEnd = dayjs(h.endDate).format("YYYY-MM-DD");
           return (
-            dayjs(dateKey).isSameOrAfter(start, "day") &&
-            dayjs(dateKey).isSameOrBefore(end, "day")
+            dayjs(dateKey).isSameOrAfter(hStart, "day") &&
+            dayjs(dateKey).isSameOrBefore(hEnd, "day")
           );
         }
-        return start === dateKey;
+        return hStart === dateKey;
       });
 
       if (training) {
@@ -873,7 +877,6 @@ export async function generateBatchDTRPdf(printerTray) {
         status = "WFH (see attch.)";
       }
 
-      // Correctly find logs using full empId
       const ids = [employee.empId, ...(employee.alternateEmpIds || [])].filter(
         Boolean
       );
@@ -917,17 +920,33 @@ export async function generateBatchDTRPdf(printerTray) {
       currentDate = currentDate.add(1, "day");
     }
 
+    // Compute consecutive training day blocks for vertical merging
+    const trainingBlocks = [];
+    {
+      let ii = 0;
+      while (ii < rows.length) {
+        if (rows[ii] && rows[ii].isTraining) {
+          let jj = ii;
+          while (jj + 1 < rows.length && rows[jj + 1] && rows[jj + 1].isTraining) jj++;
+          trainingBlocks.push({ start: ii, end: jj, length: jj - ii + 1, text: rows[ii].status });
+          ii = jj + 1;
+        } else {
+          ii++;
+        }
+      }
+    }
+
     autoTable(doc, {
-      startY: 45,
+      startY: 39,
       head: [columns.map((col) => col.header)],
       body: rows.map((row) => columns.map((col) => row[col.dataKey])),
       styles: {
         font: "times",
-        fontSize: 9,
-        cellPadding: 1,
+        fontSize: 7,
+        cellPadding: 0.8,
         textColor: 0,
         lineColor: 0,
-        lineWidth: 0.3,
+        lineWidth: 0.2,
         halign: "center",
         valign: "middle",
       },
@@ -935,37 +954,66 @@ export async function generateBatchDTRPdf(printerTray) {
         fillColor: [220, 220, 220],
         textColor: 0,
         fontStyle: "bold",
-        fontSize: 7.5,
+        fontSize: 6,
         halign: "center",
         valign: "middle",
         overflow: "linebreak",
       },
-      margin: { left: leftMargin, right: rightMargin },
+      margin: { left: leftMargin, right: pageWidth - rightMargin },
       theme: "grid",
-      tableWidth: "auto",
+      tableWidth: contentWidth,
       pageBreak: "avoid",
       didParseCell: function (data) {
         if (data.section === "body") {
           const row = rows[data.row.index];
           if (!row) return;
-          const SPECIAL_FONT_SIZE = 9; // emphasize weekends/holidays/suspensions
+          const SPECIAL_FONT_SIZE = 7;
           const statusColIndex = columns.findIndex(
             (c) => c.dataKey === "status"
           );
-          // Default: use a smaller font for work status values so the cells don't overflow
           if (data.column.index === statusColIndex) {
-            data.cell.styles.fontSize = 7;
+            data.cell.styles.fontSize = 5.5;
           }
-          const mergeRowText = (text, fontSize = 7) => {
+
+          // Vertical merge for training blocks
+          const block = trainingBlocks.find(
+            (b) => data.row.index >= b.start && data.row.index <= b.end
+          );
+          if (block) {
+            if (data.column.index === 1) {
+              if (data.row.index === block.start) {
+                data.cell.rowSpan = block.length;
+                data.cell.colSpan = columns.length - 1;
+                data.cell.styles.halign = "center";
+                data.cell.styles.valign = "middle";
+                data.cell.styles.fontSize = 5.5;
+                data.cell.styles.cellPadding = 0.8;
+                data.cell.styles.overflow = "linebreak";
+                data.cell.styles.minCellHeight = 5;
+                data.cell.text = [block.text.replace(/\s+/g, " ")];
+                data.cell.styles.fillColor = [230, 230, 230];
+              } else {
+                data.cell.text = "";
+              }
+            } else if (data.column.index > 1) {
+              data.cell.text = "";
+            }
+            if (data.column.index === 0) {
+              data.cell.styles.fillColor = [230, 230, 230];
+            }
+            return;
+          }
+
+          const mergeRowText = (text, fontSize = 5.5) => {
             const normalizedText = text.replace(/\s+/g, " ");
             if (data.column.index === 1) {
               data.cell.colSpan = columns.length - 1;
               data.cell.styles.halign = "center";
               data.cell.styles.valign = "middle";
-              data.cell.styles.fontSize = fontSize; // size according to row type
-              data.cell.styles.cellPadding = 1;
+              data.cell.styles.fontSize = fontSize;
+              data.cell.styles.cellPadding = 0.8;
               data.cell.styles.overflow = "linebreak";
-              data.cell.styles.minCellHeight = 8;
+              data.cell.styles.minCellHeight = 5;
               data.cell.text = [normalizedText];
             } else if (data.column.index > 1) {
               data.cell.text = "";
@@ -973,15 +1021,10 @@ export async function generateBatchDTRPdf(printerTray) {
             data.cell.styles.fillColor = [230, 230, 230];
           };
 
-          // Merge training rows (always merge time columns on training days)
-          if (row.isTraining) {
-            mergeRowText(row.status, 7); // keep training at regular merged size
-          }
           if ((row.isHoliday || row.isWeekend) && !row.hasLogs) {
-            mergeRowText(row.status, SPECIAL_FONT_SIZE); // larger for emphasis
+            mergeRowText(row.status, SPECIAL_FONT_SIZE);
           }
 
-          // Shade special days (weekend/holiday/suspension/training) across the row
           const isSpecialDay =
             row.isWeekend ||
             row.isHoliday ||
@@ -991,7 +1034,6 @@ export async function generateBatchDTRPdf(printerTray) {
             data.cell.styles.fillColor = [230, 230, 230];
           }
 
-          // Non-merged rows: bump font size of status cell for special days
           if (
             row.hasLogs &&
             data.column.index === statusColIndex &&
@@ -1005,31 +1047,31 @@ export async function generateBatchDTRPdf(printerTray) {
       },
     });
 
-    // (Legend removed by request)
-
     let tableBottom = doc.lastAutoTable.finalY;
-    let certY = tableBottom + 5;
+    let certY = tableBottom + 4;
 
-    doc.setFontSize(8);
+    doc.setFontSize(6.5);
     doc.text(
-      "I hereby certify on my honor that the above is a true and correct report of work\nperformed,record of which was made daily at the time and\ndeparture from office.",
+      "I hereby certify on my honor that the above is a true and correct\nreport of work performed, record of which was made daily at\nthe time and departure from office.",
       centerX,
       certY,
       { align: "center" }
     );
     certY += 2;
 
-    doc.text("_______________________________", centerX, certY + 12, {
+    doc.text("_______________________________", centerX, certY + 10, {
       align: "center",
     });
     doc.setFont("Times", "bold");
-    doc.text(reformatName(employee.name) || "", centerX, certY + 12, {
+    doc.setFontSize(7);
+    doc.text(reformatName(employee.name) || "", centerX, certY + 10, {
       align: "center",
     });
     doc.setFont("Times", "normal");
-    doc.text("Name of the Employee", centerX, certY + 16, { align: "center" });
+    doc.setFontSize(6.5);
+    doc.text("Name of the Employee", centerX, certY + 13, { align: "center" });
 
-    const supervisorY = certY + 23;
+    const supervisorY = certY + 19;
     const signatory = signatories.find(
       (sig) =>
         sig.signatoryDesignation &&
@@ -1043,18 +1085,47 @@ export async function generateBatchDTRPdf(printerTray) {
     });
 
     doc.setFont("Times", "bold");
+    doc.setFontSize(7);
     doc.text(reformatName(supervisorName) || "", centerX, supervisorY, {
       align: "center",
     });
     doc.setFont("Times", "normal");
+    doc.setFontSize(6.5);
 
-    doc.text("Section Incharge/Supervisor", centerX, supervisorY + 4, {
+    doc.text("Section Incharge/Supervisor", centerX, supervisorY + 3, {
       align: "center",
     });
 
-    doc.setFontSize(7);
-    doc.text("EMBR3 DTR Management System", 3, 295);
-    doc.text(`${dayjs().format("MM/DD/YYYY")}`, 97, 295, { align: "right" });
+    doc.setFontSize(5.5);
+    doc.text("EMBR3 DTR Management System", leftMargin, 295);
+    doc.text(`${dayjs().format("MM/DD/YYYY")}`, rightMargin, 295, { align: "right" });
+  };
+
+  // Draw dashed cutting line down the center of the page
+  const drawCutLine = () => {
+    doc.setDrawColor(150, 150, 150);
+    doc.setLineDashPattern([2, 2], 0);
+    doc.setLineWidth(0.3);
+    doc.line(halfWidth, 3, halfWidth, pageHeight - 3);
+    // Reset dash pattern
+    doc.setLineDashPattern([], 0);
+    doc.setDrawColor(0, 0, 0);
+  };
+
+  // Render DTRs two at a time on A4 pages
+  for (let i = 0; i < validTray.length; i += 2) {
+    if (i > 0) doc.addPage("a4", "portrait");
+
+    // Left DTR (first half)
+    await renderDTR(validTray[i], 0);
+
+    // Right DTR (second half, if exists)
+    if (i + 1 < validTray.length) {
+      await renderDTR(validTray[i + 1], halfWidth);
+    }
+
+    // Draw the cutting line
+    drawCutLine();
   }
 
   doc.save(filename);

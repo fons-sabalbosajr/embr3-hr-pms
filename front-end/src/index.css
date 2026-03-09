@@ -150,6 +150,20 @@ body {
 	font-size: 11px;
 }
 
+/* ── Merge Preview / Result Row Highlighting ── */
+.merge-preview-new-row > td {
+	background-color: rgba(82, 196, 26, 0.1) !important;
+}
+.merge-preview-overwrite-row > td {
+	background-color: rgba(250, 173, 20, 0.1) !important;
+}
+.merge-result-new-row > td {
+	background-color: rgba(82, 196, 26, 0.15) !important;
+}
+.merge-result-existing-row > td {
+	background-color: transparent;
+}
+
 /* Corporate panel aesthetic */
 .corp-panel .ant-card-head-title {
 	font-size: 16px;

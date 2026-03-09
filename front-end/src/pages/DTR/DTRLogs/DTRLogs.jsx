@@ -21,12 +21,14 @@ import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc";
 import timezone from "dayjs/plugin/timezone";
 import isBetween from "dayjs/plugin/isBetween";
+import customParseFormat from "dayjs/plugin/customParseFormat";
 import NProgress from "nprogress";
 import "nprogress/nprogress.css";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
 dayjs.extend(isBetween);
+dayjs.extend(customParseFormat);
 
 const { Title } = Typography;
 const { RangePicker } = DatePicker;
@@ -143,9 +145,20 @@ const DTRLogs = () => {
         if (recordsRes.data.success) {
           const records = recordsRes.data.data || [];
           setDtrRecords(records);
-          setRecordNameOptions(
-            records.map((r) => ({ label: r.DTR_Record_Name, value: r.DTR_Record_Name }))
-          );
+
+          // Build options: containers show child periods as grouped sub-options
+          const opts = [];
+          const sorted = [...records].sort((a, b) => {
+            const aS = a.DTR_Cut_Off?.start ? new Date(a.DTR_Cut_Off.start).getTime() : 0;
+            const bS = b.DTR_Cut_Off?.start ? new Date(b.DTR_Cut_Off.start).getTime() : 0;
+            return bS - aS;
+          });
+          sorted.forEach((rec) => {
+            // Skip containers — they are managed in DTR Data backups only
+            if (rec.isContainer || rec.childPeriods?.length) return;
+            opts.push({ label: rec.DTR_Record_Name, value: rec.DTR_Record_Name });
+          });
+          setRecordNameOptions(opts);
         } else {
           swalError("Failed to load DTR Record Names");
         }
@@ -157,7 +170,7 @@ const DTRLogs = () => {
     fetchRecords();
   }, []);
 
-  // Fetch logs whenever a record is selected to avoid relying on a small default page
+  // Fetch logs whenever a record is selected
   useEffect(() => {
     const fetchLogs = async () => {
       if (!recordNameFilter) {
@@ -167,10 +180,23 @@ const DTRLogs = () => {
       }
       try {
         setLoading(true);
-        // Derive cutoff dates from the selected record (if present)
-        const rec = dtrRecords.find((r) => r.DTR_Record_Name === recordNameFilter);
-        const recStart = rec?.DTR_Cut_Off?.start ? parseInLocalTz(rec.DTR_Cut_Off.start) : null;
-        const recEnd = rec?.DTR_Cut_Off?.end ? parseInLocalTz(rec.DTR_Cut_Off.end) : null;
+
+        // Resolve value: may be "containerName||start||end||childName"
+        let effectiveRecordName = recordNameFilter;
+        let recStart = null;
+        let recEnd = null;
+
+        if (recordNameFilter.includes("||")) {
+          const [containerName, childStart, childEnd] = recordNameFilter.split("||");
+          effectiveRecordName = containerName;
+          recStart = parseInLocalTz(childStart);
+          recEnd = parseInLocalTz(childEnd);
+        } else {
+          const rec = dtrRecords.find((r) => r.DTR_Record_Name === recordNameFilter);
+          recStart = rec?.DTR_Cut_Off?.start ? parseInLocalTz(rec.DTR_Cut_Off.start) : null;
+          recEnd = rec?.DTR_Cut_Off?.end ? parseInLocalTz(rec.DTR_Cut_Off.end) : null;
+        }
+
         const startDate = recStart?.isValid() ? recStart.format("YYYY-MM-DD") : undefined;
         const endDate = recEnd?.isValid() ? recEnd.format("YYYY-MM-DD") : undefined;
 
@@ -178,17 +204,62 @@ const DTRLogs = () => {
         if (recStart?.isValid() && recEnd?.isValid()) {
           setCutOffDateRange([recStart.startOf("day"), recEnd.endOf("day")]);
         }
+
+        // Fetch biometric logs
         const { data } = await axiosInstance.get("/dtrlogs/merged", {
           params: {
-            recordName: recordNameFilter,
+            recordName: effectiveRecordName,
             startDate,
             endDate,
             page: 1,
             limit: 500,
           },
         });
+
+        let logsArr = data.success ? (data.data || []) : [];
+
+        // Fetch WFH records and add as synthetic log entries
+        try {
+          if (startDate && endDate) {
+            const wfhRes = await axiosInstance.get("/work-from-home/public", {
+              params: { start: startDate, end: endDate },
+            });
+            const wfhRecords = wfhRes.data?.data || [];
+            wfhRecords.forEach((w) => {
+              const wfhStart = dayjs(w.date).startOf("day");
+              const wfhEnd = w.endDate ? dayjs(w.endDate).startOf("day") : wfhStart;
+              let d = wfhStart;
+              while (d.isBefore(wfhEnd.add(1, "day"))) {
+                const slots = [
+                  { time: w.timeIn, state: "WFH-In" },
+                  { time: w.breakOut, state: "WFH-BreakOut" },
+                  { time: w.breakIn, state: "WFH-BreakIn" },
+                  { time: w.timeOut, state: "WFH-Out" },
+                ];
+                slots.forEach(({ time: t, state }) => {
+                  if (!t) return;
+                  // Parse time string like "08:00 AM" into a full datetime
+                  const parsed = dayjs(`${d.format("YYYY-MM-DD")} ${t}`, "YYYY-MM-DD hh:mm A");
+                  if (!parsed.isValid()) return;
+                  logsArr.push({
+                    acNo: w.empId || "",
+                    employeeName: w.employeeName || "Unknown",
+                    time: parsed.toISOString(),
+                    state,
+                    newState: "",
+                    isWFH: true,
+                  });
+                });
+                d = d.add(1, "day");
+              }
+            });
+          }
+        } catch (_) {
+          /* WFH merge is optional */
+        }
+
         if (data.success) {
-          setDtrData(data.data);
+          setDtrData(logsArr);
         } else {
           setDtrData([]);
           swalError("Failed to load DTR logs");
@@ -241,13 +312,37 @@ const DTRLogs = () => {
       });
     }
 
-    // New: Filter by DTR_Record_Name (fallback to cutoff date range if missing linkage)
+    // Filter by record name / child period date range
     if (recordNameFilter) {
-      const rec = dtrRecords.find((r) => r.DTR_Record_Name === recordNameFilter);
-      const recStart = rec?.DTR_Cut_Off?.start ? parseInLocalTz(rec.DTR_Cut_Off.start).startOf("day") : null;
-      const recEnd = rec?.DTR_Cut_Off?.end ? parseInLocalTz(rec.DTR_Cut_Off.end).endOf("day") : null;
+      let effectiveName = recordNameFilter;
+      let recStart = null;
+      let recEnd = null;
+
+      if (recordNameFilter.includes("||")) {
+        const [containerName, childStart, childEnd] = recordNameFilter.split("||");
+        effectiveName = containerName;
+        recStart = parseInLocalTz(childStart).startOf("day");
+        recEnd = parseInLocalTz(childEnd).endOf("day");
+      } else {
+        const rec = dtrRecords.find((r) => r.DTR_Record_Name === recordNameFilter);
+        recStart = rec?.DTR_Cut_Off?.start ? parseInLocalTz(rec.DTR_Cut_Off.start).startOf("day") : null;
+        recEnd = rec?.DTR_Cut_Off?.end ? parseInLocalTz(rec.DTR_Cut_Off.end).endOf("day") : null;
+      }
+
       filtered = filtered.filter((log) => {
-        if (log.DTR_Record_Name === recordNameFilter) return true;
+        if (log.DTR_Record_Name === effectiveName) {
+          // If child period, also check date falls within child range
+          if (recStart && recEnd && log.time) {
+            const dt = dayjs(log.time).tz(LOCAL_TZ);
+            if (dt.isValid()) return dt.isBetween(recStart, recEnd, null, "[]");
+          }
+          return true;
+        }
+        // WFH entries won't have DTR_Record_Name, filter by date range
+        if (log.isWFH && recStart && recEnd && log.time) {
+          const dt = dayjs(log.time).tz(LOCAL_TZ);
+          if (dt.isValid()) return dt.isBetween(recStart, recEnd, null, "[]");
+        }
         if (!recStart || !recEnd || !log.time) return false;
         const dt = dayjs(log.time).tz(LOCAL_TZ);
         if (!dt.isValid()) return false;
@@ -658,15 +753,24 @@ const DTRLogs = () => {
                   setCutOffDateRange([null, null]);
                   return;
                 }
-                const rec = (dtrRecords || []).find(
-                  (r) => r.DTR_Record_Name === value
-                );
-                const rs = rec?.DTR_Cut_Off?.start
-                  ? parseInLocalTz(rec.DTR_Cut_Off.start)
-                  : null;
-                const re = rec?.DTR_Cut_Off?.end
-                  ? parseInLocalTz(rec.DTR_Cut_Off.end)
-                  : null;
+                // Resolve child period or plain record
+                let rs = null;
+                let re = null;
+                if (value.includes("||")) {
+                  const [, childStart, childEnd] = value.split("||");
+                  rs = parseInLocalTz(childStart);
+                  re = parseInLocalTz(childEnd);
+                } else {
+                  const rec = (dtrRecords || []).find(
+                    (r) => r.DTR_Record_Name === value
+                  );
+                  rs = rec?.DTR_Cut_Off?.start
+                    ? parseInLocalTz(rec.DTR_Cut_Off.start)
+                    : null;
+                  re = rec?.DTR_Cut_Off?.end
+                    ? parseInLocalTz(rec.DTR_Cut_Off.end)
+                    : null;
+                }
                 if (rs?.isValid() && re?.isValid()) {
                   setCutOffDateRange([rs.startOf("day"), re.endOf("day")]);
                 }
@@ -674,13 +778,8 @@ const DTRLogs = () => {
               placeholder="Select DTR Record Name"
               allowClear
               style={{ minWidth: isMobile ? "100%" : "180px" }}
-            >
-              {(recordNameOptions || []).map((option) => (
-                <Select.Option key={option.value} value={option.value}>
-                  {option.label}
-                </Select.Option>
-              ))}
-            </Select>
+              options={recordNameOptions}
+            />
           </Space>
 
           {/* Filter by State */}

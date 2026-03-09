@@ -34,6 +34,7 @@ import publicRoutes from "./routes/publicRoutes.js";
 import featureRoutes from "./routes/features.js";
 import bugReportRoutes from "./routes/bugReportRoutes.js";
 import messageRoutes from "./routes/messageRoutes.js";
+import dtrResolutionRoutes from "./routes/dtrResolutionRoutes.js";
 import demoEnforcement from "./middleware/demoEnforcement.js";
 
 dotenv.config();
@@ -115,6 +116,7 @@ app.use("/api/uploads", uploadRoutes);
 app.use("/api/features", featureRoutes);
 app.use("/api/bug-report", bugReportRoutes);
 app.use("/api/messages", messageRoutes);
+app.use("/api/dtr-resolutions", dtrResolutionRoutes);
 
 // Basic health endpoint for platform probes
 app.get("/healthz", (req, res) => {

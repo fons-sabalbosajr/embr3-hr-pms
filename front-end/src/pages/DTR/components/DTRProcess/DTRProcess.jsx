@@ -16,6 +16,11 @@ import {
   Tag,
   Badge,
   Tooltip,
+  Modal,
+  Progress,
+  Select,
+  Table,
+  Checkbox,
 } from "antd";
 import {
   EyeOutlined,
@@ -24,6 +29,11 @@ import {
   ExclamationCircleOutlined,
   UndoOutlined,
   PlusSquareOutlined,
+  ThunderboltOutlined,
+  CheckCircleOutlined,
+  CloseCircleOutlined,
+  TeamOutlined,
+  SearchOutlined,
 } from "@ant-design/icons";
 import DTRFilters from "../DTRProcess/components/DTRFilters";
 import DTRTable from "../DTRProcess/components/DTRTable";
@@ -45,7 +55,12 @@ import timezone from "dayjs/plugin/timezone";
 import axiosInstance from "../../../../api/axiosInstance";
 import axios from "axios";
 import useLoading from "../../../../hooks/useLoading";
-import { swalSuccess, swalError, swalWarning, swalInfo } from "../../../../utils/swalHelper";
+import {
+  swalSuccess,
+  swalError,
+  swalWarning,
+  swalInfo,
+} from "../../../../utils/swalHelper";
 
 const { Title } = Typography;
 
@@ -204,6 +219,7 @@ const DTRProcess = ({ currentUser }) => {
   const [filteredEmployees, setFilteredEmployees] = useState([]);
   const [employeesLoading, setEmployeesLoading] = useState(false);
   const [dtrLogsLoading, setDtrLogsLoading] = useState(false);
+  const [dtrLogsProgress, setDtrLogsProgress] = useState({ loaded: 0, total: 0 });
   const [searchText, setSearchText] = useState("");
   const [empTypeFilter, setEmpTypeFilter] = useState("");
   const [sectionOrUnitFilter, setSectionOrUnitFilter] = useState("");
@@ -223,6 +239,25 @@ const DTRProcess = ({ currentUser }) => {
   const [employeeTrainings, setEmployeeTrainings] = useState({});
   const [trainingLoading, setTrainingLoading] = useState(false);
   const [selectedRowKeys, setSelectedRowKeys] = useState([]);
+  const [dateRangeFilter, setDateRangeFilter] = useState(null);
+
+  // Fill Time Records state
+  const [fillSetupVisible, setFillSetupVisible] = useState(false); // setup/preview modal
+  const [fillRunning, setFillRunning] = useState(false); // progress phase
+  const [fillProgress, setFillProgress] = useState({ current: 0, total: 0, currentName: "", filled: 0, skipped: 0, log: [] });
+  const fillCancelRef = useRef(false);
+  const [fillDivisionFilter, setFillDivisionFilter] = useState(null);
+  const [fillSectionFilter, setFillSectionFilter] = useState(null);
+  const [fillEmpTypeFilter, setFillEmpTypeFilter] = useState(null);
+  const [fillSearchText, setFillSearchText] = useState("");
+  const [fillOnlyMissing, setFillOnlyMissing] = useState(true);
+  const [fillResolutions, setFillResolutions] = useState({}); // { empId: { dateKey: { timeIn, ... } } }
+
+  // Reset date range filter when DTR record selection changes
+  useEffect(() => {
+    setDateRangeFilter(null);
+  }, [selectedDtrRecord]);
+
   const location = useLocation();
 
   const getEmployeeUiKey = (emp) =>
@@ -346,19 +381,27 @@ const DTRProcess = ({ currentUser }) => {
               if (!logsByEmpDay[empKey]) logsByEmpDay[empKey] = {};
               if (!logsByEmpDay[empKey][dateKey]) {
                 logsByEmpDay[empKey][dateKey] = {
-                  "Time In": null, "Break Out": null, "Break In": null, "Time Out": null,
+                  "Time In": null,
+                  "Break Out": null,
+                  "Break In": null,
+                  "Time Out": null,
                 };
               }
               const entry = logsByEmpDay[empKey][dateKey];
               if (!entry["Time In"] && w.timeIn) entry["Time In"] = w.timeIn;
-              if (!entry["Break Out"] && w.breakOut) entry["Break Out"] = w.breakOut;
-              if (!entry["Break In"] && w.breakIn) entry["Break In"] = w.breakIn;
-              if (!entry["Time Out"] && w.timeOut) entry["Time Out"] = w.timeOut;
+              if (!entry["Break Out"] && w.breakOut)
+                entry["Break Out"] = w.breakOut;
+              if (!entry["Break In"] && w.breakIn)
+                entry["Break In"] = w.breakIn;
+              if (!entry["Time Out"] && w.timeOut)
+                entry["Time Out"] = w.timeOut;
             });
             d = d.add(1, "day");
           }
         });
-      } catch (_) { /* WFH merge optional */ }
+      } catch (_) {
+        /* WFH merge optional */
+      }
 
       setDtrLogs(logsByEmpDay);
     } catch (error) {
@@ -374,6 +417,7 @@ const DTRProcess = ({ currentUser }) => {
   const fetchDtrLogsByRecord = async (selectedRecord, employees) => {
     try {
       setDtrLogsLoading(true);
+      setDtrLogsProgress({ loaded: 0, total: 0 });
 
       // Keep query payload small: send only primary empIds. Server expands to alternateEmpIds.
       const employeeEmpIds = Array.from(
@@ -411,6 +455,7 @@ const DTRProcess = ({ currentUser }) => {
           total = Math.max(total, metaTotal);
           const batch = Array.isArray(payload) ? payload : [];
           allLogs = allLogs.concat(batch);
+          setDtrLogsProgress({ loaded: allLogs.length, total });
           if (batch.length < limit) break;
           if (allLogs.length >= total && total > 0) break;
           page += 1;
@@ -433,6 +478,7 @@ const DTRProcess = ({ currentUser }) => {
 
       // Fallback: if recordName yields nothing, refetch without recordName (date-range-only)
       if ((!total || total === 0) && allLogs.length === 0) {
+        setDtrLogsProgress({ loaded: 0, total: 0 });
         ({ allLogs, total } = await fetchAllMergedLogs(commonParams));
       }
 
@@ -871,17 +917,28 @@ const DTRProcess = ({ currentUser }) => {
               const entry = logsByEmpDay[empKey][dateKey];
               if ((!entry["Time In"] || !entry["Time In"].length) && w.timeIn)
                 entry["Time In"] = [w.timeIn];
-              if ((!entry["Break Out"] || !entry["Break Out"].length) && w.breakOut)
+              if (
+                (!entry["Break Out"] || !entry["Break Out"].length) &&
+                w.breakOut
+              )
                 entry["Break Out"] = [w.breakOut];
-              if ((!entry["Break In"] || !entry["Break In"].length) && w.breakIn)
+              if (
+                (!entry["Break In"] || !entry["Break In"].length) &&
+                w.breakIn
+              )
                 entry["Break In"] = [w.breakIn];
-              if ((!entry["Time Out"] || !entry["Time Out"].length) && w.timeOut)
+              if (
+                (!entry["Time Out"] || !entry["Time Out"].length) &&
+                w.timeOut
+              )
                 entry["Time Out"] = [w.timeOut];
             });
             d = d.add(1, "day");
           }
         });
-      } catch (_) { /* WFH merge is optional */ }
+      } catch (_) {
+        /* WFH merge is optional */
+      }
 
       setDtrLogs(logsByEmpDay);
     } catch (error) {
@@ -906,6 +963,16 @@ const DTRProcess = ({ currentUser }) => {
           : Array.isArray(res?.data)
             ? res.data
             : [];
+        // Sort by cut-off start date descending (newest first)
+        list.sort((a, b) => {
+          const aStart = a.DTR_Cut_Off?.start
+            ? new Date(a.DTR_Cut_Off.start).getTime()
+            : 0;
+          const bStart = b.DTR_Cut_Off?.start
+            ? new Date(b.DTR_Cut_Off.start).getTime()
+            : 0;
+          return bStart - aStart;
+        });
         setDtrRecords(list);
       } catch (err) {
         swalError("Unable to load DTR records");
@@ -965,24 +1032,43 @@ const DTRProcess = ({ currentUser }) => {
   }, [searchText, empTypeFilter, sectionOrUnitFilter, employees]);
 
   const recordsSafe = Array.isArray(dtrRecords) ? dtrRecords : [];
-  const selectedRecord = useMemo(
-    () => {
-      const names = Array.isArray(selectedDtrRecord) ? selectedDtrRecord : (selectedDtrRecord ? [selectedDtrRecord] : []);
-      if (!names.length) return null;
-      // Use the first selected record as the primary (they all share the same date range after validation)
-      return recordsSafe.find((rec) => rec.DTR_Record_Name === names[0]) || null;
-    },
-    [recordsSafe, selectedDtrRecord],
-  );
+
+  // Resolve a dropdown value: plain name or "containerName||start||end||childName"
+  const resolveDropdownValue = (val) => {
+    if (!val) return null;
+    if (val.includes("||")) {
+      const [containerName, childStart, childEnd] = val.split("||");
+      const parentRec = recordsSafe.find((r) => r.DTR_Record_Name === containerName);
+      if (!parentRec) return null;
+      return {
+        ...parentRec,
+        DTR_Cut_Off: { start: childStart, end: childEnd },
+      };
+    }
+    return recordsSafe.find((r) => r.DTR_Record_Name === val) || null;
+  };
+
+  const selectedRecord = useMemo(() => {
+    const names = Array.isArray(selectedDtrRecord)
+      ? selectedDtrRecord
+      : selectedDtrRecord
+        ? [selectedDtrRecord]
+        : [];
+    if (!names.length) return null;
+    return resolveDropdownValue(names[0]);
+  }, [recordsSafe, selectedDtrRecord]);
 
   // All selected record objects (for multi-record merging)
-  const selectedRecords = useMemo(
-    () => {
-      const names = Array.isArray(selectedDtrRecord) ? selectedDtrRecord : (selectedDtrRecord ? [selectedDtrRecord] : []);
-      return names.map((name) => recordsSafe.find((rec) => rec.DTR_Record_Name === name)).filter(Boolean);
-    },
-    [recordsSafe, selectedDtrRecord],
-  );
+  const selectedRecords = useMemo(() => {
+    const names = Array.isArray(selectedDtrRecord)
+      ? selectedDtrRecord
+      : selectedDtrRecord
+        ? [selectedDtrRecord]
+        : [];
+    return names
+      .map((name) => resolveDropdownValue(name))
+      .filter(Boolean);
+  }, [recordsSafe, selectedDtrRecord]);
 
   const dtrDays = useMemo(() => {
     if (
@@ -1022,80 +1108,517 @@ const DTRProcess = ({ currentUser }) => {
     }
   }, [selectedRecord]);
 
-  useEffect(() => {
-    if (selectedRecords.length > 0 && employees.length) {
-      // Fetch logs for all selected records and merge them
-      const fetchAndMerge = async () => {
-        if (selectedRecords.length === 1) {
-          await fetchDtrLogsByRecord(selectedRecords[0], employees);
-        } else {
-          // Fetch logs for each record and merge
-          setDtrLogsLoading(true);
-          try {
-            const allLogsByEmpDay = {};
-            for (const rec of selectedRecords) {
-              await fetchDtrLogsByRecord(rec, employees);
-              // After each fetch, merge current dtrLogs into allLogsByEmpDay
-              // We need to accumulate — fetchDtrLogsByRecord sets dtrLogs directly,
-              // so we'll fetch individually and merge manually
+  // Visible days filtered by optional date range picker
+  const visibleDtrDays = useMemo(() => {
+    if (!dateRangeFilter || !dateRangeFilter[0] || !dateRangeFilter[1] || !selectedRecord) {
+      return dtrDays;
+    }
+    const rangeStart = dateRangeFilter[0].startOf('day');
+    const rangeEnd = dateRangeFilter[1].endOf('day');
+    const cutOffStart = parseInLocalTz(selectedRecord.DTR_Cut_Off.start);
+    const cutOffEnd = parseInLocalTz(selectedRecord.DTR_Cut_Off.end);
+    if (!cutOffStart.isValid() || !cutOffEnd.isValid()) return dtrDays;
+
+    // Build a map of dayNum → actual date by iterating through cut-off period
+    const dayNumToDate = new Map();
+    let curr = cutOffStart.clone();
+    while (curr.isSameOrBefore(cutOffEnd, 'day')) {
+      dayNumToDate.set(curr.date(), curr.clone());
+      curr = curr.add(1, 'day');
+    }
+
+    return dtrDays.filter((dayNum) => {
+      const date = dayNumToDate.get(dayNum);
+      if (!date) return false;
+      return date.isSameOrAfter(rangeStart, 'day') && date.isSameOrBefore(rangeEnd, 'day');
+    });
+  }, [dtrDays, dateRangeFilter, selectedRecord]);
+
+  // Fetch and merge logs for one or more selected DTR records
+  const fetchAndMergeMultipleRecords = async (records, employees) => {
+    try {
+      setDtrLogsLoading(true);
+      setDtrLogsProgress({ loaded: 0, total: 0 });
+
+      const employeeEmpIds = Array.from(
+        new Set(
+          employees
+            .map((emp) => emp?.empId)
+            .filter(Boolean)
+            .map(String),
+        ),
+      );
+
+      // Use first record's cut-off (all selected records share the same range after validation)
+      const cutStartParam = parseInLocalTz(
+        records[0]?.DTR_Cut_Off?.start,
+      ).format("YYYY-MM-DD");
+      const cutEndParam = parseInLocalTz(records[0]?.DTR_Cut_Off?.end).format(
+        "YYYY-MM-DD",
+      );
+      const cutStart = parseInLocalTz(records[0].DTR_Cut_Off.start).startOf(
+        "day",
+      );
+      const cutEnd = parseInLocalTz(records[0].DTR_Cut_Off.end).endOf("day");
+
+      // Helper to paginate /dtrlogs/merged
+      let multiTotalFetched = 0;
+      let multiTotalExpected = 0;
+      const fetchAllMergedLogs = async (baseParams) => {
+        const limit = 500;
+        let page = 1;
+        let total = 0;
+        let allLogs = [];
+        while (true) {
+          const res = await axiosInstance.get(`/dtrlogs/merged`, {
+            params: { ...baseParams, page, limit },
+          });
+          const payload = Array.isArray(res.data) ? res.data : res.data?.data;
+          const metaTotal = res.data?.total || 0;
+          total = Math.max(total, metaTotal);
+          const batch = Array.isArray(payload) ? payload : [];
+          allLogs = allLogs.concat(batch);
+          multiTotalFetched += batch.length;
+          setDtrLogsProgress({ loaded: multiTotalFetched, total: multiTotalExpected || total });
+          if (batch.length < limit) break;
+          if (allLogs.length >= total && total > 0) break;
+          page += 1;
+          if (page > 100) break;
+        }
+        return allLogs;
+      };
+
+      // Fetch logs for each selected record and pool them together
+      let allRawLogs = [];
+      for (const rec of records) {
+        const commonParams = {
+          empIds: employeeEmpIds.join(","),
+          startDate: cutStartParam,
+          endDate: cutEndParam,
+          recordName: rec.DTR_Record_Name,
+        };
+        let batch = await fetchAllMergedLogs(commonParams);
+        // Fallback: if recordName yields nothing, refetch without it
+        if (!batch.length) {
+          batch = await fetchAllMergedLogs({
+            empIds: employeeEmpIds.join(","),
+            startDate: cutStartParam,
+            endDate: cutEndParam,
+          });
+        }
+        allRawLogs = allRawLogs.concat(batch);
+      }
+
+      // Deduplicate by _id (same log may appear in fallback fetches)
+      const seenIds = new Set();
+      allRawLogs = allRawLogs.filter((log) => {
+        if (!log._id) return true;
+        if (seenIds.has(log._id)) return false;
+        seenIds.add(log._id);
+        return true;
+      });
+
+      // Pre-filter logs to cut-off window and matching employee names/IDs
+      const STOP_NAME_TOKENS = new Set([
+        "de",
+        "del",
+        "dela",
+        "la",
+        "las",
+        "los",
+        "da",
+        "dos",
+        "das",
+        "san",
+        "sta",
+        "sto",
+        "mr",
+        "ms",
+        "mrs",
+      ]);
+      const normalizeTextLocal = (s) => {
+        if (!s) return "";
+        return String(s)
+          .toLowerCase()
+          .replace(/[^a-z0-9\s]/g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+      };
+      const empNameNorms = employees
+        .map((e) => e.normalizedName || normalizeTextLocal(e.name || ""))
+        .filter(Boolean);
+
+      allRawLogs = allRawLogs.filter((log) => {
+        const t = dayjs.tz(log.time, LOCAL_TZ);
+        if (!t.isValid()) return false;
+        if (t.isBefore(cutStart) || t.isAfter(cutEnd)) return false;
+
+        const logName = normalizeTextLocal(log.name || log.Name || "");
+        if (logName) {
+          for (const en of empNameNorms) {
+            if (!en) continue;
+            if (logName.includes(en) || en.includes(logName)) return true;
+            const tokens = en.split(" ").filter(Boolean);
+            for (const tk of tokens) {
+              if (!tk || tk.length < 3 || STOP_NAME_TOKENS.has(tk)) continue;
+              if (logName.includes(tk)) return true;
             }
-            // Actually, since fetchDtrLogsByRecord is sequential and sets state,
-            // we need a different approach. Let's collect all merged logs.
-            // For simplicity, fetch all records' logs sequentially and merge into one object
-            const mergedLogs = {};
-            for (const rec of selectedRecords) {
-              const cutStartParam = parseInLocalTz(rec.DTR_Cut_Off?.start).format("YYYY-MM-DD");
-              const cutEndParam = parseInLocalTz(rec.DTR_Cut_Off?.end).format("YYYY-MM-DD");
-              const employeeEmpIds = Array.from(
-                new Set(employees.map((emp) => emp?.empId).filter(Boolean).map(String))
-              );
-              const { data } = await axiosInstance.get(`/dtrlogs/merged`, {
-                params: {
-                  empIds: employeeEmpIds.join(","),
-                  startDate: cutStartParam,
-                  endDate: cutEndParam,
-                  recordName: rec.DTR_Record_Name,
-                  limit: 5000,
-                },
-              });
-              const logsPayload = Array.isArray(data) ? data : data?.data || [];
-              // Group by empId + date and merge into mergedLogs
-              logsPayload.forEach((log) => {
-                const empKey = log.empId;
-                if (!empKey) return;
-                const dateKey = dayjs(log.time).tz(LOCAL_TZ).format("YYYY-MM-DD");
-                if (!mergedLogs[empKey]) mergedLogs[empKey] = {};
-                if (!mergedLogs[empKey][dateKey]) mergedLogs[empKey][dateKey] = [];
-                mergedLogs[empKey][dateKey].push(log);
-              });
+          }
+        }
+
+        const numeric = (v) =>
+          v ? String(v).replace(/\D/g, "").replace(/^0+/, "") : "";
+        const fields = [
+          log.acNo,
+          log["AC-No"],
+          log["AC No"],
+          log.empNo,
+          log.cardNo,
+          log.badge,
+          log.userid,
+          log.userId,
+        ];
+        for (const f of fields) {
+          if (!f) continue;
+          const nf = numeric(f);
+          if (!nf) continue;
+          for (const emp of employees) {
+            if (!emp) continue;
+            const cand = [
+              emp.empId,
+              ...(emp.alternateEmpIds || []),
+              emp.empNo,
+              emp.acNo,
+              emp.cardNo,
+              emp.badge,
+            ]
+              .filter(Boolean)
+              .map(numeric);
+            if (cand.includes(nf)) return true;
+          }
+        }
+        return false;
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      // Build robust client-side mapping from AC-No/name → empId (same as fetchDtrLogsByRecord)
+      const normalizeDigits = (v) =>
+        v ? String(v).replace(/\D/g, "").replace(/^0+/, "") : "";
+      const normalizeText = (s) => {
+        if (!s) return "";
+        let t = String(s).toLowerCase().trim();
+        if (t.includes(",")) {
+          const parts = t.split(",");
+          const left = parts.shift().trim();
+          const right = parts.join(" ").trim();
+          t = (right + " " + left).trim();
+        }
+        t = t.replace(/\b(jr|sr|ii|iii|iv|jr\.|sr\.)\b/g, " ");
+        t = t.replace(/[^a-z0-9\s]/g, " ");
+        return t.replace(/\s+/g, " ").trim();
+      };
+
+      const empIdByCandidate = new Map();
+      const empIdByNameNorm = new Map();
+      const nameTokensMap = new Map();
+      const empTokensMap = new Map();
+      const digitsToEmpIds = new Map();
+      const addCandidate = (key, id) => {
+        if (!key) return;
+        const s = String(key);
+        empIdByCandidate.set(s, id);
+        const digits = normalizeDigits(s);
+        if (digits) empIdByCandidate.set(digits, id);
+        if (digits) {
+          if (!digitsToEmpIds.has(digits))
+            digitsToEmpIds.set(digits, new Set());
+          digitsToEmpIds.get(digits).add(id);
+        }
+        const lowered = s.toLowerCase().trim();
+        if (lowered) empIdByCandidate.set(lowered, id);
+        const compact = lowered.replace(/\s+/g, "");
+        if (compact) empIdByCandidate.set(compact, id);
+      };
+
+      employees.forEach((emp) => {
+        if (!emp) return;
+        const primaryEmpId = emp.empId;
+        if (!primaryEmpId) return;
+        const candidates = [
+          emp.empId,
+          emp.empNo,
+          emp.acNo,
+          emp.cardNo,
+          emp.badge,
+          ...(emp.alternateEmpIds || []),
+        ]
+          .filter(Boolean)
+          .map(String);
+        candidates.forEach((c) => addCandidate(c, primaryEmpId));
+        addCandidate(emp.empId, primaryEmpId);
+        addCandidate(emp.empNo, primaryEmpId);
+        const nameNorm = emp.normalizedName || normalizeText(emp.name);
+        if (nameNorm) empIdByNameNorm.set(nameNorm, primaryEmpId);
+        const tokens = (nameNorm || "").split(/\s+/).filter(Boolean);
+        empTokensMap.set(primaryEmpId, tokens);
+        tokens.forEach((tk) => {
+          if (!nameTokensMap.has(tk)) nameTokensMap.set(tk, new Set());
+          nameTokensMap.get(tk).add(primaryEmpId);
+        });
+      });
+
+      // Map each log to empId + date, collecting raw logs per day
+      const logsByEmpDay = {};
+
+      allRawLogs.forEach((log) => {
+        let empKey = log.empId || null;
+
+        const tryLookup = (val) => {
+          if (!val && val !== 0) return null;
+          const s = String(val);
+          let found = empIdByCandidate.get(s) || null;
+          const d = normalizeDigits(s);
+          if (!found && d && digitsToEmpIds.has(d)) {
+            const set = digitsToEmpIds.get(d);
+            if (set.size === 1) found = Array.from(set)[0];
+          }
+          if (!found && d) {
+            for (const [candDigits, idSet] of digitsToEmpIds.entries()) {
+              if (!candDigits) continue;
+              if (d.endsWith(candDigits) && idSet.size === 1) {
+                found = Array.from(idSet)[0];
+                break;
+              }
             }
-            // Resolve merged logs using time punch resolution
-            const logsByEmpDay = {};
-            Object.entries(mergedLogs).forEach(([empKey, dates]) => {
-              logsByEmpDay[empKey] = {};
-              Object.entries(dates).forEach(([dateKey, dayLogs]) => {
-                const resolved = resolveTimePunches(dayLogs, { format: "hh:mm A", defaultBreak: false });
+          }
+          if (!found && d && empIdByCandidate.has(d))
+            found = empIdByCandidate.get(d);
+          const low = s.toLowerCase().trim();
+          if (!found && empIdByCandidate.has(low))
+            found = empIdByCandidate.get(low);
+          const compact = low.replace(/\s+/g, "");
+          if (!found && empIdByCandidate.has(compact))
+            found = empIdByCandidate.get(compact);
+          return found;
+        };
+
+        if (!empKey) {
+          const tryFields = [
+            "empId",
+            "empNo",
+            "acNo",
+            "AC-No",
+            "AC No",
+            "cardNo",
+            "badge",
+            "userid",
+            "userId",
+          ];
+          for (const f of tryFields) {
+            if (log[f]) {
+              const hit = tryLookup(log[f]);
+              if (hit) {
+                empKey = hit;
+                break;
+              }
+            }
+          }
+        }
+        if (!empKey && log.name) {
+          const ln = normalizeText(log.name);
+          if (empIdByNameNorm.has(ln)) empKey = empIdByNameNorm.get(ln);
+        }
+        if (!empKey && log.name) {
+          const ln = normalizeText(log.name);
+          const logTokens = (ln || "").split(/\s+/).filter(Boolean);
+          const score = new Map();
+          logTokens.forEach((tk) => {
+            if (!tk) return;
+            const set = nameTokensMap.get(tk);
+            if (!set) return;
+            set.forEach((eid) => score.set(eid, (score.get(eid) || 0) + 1));
+          });
+          if (score.size) {
+            let best = null,
+              bestCount = 0,
+              secondBestCount = 0;
+            for (const [eid, cnt] of score.entries()) {
+              if (cnt > bestCount) {
+                secondBestCount = bestCount;
+                best = eid;
+                bestCount = cnt;
+              } else if (cnt === bestCount) {
+                const eidTokens = empTokensMap.get(eid) || [];
+                const bestTokens = empTokensMap.get(best) || [];
+                const lastLog = logTokens[logTokens.length - 1];
+                if (
+                  lastLog &&
+                  eidTokens.includes(lastLog) &&
+                  !bestTokens.includes(lastLog)
+                )
+                  best = eid;
+                secondBestCount = Math.max(secondBestCount, cnt);
+              } else if (cnt > secondBestCount) secondBestCount = cnt;
+            }
+            const hasUniqueLongToken = logTokens.some((t) => {
+              if (!t || t.length < 4) return false;
+              const set = nameTokensMap.get(t);
+              return set && set.size === 1 && set.has(best);
+            });
+            if (
+              best &&
+              ((bestCount >= 2 && bestCount > secondBestCount) ||
+                (bestCount === 1 && hasUniqueLongToken))
+            ) {
+              empKey = best;
+            }
+            if (!empKey) {
+              const numeric = (v) =>
+                v ? String(v).replace(/\D/g, "").replace(/^0+/, "") : "";
+              const fields = [
+                log.acNo,
+                log["AC-No"],
+                log["AC No"],
+                log.empNo,
+                log.cardNo,
+                log.badge,
+                log.userid,
+                log.userId,
+              ];
+              for (const f of fields) {
+                if (!f) continue;
+                const nf = numeric(f);
+                if (!nf) continue;
+                if (digitsToEmpIds.has(nf)) {
+                  const set = digitsToEmpIds.get(nf);
+                  if (set.size === 1) {
+                    empKey = Array.from(set)[0];
+                    break;
+                  }
+                }
+                for (const [candDigits, idSet] of digitsToEmpIds.entries()) {
+                  if (!candDigits) continue;
+                  if (nf.endsWith(candDigits) && idSet.size === 1) {
+                    empKey = Array.from(idSet)[0];
+                    break;
+                  }
+                }
+                if (empKey) break;
+              }
+            }
+          }
+        }
+
+        if (!empKey) return;
+        const dateKey = dayjs(log.time).tz(LOCAL_TZ).format("YYYY-MM-DD");
+        if (!logsByEmpDay[empKey]) logsByEmpDay[empKey] = {};
+        if (!logsByEmpDay[empKey][dateKey])
+          logsByEmpDay[empKey][dateKey] = { _rawLogs: [] };
+        logsByEmpDay[empKey][dateKey]._rawLogs.push(log);
+      });
+
+      // Resolve each day using chronological position-based detection
+      Object.keys(logsByEmpDay).forEach((empKey) => {
+        Object.keys(logsByEmpDay[empKey]).forEach((dateKey) => {
+          const dayObj = logsByEmpDay[empKey][dateKey];
+          const rawLogs = dayObj._rawLogs || [];
+          delete dayObj._rawLogs;
+
+          const resolved = resolveTimePunches(rawLogs, {
+            format: "hh:mm A",
+            defaultBreak: false,
+          });
+          dayObj["Time In"] = resolved.timeIn ? [resolved.timeIn] : [];
+          dayObj["Break Out"] = resolved.breakOut ? [resolved.breakOut] : [];
+          dayObj["Break In"] = resolved.breakIn ? [resolved.breakIn] : [];
+          dayObj["Time Out"] = resolved.timeOut ? [resolved.timeOut] : [];
+
+          const otInLogs = rawLogs.filter((l) => {
+            const st = l.state || l.State || "";
+            return st === "Overtime In" || st === "OT In";
+          });
+          const otOutLogs = rawLogs.filter((l) => {
+            const st = l.state || l.State || "";
+            return st === "Overtime Out" || st === "OT Out";
+          });
+          dayObj["OT In"] = otInLogs.map((l) =>
+            dayjs(l.time).tz(LOCAL_TZ).format("hh:mm A"),
+          );
+          dayObj["OT Out"] = otOutLogs.map((l) =>
+            dayjs(l.time).tz(LOCAL_TZ).format("hh:mm A"),
+          );
+        });
+      });
+
+      // Merge WFH prescribed times for dates without biometric data
+      try {
+        const wfhRes = await axiosInstance.get("/work-from-home/public", {
+          params: { start: cutStartParam, end: cutEndParam },
+        });
+        const wfhRecords = wfhRes.data?.data || [];
+        wfhRecords.forEach((w) => {
+          const wfhStart = dayjs(w.date).startOf("day");
+          const wfhEnd = w.endDate ? dayjs(w.endDate).startOf("day") : wfhStart;
+          let d = wfhStart;
+          while (d.isBefore(wfhEnd.add(1, "day"))) {
+            const dateKey = d.format("YYYY-MM-DD");
+            const targets = w.empId ? [w.empId] : Object.keys(logsByEmpDay);
+            targets.forEach((empKey) => {
+              if (!logsByEmpDay[empKey]) logsByEmpDay[empKey] = {};
+              if (!logsByEmpDay[empKey][dateKey]) {
                 logsByEmpDay[empKey][dateKey] = {
-                  "Time In": resolved.timeIn ? [resolved.timeIn] : [],
-                  "Break Out": resolved.breakOut ? [resolved.breakOut] : [],
-                  "Break In": resolved.breakIn ? [resolved.breakIn] : [],
-                  "Time Out": resolved.timeOut ? [resolved.timeOut] : [],
+                  "Time In": [],
+                  "Break Out": [],
+                  "Break In": [],
+                  "Time Out": [],
                   "OT In": [],
                   "OT Out": [],
                 };
-              });
+              }
+              const entry = logsByEmpDay[empKey][dateKey];
+              if ((!entry["Time In"] || !entry["Time In"].length) && w.timeIn)
+                entry["Time In"] = [w.timeIn];
+              if (
+                (!entry["Break Out"] || !entry["Break Out"].length) &&
+                w.breakOut
+              )
+                entry["Break Out"] = [w.breakOut];
+              if (
+                (!entry["Break In"] || !entry["Break In"].length) &&
+                w.breakIn
+              )
+                entry["Break In"] = [w.breakIn];
+              if (
+                (!entry["Time Out"] || !entry["Time Out"].length) &&
+                w.timeOut
+              )
+                entry["Time Out"] = [w.timeOut];
             });
-            setDtrLogs(logsByEmpDay);
-          } catch (err) {
-            console.error("Failed to merge logs from multiple records:", err);
-            swalError("Error merging DTR logs from selected records");
-            setDtrLogs({});
-          } finally {
-            setDtrLogsLoading(false);
+            d = d.add(1, "day");
           }
-        }
-      };
-      fetchAndMerge();
+        });
+      } catch (_) {
+        /* WFH merge is optional */
+      }
+
+      setDtrLogs(logsByEmpDay);
+    } catch (err) {
+      console.error("Failed to merge logs from multiple records:", err);
+      swalError("Error merging DTR logs from selected records");
+      setDtrLogs({});
+    } finally {
+      setDtrLogsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedRecords.length > 0 && employees.length) {
+      if (selectedRecords.length === 1) {
+        fetchDtrLogsByRecord(selectedRecords[0], employees);
+      } else {
+        fetchAndMergeMultipleRecords(selectedRecords, employees);
+      }
     } else {
       setDtrLogs({});
     }
@@ -1499,6 +2022,231 @@ const DTRProcess = ({ currentUser }) => {
     swalSuccess("Printer Tray cleared.");
   };
 
+  // ── Fill Time Records (bulk) ──
+  const resolveBioPunches = (bioPunches) => {
+    const sorted = [...bioPunches].sort((a, b) => {
+      const ta = dayjs(a.time, "h:mm A");
+      const tb = dayjs(b.time, "h:mm A");
+      return ta.isValid() && tb.isValid() ? (ta.isBefore(tb) ? -1 : 1) : 0;
+    });
+    const checkIn = sorted.filter((p) => /check.?in|c\/i|time.?in/i.test(p.state) || p.state === "0");
+    const checkOut = sorted.filter((p) => /check.?out|c\/o|time.?out/i.test(p.state) || p.state === "1");
+    const entry = {};
+    if (checkIn.length > 0) entry.timeIn = dayjs(checkIn[0].time, "h:mm A").format("h:mm A");
+    else if (sorted.length >= 1) entry.timeIn = dayjs(sorted[0].time, "h:mm A").format("h:mm A");
+    if (checkOut.length > 0) {
+      entry.timeOut = dayjs(checkOut[checkOut.length - 1].time, "h:mm A").format("h:mm A");
+      if (checkOut.length > 1) entry.breakOut = dayjs(checkOut[0].time, "h:mm A").format("h:mm A");
+    } else if (sorted.length >= 4) {
+      entry.timeOut = dayjs(sorted[sorted.length - 1].time, "h:mm A").format("h:mm A");
+    }
+    if (checkIn.length > 1) entry.breakIn = dayjs(checkIn[checkIn.length - 1].time, "h:mm A").format("h:mm A");
+    return Object.keys(entry).length > 0 ? entry : null;
+  };
+
+  // Helper: get missing date count for employee
+  const getEmployeeMissingCount = useCallback((emp, workDates) => {
+    const ids = [emp.empId, ...(emp.alternateEmpIds || [])].filter(Boolean).map(String);
+    let count = 0;
+    for (const dateKey of workDates) {
+      let found = false;
+      for (const id of ids) {
+        const dayLogs = dtrLogs?.[id]?.[dateKey];
+        if (dayLogs) {
+          const hasTI = isNonEmptyTimeString(Array.isArray(dayLogs["Time In"]) ? dayLogs["Time In"][0] : dayLogs["Time In"]);
+          const hasTO = isNonEmptyTimeString(Array.isArray(dayLogs["Time Out"]) ? dayLogs["Time Out"][0] : dayLogs["Time Out"]);
+          if (hasTI && hasTO) { found = true; break; }
+        }
+      }
+      if (!found) count++;
+    }
+    return count;
+  }, [dtrLogs]);
+
+  // Build workDates from selected record (memoized)
+  const fillWorkDates = useMemo(() => {
+    if (!selectedRecord?.DTR_Cut_Off?.start || !selectedRecord?.DTR_Cut_Off?.end) return [];
+    const cutStart = parseInLocalTz(selectedRecord.DTR_Cut_Off.start);
+    const cutEnd = parseInLocalTz(selectedRecord.DTR_Cut_Off.end);
+    if (!cutStart.isValid() || !cutEnd.isValid()) return [];
+
+    const allDates = [];
+    let d = cutStart.clone();
+    while (d.isSameOrBefore(cutEnd, "day")) {
+      const dow = d.day();
+      if (dow !== 0 && dow !== 6) allDates.push(d.format("YYYY-MM-DD"));
+      d = d.add(1, "day");
+    }
+    const holidaySet = new Set();
+    [...holidaysPH, ...localHolidays, ...suspensions].forEach((h) => {
+      const hs = parseInLocalTz(h.date);
+      const he = h.endDate ? parseInLocalTz(h.endDate) : hs;
+      let cur = hs.clone();
+      while (cur.isSameOrBefore(he, "day")) {
+        holidaySet.add(cur.format("YYYY-MM-DD"));
+        cur = cur.add(1, "day");
+      }
+    });
+    return allDates.filter((dt) => !holidaySet.has(dt));
+  }, [selectedRecord, holidaysPH, localHolidays, suspensions]);
+
+  // Employees filtered by the Fill modal filters
+  const fillFilteredEmployees = useMemo(() => {
+    let data = employees;
+    if (fillDivisionFilter) data = data.filter((e) => e.division === fillDivisionFilter);
+    if (fillSectionFilter) data = data.filter((e) => e.sectionOrUnit === fillSectionFilter);
+    if (fillEmpTypeFilter) data = data.filter((e) => e.empType === fillEmpTypeFilter);
+    if (fillSearchText) {
+      const q = fillSearchText.toLowerCase();
+      data = data.filter((e) =>
+        (e.name || "").toLowerCase().includes(q) ||
+        (e.empId || "").toLowerCase().includes(q) ||
+        (e.empNo || "").toLowerCase().includes(q)
+      );
+    }
+    if (fillOnlyMissing && fillWorkDates.length) {
+      data = data.filter((e) => getEmployeeMissingCount(e, fillWorkDates) > 0);
+    }
+    return data;
+  }, [employees, fillDivisionFilter, fillSectionFilter, fillEmpTypeFilter, fillSearchText, fillOnlyMissing, fillWorkDates, getEmployeeMissingCount]);
+
+  // Options lists for the fill modal selects
+  const fillDivisionOptions = useMemo(
+    () => [...new Set(employees.map((e) => e.division).filter(Boolean))].sort().map((v) => ({ label: v, value: v })),
+    [employees],
+  );
+  const fillSectionOptions = useMemo(() => {
+    let data = employees;
+    if (fillDivisionFilter) data = data.filter((e) => e.division === fillDivisionFilter);
+    return [...new Set(data.map((e) => e.sectionOrUnit).filter(Boolean))].sort().map((v) => ({ label: v, value: v }));
+  }, [employees, fillDivisionFilter]);
+  const fillEmpTypeOptions = useMemo(
+    () => [...new Set(employees.map((e) => e.empType).filter(Boolean))].sort().map((v) => ({ label: v, value: v })),
+    [employees],
+  );
+
+  const openFillSetup = () => {
+    setFillDivisionFilter(null);
+    setFillSectionFilter(null);
+    setFillEmpTypeFilter(null);
+    setFillSearchText("");
+    setFillOnlyMissing(true);
+    setFillSetupVisible(true);
+  };
+
+  const startFill = async () => {
+    if (!selectedRecord) return;
+    const cutStart = parseInLocalTz(selectedRecord.DTR_Cut_Off.start);
+    const cutEnd = parseInLocalTz(selectedRecord.DTR_Cut_Off.end);
+    if (!cutStart.isValid() || !cutEnd.isValid()) return;
+
+    const s = cutStart.format("YYYY-MM-DD");
+    const e = cutEnd.format("YYYY-MM-DD");
+
+    const targetEmployees = fillFilteredEmployees;
+    if (!targetEmployees.length) {
+      swalWarning("No employees match the current filters.");
+      return;
+    }
+
+    const total = targetEmployees.length;
+    fillCancelRef.current = false;
+    setFillProgress({ current: 0, total, currentName: "", filled: 0, skipped: 0, log: [] });
+    setFillRunning(true);
+
+    let totalFilled = 0;
+    let totalSkipped = 0;
+    const log = [];
+    const newResolutions = {};
+
+    for (let i = 0; i < total; i++) {
+      if (fillCancelRef.current) break;
+      const emp = targetEmployees[i];
+      const empLabel = emp.name || emp.empId;
+      setFillProgress((prev) => ({ ...prev, current: i + 1, currentName: empLabel }));
+
+      try {
+        const ids = [emp.empId, ...(emp.alternateEmpIds || [])].filter(Boolean).map(String);
+        const missingDates = fillWorkDates.filter((dateKey) => {
+          for (const id of ids) {
+            const dayLogs = dtrLogs?.[id]?.[dateKey];
+            if (dayLogs) {
+              const hasTI = isNonEmptyTimeString(Array.isArray(dayLogs["Time In"]) ? dayLogs["Time In"][0] : dayLogs["Time In"]);
+              const hasTO = isNonEmptyTimeString(Array.isArray(dayLogs["Time Out"]) ? dayLogs["Time Out"][0] : dayLogs["Time Out"]);
+              if (hasTI && hasTO) return false;
+            }
+          }
+          return true;
+        });
+
+        if (!missingDates.length) {
+          totalSkipped++;
+          log.push({ name: empLabel, status: "complete", detail: "All dates already have records" });
+          setFillProgress((prev) => ({ ...prev, skipped: totalSkipped, log: [...log] }));
+          continue;
+        }
+
+        const bioRes = await axiosInstance.get("/dtr-resolutions/search-biometric", {
+          params: { empId: emp.empId, startDate: s, endDate: e },
+        });
+        const bioData = bioRes.data?.success ? (bioRes.data.data || {}) : {};
+
+        const entries = [];
+        for (const dateKey of missingDates) {
+          const punches = bioData[dateKey];
+          if (!punches || !punches.length) continue;
+          const resolved = resolveBioPunches(punches);
+          if (resolved) entries.push({ dateKey, ...resolved, source: "biometric" });
+        }
+
+        if (!entries.length) {
+          totalSkipped++;
+          log.push({ name: empLabel, status: "no-data", detail: `${missingDates.length} missing date(s), no biometric data found` });
+          setFillProgress((prev) => ({ ...prev, skipped: totalSkipped, log: [...log] }));
+          continue;
+        }
+
+        await axiosInstance.post("/dtr-resolutions/bulk", {
+          empId: emp.empId,
+          recordId: selectedRecord._id,
+          entries,
+        });
+
+        // Store filled resolutions for DayTiles overlay
+        const empResMap = {};
+        entries.forEach((ent) => { empResMap[ent.dateKey] = ent; });
+        newResolutions[emp.empId] = empResMap;
+
+        totalFilled++;
+        log.push({ name: empLabel, status: "filled", detail: `${entries.length} date(s) filled from ${missingDates.length} missing` });
+        setFillProgress((prev) => ({ ...prev, filled: totalFilled, log: [...log] }));
+      } catch {
+        totalSkipped++;
+        log.push({ name: empLabel, status: "error", detail: "API error" });
+        setFillProgress((prev) => ({ ...prev, skipped: totalSkipped, log: [...log] }));
+      }
+    }
+
+    // Merge filled resolutions into state so DayTiles reflect them
+    setFillResolutions((prev) => {
+      const merged = { ...prev };
+      for (const [empId, dateMap] of Object.entries(newResolutions)) {
+        merged[empId] = { ...(merged[empId] || {}), ...dateMap };
+      }
+      return merged;
+    });
+
+    setFillRunning(false);
+    if (!fillCancelRef.current) {
+      swalSuccess(
+        `Done! Filled time records for ${totalFilled} employee${totalFilled !== 1 ? "s" : ""}.` +
+          (totalSkipped > 0 ? ` ${totalSkipped} skipped.` : "")
+      );
+    } else {
+      swalInfo(`Cancelled. Filled ${totalFilled} employee${totalFilled !== 1 ? "s" : ""} before cancellation.`);
+    }
+  };
+
   const handleAddSelectedToTray = () => {
     const keySet = new Set(selectedRowKeys);
     const selectedEmployees = employees.filter((emp) =>
@@ -1618,15 +2366,16 @@ const DTRProcess = ({ currentUser }) => {
         key: "dailyTimeRecord",
         width: 500,
         render: (_, record) =>
-          dtrDays.length > 0 ? (
+          visibleDtrDays.length > 0 ? (
             <DTRDayTiles
-              days={dtrDays}
+              days={visibleDtrDays}
               emp={record}
               selectedRecord={selectedRecord}
               divisionColors={divisionColors}
               divisionAcronyms={divisionAcronyms}
               holidaysPH={allHolidays}
               trainingLoading={trainingLoading}
+              fillResolutions={fillResolutions}
               getEmployeeDayLogs={(emp, dateKey) => {
                 const ids = [emp.empId, ...(emp.alternateEmpIds || [])].filter(
                   Boolean,
@@ -1656,13 +2405,14 @@ const DTRProcess = ({ currentUser }) => {
       },
     ],
     [
-      dtrDays,
+      visibleDtrDays,
       dtrLogs,
       selectedRecord,
       dtrHeaderTitle,
       allHolidays,
       employeeTrainings,
       trainingLoading,
+      fillResolutions,
     ],
   );
 
@@ -1709,7 +2459,10 @@ const DTRProcess = ({ currentUser }) => {
   );
 
   const columns = useMemo(
-    () => (selectedDtrRecord.length > 0 ? [...columnsBase, actionsColumn] : columnsBase),
+    () =>
+      selectedDtrRecord.length > 0
+        ? [...columnsBase, actionsColumn]
+        : columnsBase,
     [selectedDtrRecord, columnsBase, actionsColumn],
   );
 
@@ -1767,6 +2520,9 @@ const DTRProcess = ({ currentUser }) => {
           sectionOrUnitFilter={sectionOrUnitFilter}
           setSectionOrUnitFilter={setSectionOrUnitFilter}
           dtrLogsLoading={dtrLogsLoading}
+          dateRangeFilter={dateRangeFilter}
+          setDateRangeFilter={setDateRangeFilter}
+          selectedRecord={selectedRecord}
         />
 
         <Space size={4}>
@@ -1807,6 +2563,14 @@ const DTRProcess = ({ currentUser }) => {
                   ({selectedRowKeys.length})
                 </Button>
               </Tooltip>
+              <Tooltip title="Auto-fill missing time records from DTR Data">
+                <Button
+                  icon={<ThunderboltOutlined />}
+                  onClick={openFillSetup}
+                >
+                  Fill Time Records
+                </Button>
+              </Tooltip>
             </>
           )}
           <Tooltip title="Printer Tray">
@@ -1825,7 +2589,23 @@ const DTRProcess = ({ currentUser }) => {
       {employeesLoading ? (
         <Spin size="large" style={{ display: "block", margin: "48px auto" }} />
       ) : (
-        <DTRTable
+        <>
+          {dtrLogsLoading && dtrLogsProgress.total > 0 && (
+            <div style={{ marginBottom: 12, padding: "8px 0" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                <Spin size="small" />
+                <span style={{ fontSize: 13, color: "#555" }}>
+                  Loading time records... {dtrLogsProgress.loaded.toLocaleString()} / {dtrLogsProgress.total.toLocaleString()}
+                </span>
+              </div>
+              <Progress
+                percent={Math.round((dtrLogsProgress.loaded / dtrLogsProgress.total) * 100)}
+                size="small"
+                status="active"
+              />
+            </div>
+          )}
+          <DTRTable
           columns={columns}
           dataSource={filteredEmployees}
           loading={dtrLogsLoading}
@@ -1839,6 +2619,7 @@ const DTRProcess = ({ currentUser }) => {
           selectedDtrRecord={selectedDtrRecord}
           rowSelection={selectedDtrRecord.length > 0 ? rowSelection : null}
         />
+        </>
       )}
 
       <PrinterTrayDrawer
@@ -1868,6 +2649,196 @@ const DTRProcess = ({ currentUser }) => {
           onPreviewForm48={handlePrintSelected}
         />
       )}
+
+      {/* Fill Time Records — Setup/Preview Modal */}
+      <Modal
+        title={
+          <Space size={8}>
+            <ThunderboltOutlined style={{ color: "#faad14" }} />
+            <span style={{ fontWeight: 600 }}>Fill Time Records</span>
+          </Space>
+        }
+        open={fillSetupVisible}
+        onCancel={() => { if (!fillRunning) setFillSetupVisible(false); }}
+        maskClosable={!fillRunning}
+        closable={!fillRunning}
+        width={700}
+        footer={fillRunning ? [
+          <Button key="cancel" danger onClick={() => { fillCancelRef.current = true; }}>
+            Cancel
+          </Button>,
+        ] : [
+          <Button key="close" onClick={() => setFillSetupVisible(false)}>
+            Close
+          </Button>,
+          <Button
+            key="start"
+            type="primary"
+            icon={<ThunderboltOutlined />}
+            onClick={startFill}
+            disabled={!fillFilteredEmployees.length}
+          >
+            Start Fill ({fillFilteredEmployees.length})
+          </Button>,
+        ]}
+      >
+        {/* Phase 1: Filters & Preview */}
+        {!fillRunning && (
+          <>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+              <Select
+                allowClear
+                placeholder="Division"
+                style={{ width: 170 }}
+                value={fillDivisionFilter}
+                onChange={(v) => { setFillDivisionFilter(v || null); setFillSectionFilter(null); }}
+                options={fillDivisionOptions}
+                showSearch
+                filterOption={(input, opt) => (opt?.label || "").toLowerCase().includes(input.toLowerCase())}
+              />
+              <Select
+                allowClear
+                placeholder="Section / Unit"
+                style={{ width: 170 }}
+                value={fillSectionFilter}
+                onChange={(v) => setFillSectionFilter(v || null)}
+                options={fillSectionOptions}
+                showSearch
+                filterOption={(input, opt) => (opt?.label || "").toLowerCase().includes(input.toLowerCase())}
+              />
+              <Select
+                allowClear
+                placeholder="Employee Type"
+                style={{ width: 140 }}
+                value={fillEmpTypeFilter}
+                onChange={(v) => setFillEmpTypeFilter(v || null)}
+                options={fillEmpTypeOptions}
+              />
+              <Select
+                allowClear
+                showSearch
+                placeholder="Search name or ID..."
+                style={{ width: 180 }}
+                value={fillSearchText || undefined}
+                onChange={(v) => setFillSearchText(v || "")}
+                onSearch={(v) => setFillSearchText(v)}
+                filterOption={false}
+                suffixIcon={<SearchOutlined />}
+                notFoundContent={null}
+                options={
+                  fillSearchText
+                    ? employees
+                        .filter((e) => {
+                          const q = fillSearchText.toLowerCase();
+                          return (
+                            (e.name || "").toLowerCase().includes(q) ||
+                            (e.empId || "").toLowerCase().includes(q) ||
+                            (e.empNo || "").toLowerCase().includes(q)
+                          );
+                        })
+                        .slice(0, 20)
+                        .map((e) => ({ label: `${e.name} (${e.empId})`, value: e.name }))
+                    : []
+                }
+              />
+            </div>
+            <div style={{ marginBottom: 8 }}>
+              <Checkbox checked={fillOnlyMissing} onChange={(e) => setFillOnlyMissing(e.target.checked)}>
+                Only employees with missing time records
+              </Checkbox>
+            </div>
+            <div style={{ marginBottom: 8, color: "#666", fontSize: 12 }}>
+              <TeamOutlined style={{ marginRight: 4 }} />
+              {fillFilteredEmployees.length} employee{fillFilteredEmployees.length !== 1 ? "s" : ""} will be processed
+            </div>
+            <Table
+              dataSource={fillFilteredEmployees}
+              rowKey={(r) => r.empId || r._id || r.name}
+              size="small"
+              pagination={{ pageSize: 8, size: "small", showSizeChanger: false }}
+              scroll={{ y: 260 }}
+              columns={[
+                {
+                  title: "Employee",
+                  key: "name",
+                  render: (_, r) => (
+                    <span>
+                      <span style={{ fontWeight: 600 }}>{r.name}</span>
+                      <span style={{ color: "#999", marginLeft: 6, fontSize: 11 }}>{r.empId}</span>
+                    </span>
+                  ),
+                },
+                {
+                  title: "Division",
+                  dataIndex: "division",
+                  key: "division",
+                  width: 130,
+                  ellipsis: true,
+                },
+                {
+                  title: "Section",
+                  dataIndex: "sectionOrUnit",
+                  key: "section",
+                  width: 120,
+                  ellipsis: true,
+                },
+                {
+                  title: "Missing",
+                  key: "missing",
+                  width: 70,
+                  align: "center",
+                  render: (_, r) => {
+                    const cnt = getEmployeeMissingCount(r, fillWorkDates);
+                    return cnt > 0
+                      ? <Tag color="red" style={{ fontSize: 11 }}>{cnt}</Tag>
+                      : <Tag color="green" style={{ fontSize: 11 }}>0</Tag>;
+                  },
+                },
+              ]}
+            />
+          </>
+        )}
+
+        {/* Phase 2: Running Progress */}
+        {fillRunning && (
+          <div style={{ padding: "8px 0" }}>
+            <Progress
+              percent={fillProgress.total ? Math.round((fillProgress.current / fillProgress.total) * 100) : 0}
+              status="active"
+              style={{ marginBottom: 16 }}
+            />
+            <div style={{ marginBottom: 8 }}>
+              <span style={{ fontWeight: 600 }}>Processing: </span>
+              <span>{fillProgress.currentName || "—"}</span>
+              <span style={{ color: "#999", marginLeft: 8 }}>
+                ({fillProgress.current} / {fillProgress.total})
+              </span>
+            </div>
+            <Space size={16} style={{ marginBottom: 12 }}>
+              <Tag icon={<CheckCircleOutlined />} color="success">
+                Filled: {fillProgress.filled}
+              </Tag>
+              <Tag icon={<CloseCircleOutlined />} color="default">
+                Skipped: {fillProgress.skipped}
+              </Tag>
+            </Space>
+            {fillProgress.log.length > 0 && (
+              <div style={{ maxHeight: 200, overflowY: "auto", border: "1px solid var(--app-border-color, #f0f0f0)", borderRadius: 6, padding: 8, fontSize: 12 }}>
+                {fillProgress.log.map((entry, idx) => (
+                  <div key={idx} style={{ display: "flex", gap: 8, marginBottom: 4, alignItems: "center" }}>
+                    {entry.status === "filled" && <CheckCircleOutlined style={{ color: "#52c41a", flexShrink: 0 }} />}
+                    {entry.status === "complete" && <CheckCircleOutlined style={{ color: "#8c8c8c", flexShrink: 0 }} />}
+                    {entry.status === "no-data" && <CloseCircleOutlined style={{ color: "#faad14", flexShrink: 0 }} />}
+                    {entry.status === "error" && <CloseCircleOutlined style={{ color: "#ff4d4f", flexShrink: 0 }} />}
+                    <span style={{ fontWeight: 500 }}>{entry.name}</span>
+                    <span style={{ color: "#999" }}>— {entry.detail}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
     </div>
   );
 };
