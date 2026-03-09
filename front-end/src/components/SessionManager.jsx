@@ -20,9 +20,10 @@ const SessionManager = () => {
   const isDemo = user?.isDemo || user?.userType === "demo";
 
   const sessionTimeout = appSettings?.security?.sessionTimeout; // in minutes
+  const DEFAULT_TIMEOUT_MIN = 10; // 10 minutes default
   const timeoutMs = sessionTimeout && Number.isFinite(sessionTimeout) && sessionTimeout > 0
     ? sessionTimeout * 60 * 1000
-    : null; // null = no timeout configured
+    : DEFAULT_TIMEOUT_MIN * 60 * 1000;
 
   const WARNING_BEFORE_MS = 60 * 1000; // warn 60s before logout
 
@@ -38,7 +39,7 @@ const SessionManager = () => {
   }, []);
 
   useEffect(() => {
-    if (!isAuthenticated || !timeoutMs || isDemo) return;
+    if (!isAuthenticated || isDemo) return;
 
     const events = ["mousedown", "keydown", "scroll", "touchstart", "click"];
     events.forEach((evt) => window.addEventListener(evt, resetActivity, { passive: true }));

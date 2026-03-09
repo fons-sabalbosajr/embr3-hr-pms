@@ -71,27 +71,32 @@ export const createEmployeeDoc = async (req, res) => {
         }
         const basis = dateIssued ? new Date(dateIssued) : new Date();
         if (!year) year = basis.getFullYear();
-        const yearStart = new Date(year, 0, 1);
-        const nextYearStart = new Date(year + 1, 0, 1);
-        // Prefer counting by period's year to match reporting expectations
-        let yearlyCount = 0;
-        try {
-          const periodRegex = new RegExp(`^${year}-`);
-          yearlyCount = await EmployeeDoc.countDocuments({ docType: 'Payslip', period: { $regex: periodRegex } });
-        } catch (_) {
-          yearlyCount = 0;
+
+        // Find the highest existing docNo for payslips in this year
+        const maxDoc = await EmployeeDoc.findOne(
+          { docType: 'Payslip', period: { $regex: new RegExp(`^${year}-`) } },
+          { docNo: 1 },
+          { sort: { docNo: -1 } }
+        );
+        let maxDocNo = maxDoc?.docNo || 0;
+        if (!maxDocNo) {
+          // Fallback: search by dateIssued/createdAt
+          const yearStart = new Date(year, 0, 1);
+          const nextYearStart = new Date(year + 1, 0, 1);
+          const fallbackDoc = await EmployeeDoc.findOne(
+            {
+              docType: "Payslip",
+              $or: [
+                { dateIssued: { $gte: yearStart, $lt: nextYearStart } },
+                { dateIssued: { $exists: false }, createdAt: { $gte: yearStart, $lt: nextYearStart } },
+              ],
+            },
+            { docNo: 1 },
+            { sort: { docNo: -1 } }
+          );
+          maxDocNo = fallbackDoc?.docNo || 0;
         }
-        if (!yearlyCount) {
-          // Fallback: count by issued/created timestamps
-          yearlyCount = await EmployeeDoc.countDocuments({
-            docType: "Payslip",
-            $or: [
-              { dateIssued: { $gte: yearStart, $lt: nextYearStart } },
-              { dateIssued: { $exists: false }, createdAt: { $gte: yearStart, $lt: nextYearStart } },
-            ],
-          });
-        }
-        const docNo = yearlyCount + 1;
+        const docNo = maxDocNo + 1;
         const newDoc = await EmployeeDoc.create({ ...req.body, ...storageMeta, docNo });
         try {
           const io = getSocketInstance();
@@ -131,9 +136,6 @@ export const getNextPayslipNumber = async (req, res) => {
     // Determine target year from period (start date) if provided, else current year
     let targetYear;
     if (period && typeof period === 'string') {
-      // Expected format: "YYYY-MM-DD - YYYY-MM-DD"
-      const startStr = period.split('-')[0]?.trim();
-      // When splitting by '-', we get pieces inside the date; safer approach: split by ' - '
       const parts = period.split(' - ');
       const start = parts && parts.length > 0 ? new Date(parts[0]) : null;
       targetYear = start && !isNaN(start.getTime()) ? start.getFullYear() : new Date().getFullYear();
@@ -141,29 +143,31 @@ export const getNextPayslipNumber = async (req, res) => {
       targetYear = new Date().getFullYear();
     }
 
-    const yearStart = new Date(targetYear, 0, 1);
-    const nextYearStart = new Date(targetYear + 1, 0, 1);
-    // Prefer counting by period year via regex on period string
-    let yearlyCount = 0;
-    try {
-      const periodRegex = new RegExp(`^${targetYear}-`);
-      yearlyCount = await EmployeeDoc.countDocuments({ docType: 'Payslip', period: { $regex: periodRegex } });
-    } catch (_) {
-      yearlyCount = 0;
+    // Find the highest existing docNo for payslips in this year
+    const maxDoc = await EmployeeDoc.findOne(
+      { docType: 'Payslip', period: { $regex: new RegExp(`^${targetYear}-`) } },
+      { docNo: 1 },
+      { sort: { docNo: -1 } }
+    );
+    let maxDocNo = maxDoc?.docNo || 0;
+    if (!maxDocNo) {
+      // Fallback: search by dateIssued/createdAt
+      const yearStart = new Date(targetYear, 0, 1);
+      const nextYearStart = new Date(targetYear + 1, 0, 1);
+      const fallbackDoc = await EmployeeDoc.findOne(
+        {
+          docType: "Payslip",
+          $or: [
+            { dateIssued: { $gte: yearStart, $lt: nextYearStart } },
+            { dateIssued: { $exists: false }, createdAt: { $gte: yearStart, $lt: nextYearStart } },
+          ],
+        },
+        { docNo: 1 },
+        { sort: { docNo: -1 } }
+      );
+      maxDocNo = fallbackDoc?.docNo || 0;
     }
-    if (!yearlyCount) {
-      // Fallback: count by issued/created timestamps
-      yearlyCount = await EmployeeDoc.countDocuments({
-        docType: "Payslip",
-        $or: [
-          { dateIssued: { $gte: yearStart, $lt: nextYearStart } },
-          { dateIssued: { $exists: false }, createdAt: { $gte: yearStart, $lt: nextYearStart } },
-        ],
-      });
-    }
-    // NOTE: This simple count + 1 approach can race under heavy concurrent generation.
-    // Future improvement: use a separate YearCounter collection with findOneAndUpdate($inc) for atomic increments.
-    res.json({ success: true, nextPayslipNumber: yearlyCount + 1 });
+    res.json({ success: true, nextPayslipNumber: maxDocNo + 1 });
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, message: "Failed to fetch next payslip number" });

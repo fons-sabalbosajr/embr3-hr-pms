@@ -71,6 +71,7 @@
   border-left: 3px solid #1677ff;
   padding-left: 13px;
 }
+/* Tab-specific overrides applied via .msg-conv-item--{tab}.active classes below */
 
 .msg-conv-avatar-wrap {
   position: relative;
@@ -545,6 +546,41 @@
 }
 
 /* ── Responsive ────────────────────────────────────────────────────── */
+
+/* ── Tab-specific sidebar list backgrounds ─────────────────────────── */
+.msg-sidebar-list--inbox { background: #fafcff; }
+.msg-sidebar-list--sent { background: #fafff6; }
+.msg-sidebar-list--drafts { background: #fffef5; }
+.msg-sidebar-list--archived { background: #fafafa; }
+
+/* ── Tab-specific conversation item accents ────────────────────────── */
+.msg-conv-item--inbox.active {
+  background: #e6f4ff;
+  border-left: 3px solid #1677ff;
+  padding-left: 13px;
+}
+.msg-conv-item--sent.active {
+  background: #f6ffed;
+  border-left: 3px solid #52c41a;
+  padding-left: 13px;
+}
+.msg-conv-item--drafts.active,
+.msg-conv-item--drafts:hover {
+  background: #fffbe6;
+  border-left: 3px solid #faad14;
+  padding-left: 13px;
+}
+.msg-conv-item--archived.active {
+  background: #f5f5f5;
+  border-left: 3px solid #8c8c8c;
+  padding-left: 13px;
+}
+
+/* ── Tab-specific empty state icon colors ──────────────────────────── */
+.msg-sidebar-list--sent .msg-empty-state { color: #52c41a; }
+.msg-sidebar-list--drafts .msg-empty-state { color: #faad14; }
+.msg-sidebar-list--archived .msg-empty-state { color: #8c8c8c; }
+
 @media (max-width: 768px) {
   .messaging-container {
     height: calc(100vh - 56px);

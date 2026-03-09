@@ -734,8 +734,7 @@ const AnnouncementManager = () => {
           {record.body && (
             <Text
               type="secondary"
-              style={{ fontSize: 11, display: "block", marginTop: 2 }}
-              ellipsis={{ tooltip: record.body }}
+              style={{ fontSize: 11, display: "block", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
             >
               {record.body.length > 80
                 ? record.body.slice(0, 80) + "…"

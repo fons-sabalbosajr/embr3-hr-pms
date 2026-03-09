@@ -2,7 +2,6 @@ import React, { createContext, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   secureGet,
-  secureStore,
   secureRemove,
   secureSessionGet,
   secureSessionStore,
@@ -62,7 +61,7 @@ export const AuthProvider = ({ children }) => {
             const finalUrl = url.startsWith('data:') ? url : `${url}${url.includes('?') ? '&' : '?'}v=${Date.now()}`;
             const updated = { ...user, avatarUrl: finalUrl };
             setUser(updated);
-            secureStore("user", updated);
+            secureSessionStore("user", updated);
           }
         } catch (_) {}
       };
@@ -121,13 +120,17 @@ export const AuthProvider = ({ children }) => {
     if (user) {
       try {
         await axiosInstance.post("/users/logout", { userId: user._id });
-      } catch (error) {
-        console.error("Logout failed on server", error);
+      } catch (_) {
+        // Ignore server errors during logout (e.g. expired token)
       }
 
-      // ✅ Explicitly tell server user logged out
-      socket.emit("logout", user._id);
-      socket.disconnect();
+      try {
+        // ✅ Explicitly tell server user logged out
+        socket.emit("logout", user._id);
+        socket.disconnect();
+      } catch (_) {
+        // Ignore socket errors during logout
+      }
     }
 
     // Wipe ALL encrypted/obfuscated keys from localStorage & sessionStorage

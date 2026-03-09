@@ -209,7 +209,7 @@ const DTRProcess = ({ currentUser }) => {
   const [sectionOrUnitFilter, setSectionOrUnitFilter] = useState("");
   const [dtrLogs, setDtrLogs] = useState({});
   const [dtrRecords, setDtrRecords] = useState([]);
-  const [selectedDtrRecord, setSelectedDtrRecord] = useState("");
+  const [selectedDtrRecord, setSelectedDtrRecord] = useState([]);
   const [drawerVisible, setDrawerVisible] = useState(false);
   const containerRef = useRef(null);
   const [viewDTRVisible, setViewDTRVisible] = useState(false);
@@ -966,7 +966,21 @@ const DTRProcess = ({ currentUser }) => {
 
   const recordsSafe = Array.isArray(dtrRecords) ? dtrRecords : [];
   const selectedRecord = useMemo(
-    () => recordsSafe.find((rec) => rec.DTR_Record_Name === selectedDtrRecord),
+    () => {
+      const names = Array.isArray(selectedDtrRecord) ? selectedDtrRecord : (selectedDtrRecord ? [selectedDtrRecord] : []);
+      if (!names.length) return null;
+      // Use the first selected record as the primary (they all share the same date range after validation)
+      return recordsSafe.find((rec) => rec.DTR_Record_Name === names[0]) || null;
+    },
+    [recordsSafe, selectedDtrRecord],
+  );
+
+  // All selected record objects (for multi-record merging)
+  const selectedRecords = useMemo(
+    () => {
+      const names = Array.isArray(selectedDtrRecord) ? selectedDtrRecord : (selectedDtrRecord ? [selectedDtrRecord] : []);
+      return names.map((name) => recordsSafe.find((rec) => rec.DTR_Record_Name === name)).filter(Boolean);
+    },
     [recordsSafe, selectedDtrRecord],
   );
 
@@ -1009,12 +1023,83 @@ const DTRProcess = ({ currentUser }) => {
   }, [selectedRecord]);
 
   useEffect(() => {
-    if (selectedRecord && employees.length) {
-      fetchDtrLogsByRecord(selectedRecord, employees);
+    if (selectedRecords.length > 0 && employees.length) {
+      // Fetch logs for all selected records and merge them
+      const fetchAndMerge = async () => {
+        if (selectedRecords.length === 1) {
+          await fetchDtrLogsByRecord(selectedRecords[0], employees);
+        } else {
+          // Fetch logs for each record and merge
+          setDtrLogsLoading(true);
+          try {
+            const allLogsByEmpDay = {};
+            for (const rec of selectedRecords) {
+              await fetchDtrLogsByRecord(rec, employees);
+              // After each fetch, merge current dtrLogs into allLogsByEmpDay
+              // We need to accumulate — fetchDtrLogsByRecord sets dtrLogs directly,
+              // so we'll fetch individually and merge manually
+            }
+            // Actually, since fetchDtrLogsByRecord is sequential and sets state,
+            // we need a different approach. Let's collect all merged logs.
+            // For simplicity, fetch all records' logs sequentially and merge into one object
+            const mergedLogs = {};
+            for (const rec of selectedRecords) {
+              const cutStartParam = parseInLocalTz(rec.DTR_Cut_Off?.start).format("YYYY-MM-DD");
+              const cutEndParam = parseInLocalTz(rec.DTR_Cut_Off?.end).format("YYYY-MM-DD");
+              const employeeEmpIds = Array.from(
+                new Set(employees.map((emp) => emp?.empId).filter(Boolean).map(String))
+              );
+              const { data } = await axiosInstance.get(`/dtrlogs/merged`, {
+                params: {
+                  empIds: employeeEmpIds.join(","),
+                  startDate: cutStartParam,
+                  endDate: cutEndParam,
+                  recordName: rec.DTR_Record_Name,
+                  limit: 5000,
+                },
+              });
+              const logsPayload = Array.isArray(data) ? data : data?.data || [];
+              // Group by empId + date and merge into mergedLogs
+              logsPayload.forEach((log) => {
+                const empKey = log.empId;
+                if (!empKey) return;
+                const dateKey = dayjs(log.time).tz(LOCAL_TZ).format("YYYY-MM-DD");
+                if (!mergedLogs[empKey]) mergedLogs[empKey] = {};
+                if (!mergedLogs[empKey][dateKey]) mergedLogs[empKey][dateKey] = [];
+                mergedLogs[empKey][dateKey].push(log);
+              });
+            }
+            // Resolve merged logs using time punch resolution
+            const logsByEmpDay = {};
+            Object.entries(mergedLogs).forEach(([empKey, dates]) => {
+              logsByEmpDay[empKey] = {};
+              Object.entries(dates).forEach(([dateKey, dayLogs]) => {
+                const resolved = resolveTimePunches(dayLogs, { format: "hh:mm A", defaultBreak: false });
+                logsByEmpDay[empKey][dateKey] = {
+                  "Time In": resolved.timeIn ? [resolved.timeIn] : [],
+                  "Break Out": resolved.breakOut ? [resolved.breakOut] : [],
+                  "Break In": resolved.breakIn ? [resolved.breakIn] : [],
+                  "Time Out": resolved.timeOut ? [resolved.timeOut] : [],
+                  "OT In": [],
+                  "OT Out": [],
+                };
+              });
+            });
+            setDtrLogs(logsByEmpDay);
+          } catch (err) {
+            console.error("Failed to merge logs from multiple records:", err);
+            swalError("Error merging DTR logs from selected records");
+            setDtrLogs({});
+          } finally {
+            setDtrLogsLoading(false);
+          }
+        }
+      };
+      fetchAndMerge();
     } else {
       setDtrLogs({});
     }
-  }, [selectedRecord, employees]);
+  }, [selectedRecords, employees]);
 
   useEffect(() => {
     async function getHolidays() {
@@ -1624,7 +1709,7 @@ const DTRProcess = ({ currentUser }) => {
   );
 
   const columns = useMemo(
-    () => (selectedDtrRecord ? [...columnsBase, actionsColumn] : columnsBase),
+    () => (selectedDtrRecord.length > 0 ? [...columnsBase, actionsColumn] : columnsBase),
     [selectedDtrRecord, columnsBase, actionsColumn],
   );
 
@@ -1685,7 +1770,7 @@ const DTRProcess = ({ currentUser }) => {
         />
 
         <Space size={4}>
-          {selectedDtrRecord && (
+          {selectedDtrRecord.length > 0 && (
             <>
               <Tooltip title="No time records">
                 <Button
@@ -1752,7 +1837,7 @@ const DTRProcess = ({ currentUser }) => {
           handlePrintSelected={handlePrintSelected}
           handleAddToPrinterTray={handleAddToPrinterTray}
           selectedDtrRecord={selectedDtrRecord}
-          rowSelection={selectedDtrRecord ? rowSelection : null}
+          rowSelection={selectedDtrRecord.length > 0 ? rowSelection : null}
         />
       )}
 

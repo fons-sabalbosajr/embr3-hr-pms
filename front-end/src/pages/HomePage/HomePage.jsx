@@ -35,7 +35,7 @@ import {
 } from "@ant-design/icons";
 
 import { useNavigate, Routes, Route } from "react-router-dom";
-import { useEffect, useState, useRef, useCallback, useContext } from "react";
+import { useEffect, useState, useContext } from "react";
 import useDemoMode from "../../hooks/useDemoMode";
 import useAuth from "../../hooks/useAuth";
 import { secureStore, secureGet } from "../../../utils/secureStorage";
@@ -58,6 +58,7 @@ import Holidays from "../Holidays/Holidays";
 import RecordConfigSettings from "../../components/Settings/RecordConfigSettings/RecordConfigSettings";
 import DeveloperSettings from "../../components/Settings/DevSettings/DevSettings";
 import AnnouncementManager from "../../components/Settings/AnnouncementManager/AnnouncementManager";
+import Notifications from "../Notifications/Notifications";
 import Messaging from "../Messaging/Messaging";
 import AnnouncementPopup from "../../components/AnnouncementPopup/AnnouncementPopup";
 import ProtectedRoute from "../../components/ProtectedRoute";
@@ -524,29 +525,10 @@ const HomePage = () => {
     logout();
   };
 
-  const IDLE_TIMEOUT = 60 * 60 * 1000; // 60 minutes
-  const idleTimer = useRef(null);
-
-  const resetIdleTimer = useCallback(() => {
-    if (idleTimer.current) clearTimeout(idleTimer.current);
-    idleTimer.current = setTimeout(handleLogout, IDLE_TIMEOUT);
-  }, [handleLogout]);
-
-  useEffect(() => {
-    const events = ["mousemove", "keydown", "mousedown", "scroll", "touchstart", "click", "pointerdown"];
-    events.forEach((e) => window.addEventListener(e, resetIdleTimer));
-    resetIdleTimer(); // start the timer
-    return () => {
-      clearTimeout(idleTimer.current);
-      events.forEach((e) => window.removeEventListener(e, resetIdleTimer));
-    };
-  }, [resetIdleTimer]);
-
   const handleViewProfile = () => setIsProfileModalOpen(true);
   const handleSuggestFeature = () => setIsFeatureModalOpen(true);
 
   const getMenuItems = () => {
-    const { isDemoActive, isDemoUser, demoSettings } = useDemoMode();
     const demoAllowed =
       demoSettings && Array.isArray(demoSettings.allowedPermissions)
         ? demoSettings.allowedPermissions
@@ -686,6 +668,11 @@ const HomePage = () => {
             key: "/settings/backup",
             label: "Backup",
             permissions: ["canPerformBackup"],
+          },
+          {
+            key: "/notifications",
+            label: "Notifications",
+            permissions: ["canManageNotifications"],
           },
           {
             key: "/settings/announcements",
@@ -1060,6 +1047,14 @@ const HomePage = () => {
             ...notifications.filter((n) => !n.hidden),
           ];
 
+          // Hide notifications older than 2 months in the bell popover
+          const twoMonthsAgo = new Date();
+          twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
+          merged = merged.filter((n) => {
+            if (!n.createdAt) return true;
+            return new Date(n.createdAt).getTime() >= twoMonthsAgo.getTime();
+          });
+
           if (merged.length === 0) {
             return (
               <Text
@@ -1119,6 +1114,18 @@ const HomePage = () => {
           ));
         })()
       )}
+      <div style={{ textAlign: "center", padding: "8px 0", borderTop: "1px solid var(--app-border-color, #f0f0f0)" }}>
+        <Button
+          type="link"
+          size="small"
+          onClick={() => {
+            setNotifPopoverOpen(false);
+            navigate("/notifications");
+          }}
+        >
+          See full notifications
+        </Button>
+      </div>
     </div>
   );
 
@@ -2108,6 +2115,14 @@ const HomePage = () => {
                 element={
                   <ProtectedRoute requiredPermissions={["canAccessDeveloper"]}>
                     <DeveloperSettings />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/notifications"
+                element={
+                  <ProtectedRoute requiredPermissions={["canManageNotifications"]}>
+                    <Notifications />
                   </ProtectedRoute>
                 }
               />

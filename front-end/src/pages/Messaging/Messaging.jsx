@@ -678,11 +678,13 @@ const Messaging = ({ currentUser, tab = "inbox" }) => {
   }, [availableUsers, activeConv, addMemberSearch]);
 
   const tabConfig = {
-    inbox: { icon: <InboxOutlined />, title: "Inbox" },
-    sent: { icon: <MailOutlined />, title: "Sent" },
-    drafts: { icon: <FileTextOutlined />, title: "Drafts" },
-    archived: { icon: <FolderOutlined />, title: "Archived" },
+    inbox: { icon: <InboxOutlined />, title: "Inbox", color: "#1677ff", bgGradient: "linear-gradient(135deg, #e6f4ff 0%, #f0f5ff 100%)", borderColor: "#91caff" },
+    sent: { icon: <MailOutlined />, title: "Sent", color: "#52c41a", bgGradient: "linear-gradient(135deg, #f6ffed 0%, #e8fff0 100%)", borderColor: "#b7eb8f" },
+    drafts: { icon: <FileTextOutlined />, title: "Drafts", color: "#faad14", bgGradient: "linear-gradient(135deg, #fffbe6 0%, #fff7e0 100%)", borderColor: "#ffe58f" },
+    archived: { icon: <FolderOutlined />, title: "Archived", color: "#8c8c8c", bgGradient: "linear-gradient(135deg, #fafafa 0%, #f5f5f5 100%)", borderColor: "#d9d9d9" },
   };
+
+  const currentTab = tabConfig[tab] || tabConfig.inbox;
 
   // ═══════════════════════════════════════════════════════════════════════
   // Render
@@ -691,11 +693,11 @@ const Messaging = ({ currentUser, tab = "inbox" }) => {
     <div className="messaging-container">
       {/* ─── Sidebar ──────────────────────────────────────────────────── */}
       <div className={`msg-sidebar ${isMobile && !showSidebar ? "hidden" : ""}`}>
-        <div className="msg-sidebar-header">
+        <div className="msg-sidebar-header" style={{ background: currentTab.bgGradient, borderBottom: `2px solid ${currentTab.borderColor}` }}>
           <div className="msg-sidebar-header-row">
-            <h3>
-              {tabConfig[tab]?.icon}
-              <span style={{ marginLeft: 8 }}>{tabConfig[tab]?.title || "Messages"}</span>
+            <h3 style={{ color: currentTab.color }}>
+              {currentTab.icon}
+              <span style={{ marginLeft: 8 }}>{currentTab.title || "Messages"}</span>
             </h3>
             <Tooltip title="New conversation">
               <Button type="primary" shape="circle" icon={<PlusOutlined />} size="small" onClick={openNewConvModal} />
@@ -704,8 +706,8 @@ const Messaging = ({ currentUser, tab = "inbox" }) => {
           {tab !== "drafts" && (
             <Input
               className="msg-sidebar-search"
-              placeholder="Search conversations..."
-              prefix={<SearchOutlined style={{ color: "#bfbfbf" }} />}
+              placeholder={`Search ${currentTab.title.toLowerCase()}...`}
+              prefix={<SearchOutlined style={{ color: currentTab.color }} />}
               allowClear
               size="middle"
               value={searchQuery}
@@ -714,13 +716,13 @@ const Messaging = ({ currentUser, tab = "inbox" }) => {
           )}
         </div>
 
-        <div className="msg-sidebar-list">
+        <div className={`msg-sidebar-list msg-sidebar-list--${tab}`}>
           {tab === "drafts" ? (
             drafts.length === 0 ? (
               <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No drafts saved" style={{ marginTop: 60 }} />
             ) : (
               drafts.map((draft, idx) => (
-                <div key={idx} className="msg-conv-item" onClick={() => handleUseDraft(draft)}>
+                <div key={idx} className="msg-conv-item msg-conv-item--drafts" onClick={() => handleUseDraft(draft)}>
                   <Avatar icon={<FileTextOutlined />} style={{ backgroundColor: "#faad14", flexShrink: 0 }} size={42} />
                   <div className="msg-conv-meta">
                     <div className="msg-conv-name">{draft.recipientName}</div>
@@ -753,7 +755,7 @@ const Messaging = ({ currentUser, tab = "inbox" }) => {
               return (
                 <div
                   key={conv._id}
-                  className={`msg-conv-item ${conv._id === activeConvId ? "active" : ""}`}
+                  className={`msg-conv-item msg-conv-item--${tab} ${conv._id === activeConvId ? "active" : ""}`}
                   onClick={() => openConversation(conv._id)}
                 >
                   <div className="msg-conv-avatar-wrap">

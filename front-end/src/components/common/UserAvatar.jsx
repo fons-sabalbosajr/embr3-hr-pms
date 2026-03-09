@@ -3,32 +3,34 @@ import { Avatar } from "antd";
 import { UserOutlined } from "@ant-design/icons";
 import { getServerBaseUrl, resolveServerAssetUrl } from "../../utils/assetUrl";
 
-const UserAvatar = ({ src, name, size = 32, shape = "circle", className, style, icon, alt, ...rest }) => {
+const UserAvatar = ({ src, name, size = 32, shape = "circle", className, style, icon, alt, user, ...rest }) => {
+  // Support passing a `user` object for convenience — extract src/name from it
+  const resolvedSrc = src || user?.avatarUrl || user?.avatar || user?.profilePicture || undefined;
+  const resolvedName = name || user?.name || user?.username || undefined;
+
   const [errored, setErrored] = useState(false);
 
   const serverBase = getServerBaseUrl();
 
   useEffect(() => {
-    // If the previous attempt failed before server base was known,
-    // allow retry once configuration becomes available.
     setErrored(false);
-  }, [src, serverBase]);
+  }, [resolvedSrc, serverBase]);
 
   const initials = useMemo(() => {
-    if (!name) return null;
-    const parts = String(name).trim().split(/\s+/).filter(Boolean);
+    if (!resolvedName) return null;
+    const parts = String(resolvedName).trim().split(/\s+/).filter(Boolean);
     if (parts.length === 0) return null;
     const first = parts[0][0] || "";
     const last = parts.length > 1 ? parts[parts.length - 1][0] : "";
     const letters = (first + last).toUpperCase();
     return letters || null;
-  }, [name]);
+  }, [resolvedName]);
 
   const effectiveSrc = useMemo(() => {
     if (errored) return undefined;
-    const resolved = resolveServerAssetUrl(src);
+    const resolved = resolveServerAssetUrl(resolvedSrc);
     return resolved || undefined;
-  }, [src, errored, serverBase]);
+  }, [resolvedSrc, errored, serverBase]);
 
   return (
     <Avatar
@@ -37,7 +39,7 @@ const UserAvatar = ({ src, name, size = 32, shape = "circle", className, style, 
       shape={shape}
       className={className}
       style={style}
-      alt={alt || name || "avatar"}
+      alt={alt || resolvedName || "avatar"}
       onError={() => {
         setErrored(true);
         return false; // let Avatar fallback to children

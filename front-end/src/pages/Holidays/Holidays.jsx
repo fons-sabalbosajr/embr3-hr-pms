@@ -1119,14 +1119,18 @@ const WorkFromHome = () => {
   const submitGroup = async () => {
     try {
       const values = await groupForm.validateFields();
+      if (!values.range && !values.singleDate) {
+        swalWarning("Please select a date range or a single date.");
+        return;
+      }
       const members = (values.members || []).map((m) => {
         const opt = groupEmpOptions.find((o) => o.value === m);
         return { empId: m, employeeName: opt?.empName || m };
       });
       const payload = {
         name: values.name || "",
-        startDate: values.range[0],
-        endDate: values.range[1],
+        startDate: values.range ? values.range[0] : values.singleDate,
+        endDate: values.range ? values.range[1] : values.singleDate,
         members,
         notes: values.notes || "",
       };
@@ -1143,9 +1147,14 @@ const WorkFromHome = () => {
 
   const startGroupEdit = (record) => {
     setEditingGroup(record);
+    const isSingleDay =
+      record.startDate &&
+      record.endDate &&
+      dayjs(record.startDate).isSame(dayjs(record.endDate), "day");
     groupEditForm.setFieldsValue({
       name: record.name,
-      range: [dayjs(record.startDate), dayjs(record.endDate)],
+      range: isSingleDay ? undefined : [dayjs(record.startDate), dayjs(record.endDate)],
+      singleDate: isSingleDay ? dayjs(record.startDate) : undefined,
       members: (record.members || []).map((m) => m.empId),
       notes: record.notes || "",
       active: record.active !== false,
@@ -1164,14 +1173,18 @@ const WorkFromHome = () => {
   const submitGroupEdit = async () => {
     try {
       const values = await groupEditForm.validateFields();
+      if (!values.range && !values.singleDate) {
+        swalWarning("Please select a date range or a single date.");
+        return;
+      }
       const members = (values.members || []).map((m) => {
         const opt = groupEmpOptions.find((o) => o.value === m);
         return { empId: m, employeeName: opt?.empName || m };
       });
       const payload = {
         name: values.name || "",
-        startDate: values.range[0],
-        endDate: values.range[1],
+        startDate: values.range ? values.range[0] : values.singleDate,
+        endDate: values.range ? values.range[1] : values.singleDate,
         members,
         notes: values.notes || "",
         active: values.active,
@@ -1206,9 +1219,12 @@ const WorkFromHome = () => {
       <Form.Item
         label="Date Range"
         name="range"
-        rules={[{ required: true, message: "Date range is required" }]}
+        tooltip="Select range for multi-day WFH"
       >
         <RangePicker style={{ width: "100%" }} />
+      </Form.Item>
+      <Form.Item label="Or Single Date" name="singleDate">
+        <DatePicker style={{ width: "100%" }} />
       </Form.Item>
       <Form.Item
         label="Members"
@@ -1244,23 +1260,26 @@ const WorkFromHome = () => {
       render: (v) => v || "(unnamed)",
     },
     {
-      title: "Date Range",
+      title: "Date",
       key: "dates",
       width: isMobile ? 130 : 180,
-      render: (_, r) =>
-        `${dayjs(r.startDate).format("YYYY-MM-DD")} → ${dayjs(r.endDate).format("YYYY-MM-DD")}`,
+      render: (_, r) => {
+        const s = dayjs(r.startDate).format("YYYY-MM-DD");
+        const e = dayjs(r.endDate).format("YYYY-MM-DD");
+        return s === e ? s : `${s} → ${e}`;
+      },
     },
     {
       title: "Members",
       key: "members",
-      width: isMobile ? 80 : 200,
+      width: isMobile ? 80 : 250,
       render: (_, r) => {
         const m = r.members || [];
         if (isMobile) return m.length;
         return m
           .slice(0, 3)
-          .map((x) => x.employeeName || x.empId)
-          .join(", ") + (m.length > 3 ? ` (+${m.length - 3} more)` : "");
+          .map((x) => `${x.empId} — ${x.employeeName || ""}`)
+          .join("; ") + (m.length > 3 ? ` (+${m.length - 3} more)` : "");
       },
     },
     ...(!isMobile
@@ -1532,9 +1551,9 @@ const WorkFromHome = () => {
         ]}
       >
         <Paragraph type="secondary" style={{ marginBottom: 12 }}>
-          Assign employees to WFH groups by date range. Members in an active group
+          Assign employees to WFH groups by date range or single date. Members in an active group
           will show <strong>"WFH (see attch.)"</strong> on their DTR for the
-          covered dates — time records are filled in by the employees themselves.
+          covered date(s) — time records are filled in by the employees themselves.
         </Paragraph>
         <Button
           type="primary"
