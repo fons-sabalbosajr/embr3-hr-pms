@@ -87,8 +87,11 @@ const DTRFilters = ({
 
     const opts = [];
     sorted.forEach((rec) => {
-      // Skip containers — they are managed in DTR Data backups only
-      if (rec.isContainer || rec.childPeriods?.length) return;
+      const isContainer = rec.isContainer || rec.childPeriods?.length;
+      // Containers: hidden unless explicitly set to visible
+      if (isContainer && rec.hiddenFromDropdown !== false) return;
+      // Non-containers: visible unless explicitly set to hidden
+      if (!isContainer && rec.hiddenFromDropdown === true) return;
       opts.push({ label: rec.DTR_Record_Name, value: rec.DTR_Record_Name });
     });
     return opts;

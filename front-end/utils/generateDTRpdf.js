@@ -959,10 +959,10 @@ export async function generateBatchDTRPdf(printerTray) {
         valign: "middle",
         overflow: "linebreak",
       },
-      margin: { left: leftMargin, right: pageWidth - rightMargin },
+      margin: { left: leftMargin, right: pageWidth - rightMargin, top: 0, bottom: 0 },
       theme: "grid",
       tableWidth: contentWidth,
-      pageBreak: "avoid",
+      pageBreak: "auto",
       didParseCell: function (data) {
         if (data.section === "body") {
           const row = rows[data.row.index];
@@ -1116,15 +1116,22 @@ export async function generateBatchDTRPdf(printerTray) {
   for (let i = 0; i < validTray.length; i += 2) {
     if (i > 0) doc.addPage("a4", "portrait");
 
+    const currentPage = doc.getNumberOfPages();
+
     // Left DTR (first half)
+    doc.setPage(currentPage);
+    doc.lastAutoTable = null;
     await renderDTR(validTray[i], 0);
 
     // Right DTR (second half, if exists)
     if (i + 1 < validTray.length) {
+      doc.setPage(currentPage);
+      doc.lastAutoTable = null;
       await renderDTR(validTray[i + 1], halfWidth);
     }
 
     // Draw the cutting line
+    doc.setPage(currentPage);
     drawCutLine();
   }
 

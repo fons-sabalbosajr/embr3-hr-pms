@@ -20,34 +20,26 @@ dotenv.config({ path: resolve(__dirname, "../.env") });
 const MONGO_URI = process.env.MONGO_URI || "mongodb://localhost:27017/embr3hrpms";
 
 const ANNOUNCEMENT = {
-  title: "System Update — DTR Data Management Improvements (March 2026)",
-  body: `<p>We've rolled out several improvements to the <strong>DTR Data Management</strong> and <strong>Records Configuration</strong> modules. Here's a summary of what's new:</p>
+  title: "System Update — DTR Generation & Print Tray Improvements (July 2025)",
+  body: `<p>We've rolled out new features and important fixes to the <strong>Generate DTR</strong>, <strong>View DTR</strong>, and <strong>Print Tray</strong> modules. Here's what's changed:</p>
 
-<h3>🔀 Merge Enhancements</h3>
+<h3>👁️ DTR Data Visibility Toggle</h3>
 <ul>
-  <li><strong>Real-Time Merge Progress</strong> — When merging time records into a container, a live progress bar now displays the number of records processed, moved, and overwritten so you can track the operation in real time.</li>
-  <li><strong>Select All in Edit DTR Data</strong> — A new "Select All" button lets you quickly select all records in the Edit DTR Data table for easier bulk merging.</li>
-  <li><strong>Cancel / Abort Merge</strong> — You can now cancel an in-progress merge operation if needed.</li>
+  <li><strong>Hide / Show in Dropdowns</strong> — Container records in DTR Data Settings can now be toggled as <em>Hidden</em> or <em>Visible</em>. Hidden containers no longer appear in the Generate DTR and Biometrics Logs dropdown lists, keeping them uncluttered while preserving your data.</li>
 </ul>
 
-<h3>📂 Unmerge (Split) Enhancements</h3>
+<h3>🎨 Streamlined Toolbar Buttons</h3>
 <ul>
-  <li><strong>Unmerge from Containers</strong> — Container records now have an Unmerge button, allowing you to split out a date range of time records into a separate DTR Data record.</li>
-  <li><strong>Date Range Selection</strong> — When unmerging, you can specify a custom cut-off date range and a new record name for the extracted records.</li>
-  <li><strong>Progress & Abort Support</strong> — Unmerge operations now show real-time progress and can be aborted mid-process with automatic rollback.</li>
-</ul>
-
-<h3>📊 Generate DTR — Loading Progress</h3>
-<ul>
-  <li><strong>Data Loading Progress Bar</strong> — When selecting DTR Data from the dropdown on the Generate DTR page, a progress bar now shows how many biometric log records have been loaded, especially useful for large datasets.</li>
+  <li><strong>Icon-Only Buttons</strong> — The Generate DTR and View DTR toolbars now use compact icon-only buttons with tooltips (Find Time Record, Fill Time Records, Send All Missing DTR Requests, Preview DTR Form 48, Save to Print Tray). This frees up horizontal space and gives the interface a cleaner look.</li>
 </ul>
 
 <h3>🛠️ Bug Fixes</h3>
 <ul>
-  <li><strong>Employee Document Deletion</strong> — Fixed an issue where deleting employee documents linked to DTR record names would fail with a "File not found" error.</li>
+  <li><strong>Batch DTR PDF — Missing Employees</strong> — Fixed a layout issue where the first employee's DTR was dropped when printing multiple DTRs from the Print Tray. All selected employees now render correctly in side-by-side format.</li>
+  <li><strong>Print Tray — Filled Time Records</strong> — Manually filled time records are now included when saving an employee's DTR to the Print Tray. Previously, only the original biometric logs were passed through.</li>
 </ul>
 
-<p>These updates are designed to improve efficiency and visibility for HR staff when managing large volumes of biometric time records. If you have questions, please contact the IT team.</p>`,
+<p>These updates improve usability and reliability when generating, reviewing, and printing DTR forms. If you have questions, please contact the IT team.</p>`,
   type: "app-update",
   priority: "high",
   active: true,

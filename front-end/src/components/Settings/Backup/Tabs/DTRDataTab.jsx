@@ -15,6 +15,7 @@ import {
   Select,
   Tag,
   Alert,
+  Switch,
 } from "antd";
 import {
   DownloadOutlined,
@@ -190,6 +191,7 @@ const DTRDataTab = () => {
         record?.DTR_Cut_Off?.start ? dayjs(record.DTR_Cut_Off.start) : null,
         record?.DTR_Cut_Off?.end ? dayjs(record.DTR_Cut_Off.end) : null,
       ],
+      hiddenFromDropdown: record.hiddenFromDropdown !== false,
     });
     setEditModalOpen(true);
     setEditLogsSearch("");
@@ -259,6 +261,7 @@ const DTRDataTab = () => {
           start: values.DTR_Cut_Off[0].toDate().toISOString(),
           end: values.DTR_Cut_Off[1].toDate().toISOString(),
         },
+        hiddenFromDropdown: !!values.hiddenFromDropdown,
       };
 
       await axiosInstance.put(`/dtrdatas/${editing._id}`, payload);
@@ -1153,6 +1156,13 @@ const DTRDataTab = () => {
             rules={[{ required: true }]}
           >
             <DatePicker.RangePicker />
+          </Form.Item>
+          <Form.Item
+            name="hiddenFromDropdown"
+            label="Hide from Generate DTR & Biometrics Logs dropdowns"
+            valuePropName="checked"
+          >
+            <Switch checkedChildren="Hidden" unCheckedChildren="Visible" />
           </Form.Item>
         </Form>
 

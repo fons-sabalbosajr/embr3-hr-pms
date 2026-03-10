@@ -669,7 +669,21 @@ const ViewDTR = ({
     if (!onSaveToTray) return;
     setSaveToTrayLoading(true);
     try {
-      await Promise.resolve(onSaveToTray(employee, selectedRecord));
+      // Merge manual entries into dtrLogs so filled time records are included in the tray
+      let mergedLogs = dtrLogs;
+      if (Object.keys(manualEntries).length > 0) {
+        mergedLogs = JSON.parse(JSON.stringify(dtrLogs || {}));
+        const empId = employee.empId;
+        if (!mergedLogs[empId]) mergedLogs[empId] = {};
+        for (const [dateKey, entry] of Object.entries(manualEntries)) {
+          if (!mergedLogs[empId][dateKey]) mergedLogs[empId][dateKey] = {};
+          if (entry.timeIn) mergedLogs[empId][dateKey]["Time In"] = entry.timeIn;
+          if (entry.breakOut) mergedLogs[empId][dateKey]["Break Out"] = entry.breakOut;
+          if (entry.breakIn) mergedLogs[empId][dateKey]["Break In"] = entry.breakIn;
+          if (entry.timeOut) mergedLogs[empId][dateKey]["Time Out"] = entry.timeOut;
+        }
+      }
+      await Promise.resolve(onSaveToTray(employee, mergedLogs));
       swalSuccess("DTR has been added to the Printer Tray!");
     } finally {
       setSaveToTrayLoading(false);
@@ -1159,7 +1173,6 @@ const ViewDTR = ({
                 icon={<SearchOutlined />}
                 onClick={openFindTimeModal}
               >
-                Find Time Record
                 {manualEntryCount > 0 && (
                   <Tag color="green" style={{ marginLeft: 4, fontSize: 10 }}>{manualEntryCount}</Tag>
                 )}
@@ -1172,9 +1185,7 @@ const ViewDTR = ({
                 onClick={handleFillAllTimeRecords}
                 loading={fillAllLoading}
                 disabled={readOnly && isDemoActive && isDemoUser}
-              >
-                Fill Time Records
-              </Button>
+              />
             </Tooltip>
             {!shouldHideInDemo('ui.notifications.quickSend') && (
               Array.isArray(employee.emails) && employee.emails.length > 0 ? (
@@ -1184,16 +1195,12 @@ const ViewDTR = ({
                     icon={<SendOutlined />}
                     onClick={handleSendAllMissing}
                     disabled={readOnly && isDemoActive && isDemoUser}
-                  >
-                    Send All Missing
-                  </Button>
+                  />
                 </Tooltip>
               ) : (
                 <Tooltip title="Employee has no email on record">
                   <span>
-                    <Button size="small" icon={<MailOutlined />} disabled>
-                      Send All Missing
-                    </Button>
+                    <Button size="small" icon={<MailOutlined />} disabled />
                   </span>
                 </Tooltip>
               )
@@ -1205,25 +1212,25 @@ const ViewDTR = ({
         <div className="viewdtr-toolbar-group">
           <span className="viewdtr-toolbar-label"><FilePdfOutlined /> Output</span>
           <Space size={6} wrap>
-            <Button
-              size="small"
-              type="primary"
-              onClick={handlePreviewForm48}
-              loading={previewForm48Loading}
-              disabled={(readOnly && isDemoActive && isDemoUser) || saveToTrayLoading}
-              icon={<FilePdfOutlined />}
-            >
-              Preview DTR Form 48
-            </Button>
-            <Button
-              size="small"
-              onClick={handleSaveToTray}
-              loading={saveToTrayLoading}
-              disabled={(readOnly && isDemoActive && isDemoUser) || previewForm48Loading}
-              icon={<InboxOutlined />}
-            >
-              Save to Print Tray
-            </Button>
+            <Tooltip title="Preview DTR Form 48">
+              <Button
+                size="small"
+                type="primary"
+                onClick={handlePreviewForm48}
+                loading={previewForm48Loading}
+                disabled={(readOnly && isDemoActive && isDemoUser) || saveToTrayLoading}
+                icon={<FilePdfOutlined />}
+              />
+            </Tooltip>
+            <Tooltip title="Save to Print Tray">
+              <Button
+                size="small"
+                onClick={handleSaveToTray}
+                loading={saveToTrayLoading}
+                disabled={(readOnly && isDemoActive && isDemoUser) || previewForm48Loading}
+                icon={<InboxOutlined />}
+              />
+            </Tooltip>
           </Space>
         </div>
       </div>

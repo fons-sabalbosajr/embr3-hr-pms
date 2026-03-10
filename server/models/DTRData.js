@@ -22,6 +22,9 @@ const dtrDataSchema = new mongoose.Schema(
         end: Date,
       },
     ],
+
+    // When true, this record is hidden from Generate DTR / Biometrics Logs dropdowns
+    hiddenFromDropdown: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

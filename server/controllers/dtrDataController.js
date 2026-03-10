@@ -125,7 +125,7 @@ export const getDTRDataList = async (req, res) => {
       }
     }
 
-    const query = DTRData.find(filter, "DTR_Record_Name DTR_Cut_Off Uploaded_By Uploaded_Date isContainer childPeriods")
+    const query = DTRData.find(filter, "DTR_Record_Name DTR_Cut_Off Uploaded_By Uploaded_Date isContainer childPeriods hiddenFromDropdown")
       .sort({ "DTR_Cut_Off.start": -1, createdAt: -1 });
     const records = await query.lean();
 
@@ -285,6 +285,9 @@ export const updateDTRData = async (req, res) => {
         start: DTR_Cut_Off.start ? new Date(DTR_Cut_Off.start) : record.DTR_Cut_Off.start,
         end: DTR_Cut_Off.end ? new Date(DTR_Cut_Off.end) : record.DTR_Cut_Off.end,
       };
+    }
+    if (typeof req.body.hiddenFromDropdown === 'boolean') {
+      record.hiddenFromDropdown = req.body.hiddenFromDropdown;
     }
 
     await record.save();

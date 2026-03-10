@@ -1994,7 +1994,7 @@ const DTRProcess = ({ currentUser }) => {
     }
   };
 
-  const handleAddToPrinterTray = (employee) => {
+  const handleAddToPrinterTray = (employee, mergedLogs) => {
     setPrinterTray((prev) => {
       const exists = prev.some(
         (item) =>
@@ -2008,7 +2008,7 @@ const DTRProcess = ({ currentUser }) => {
         {
           employee,
           dtrDays,
-          dtrLogs,
+          dtrLogs: mergedLogs || dtrLogs,
           selectedRecord,
         },
       ];
@@ -2567,9 +2567,7 @@ const DTRProcess = ({ currentUser }) => {
                 <Button
                   icon={<ThunderboltOutlined />}
                   onClick={openFillSetup}
-                >
-                  Fill Time Records
-                </Button>
+                />
               </Tooltip>
             </>
           )}
