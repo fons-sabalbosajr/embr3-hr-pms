@@ -16,7 +16,14 @@ import {
   Collapse,
   Avatar,
 } from "antd";
-import { swalSuccess, swalError, swalWarning, swalInfo, swalConfirm, swalAlert } from "../../utils/swalHelper";
+import {
+  swalSuccess,
+  swalError,
+  swalWarning,
+  swalInfo,
+  swalConfirm,
+  swalAlert,
+} from "../../utils/swalHelper";
 
 import {
   UserOutlined,
@@ -122,7 +129,11 @@ const HomePage = () => {
   const [bugListOpen, setBugListOpen] = useState(false);
   const [bugListData, setBugListData] = useState([]);
   const [bugListLoading, setBugListLoading] = useState(false);
-  const [bugListStats, setBugListStats] = useState({ total: 0, open: 0, resolved: 0 });
+  const [bugListStats, setBugListStats] = useState({
+    total: 0,
+    open: 0,
+    resolved: 0,
+  });
   const [unreadMsgCount, setUnreadMsgCount] = useState(0);
   const [recentConversations, setRecentConversations] = useState([]);
   const [loadingRecentConvs, setLoadingRecentConvs] = useState(false);
@@ -130,6 +141,27 @@ const HomePage = () => {
 
   // Per-feature maintenance status
   const [featureMaintenance, setFeatureMaintenance] = useState({});
+
+  // Listen for permission revocations and redirect if user loses access to current page
+  useEffect(() => {
+    const handler = (e) => {
+      const { revokedKeys } = e.detail || {};
+      if (!revokedKeys?.length) return;
+      // Show notification about access change
+      Modal.warning({
+        title: "Access Updated",
+        content:
+          "Your account permissions have been updated by an administrator. Some features may no longer be available.",
+        okText: "OK",
+        onOk: () => {
+          // Navigate to dashboard (safe default) - the menu will auto-update
+          navigate("/", { replace: true });
+        },
+      });
+    };
+    window.addEventListener("permissions-revoked", handler);
+    return () => window.removeEventListener("permissions-revoked", handler);
+  }, [navigate]);
 
   // Fetch unread message count & listen for new messages
   useEffect(() => {
@@ -154,7 +186,9 @@ const HomePage = () => {
   useEffect(() => {
     const fetchFeatureMaintenance = async () => {
       try {
-        const { data } = await axiosInstance.get("/settings/feature-maintenance");
+        const { data } = await axiosInstance.get(
+          "/settings/feature-maintenance",
+        );
         if (data.isDeveloper) {
           setFeatureMaintenance({}); // Developers see everything
         } else {
@@ -174,11 +208,12 @@ const HomePage = () => {
     try {
       const { data } = await axiosInstance.get("/messages/conversations");
       setRecentConversations((data || []).slice(0, 5));
-    } catch {} finally {
+    } catch {
+    } finally {
       setLoadingRecentConvs(false);
     }
   };
-  
+
   const beforeUploadScreenshot = (file) => {
     const isImage = file.type.startsWith("image/");
     if (!isImage) {
@@ -218,23 +253,29 @@ const HomePage = () => {
     } catch (err) {
       // Ignore validation errors (they have errorFields)
       if (err?.errorFields) return;
-      swalError(
-        err?.response?.data?.message || "Failed to send bug report."
-      );
+      swalError(err?.response?.data?.message || "Failed to send bug report.");
       console.debug("Bug report failed", err);
     } finally {
       setBugSubmitting(false);
     }
   };
+
   const handleOpenDevSettings = () => {
     navigate("/settings/developer-settings");
   };
+  
   const handleOpenBugReports = async () => {
     setBugListOpen(true);
     setBugListLoading(true);
     try {
-      const res = await axiosInstance.get("/bug-report", { params: { page: 1, limit: 50 } });
-      const rows = Array.isArray(res.data?.data) ? res.data.data : Array.isArray(res.data) ? res.data : [];
+      const res = await axiosInstance.get("/bug-report", {
+        params: { page: 1, limit: 50 },
+      });
+      const rows = Array.isArray(res.data?.data)
+        ? res.data.data
+        : Array.isArray(res.data)
+          ? res.data
+          : [];
       setBugListData(rows);
       const total = res.data?.total ?? rows.length;
       const open = rows.filter((r) => r.status !== "resolved").length;
@@ -245,7 +286,7 @@ const HomePage = () => {
       setBugListLoading(false);
     }
   };
-  
+
   // Demo mode state
   const { isDemoActive, isDemoUser, demoSettings } = useDemoMode();
   // Close bug modal if demo mode is turned off
@@ -334,14 +375,14 @@ const HomePage = () => {
     const handleDtrSent = (payload) => {
       if (payload?.id) {
         setNotifications((prev) =>
-          prev.filter((n) => (n._id || n.id) !== String(payload.id))
+          prev.filter((n) => (n._id || n.id) !== String(payload.id)),
         );
       }
     };
     const handlePayslipSent = (payload) => {
       if (payload?.id) {
         setNotifications((prev) =>
-          prev.filter((n) => (n._id || n.id) !== String(payload.id))
+          prev.filter((n) => (n._id || n.id) !== String(payload.id)),
         );
       }
     };
@@ -543,9 +584,15 @@ const HomePage = () => {
       {
         key: "messaging",
         icon: <MessageOutlined />,
-        label: unreadMsgCount > 0
-          ? <span>Messaging <Badge count={unreadMsgCount} size="small" overflowCount={99} /></span>
-          : "Messaging",
+        label:
+          unreadMsgCount > 0 ? (
+            <span>
+              Messaging{" "}
+              <Badge count={unreadMsgCount} size="small" overflowCount={99} />
+            </span>
+          ) : (
+            "Messaging"
+          ),
         className: "messaging-menu-item",
         permissions: ["canViewMessages"],
         children: [
@@ -697,14 +744,33 @@ const HomePage = () => {
           // If feature is under maintenance (but not hidden), mark it
           const isUnderMaintenance = fm && fm.enabled && !fm.hidden;
           const itemWithMaint = isUnderMaintenance
-            ? { ...item, disabled: true, label: (
-                <span style={{ display: "flex", alignItems: "center", gap: 6, opacity: 0.6 }}>
-                  {typeof item.label === "string" ? item.label : item.label}
-                  <Tag color="orange" style={{ fontSize: 10, lineHeight: "16px", padding: "0 4px", marginLeft: 4 }}>
-                    Maintenance
-                  </Tag>
-                </span>
-              )}
+            ? {
+                ...item,
+                disabled: true,
+                label: (
+                  <span
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      opacity: 0.6,
+                    }}
+                  >
+                    {typeof item.label === "string" ? item.label : item.label}
+                    <Tag
+                      color="orange"
+                      style={{
+                        fontSize: 10,
+                        lineHeight: "16px",
+                        padding: "0 4px",
+                        marginLeft: 4,
+                      }}
+                    >
+                      Maintenance
+                    </Tag>
+                  </span>
+                ),
+              }
             : item;
 
           if (item.children) {
@@ -733,8 +799,8 @@ const HomePage = () => {
         }
         setNotifications((prev) =>
           prev.map((notif) =>
-            notif.id === n.id ? { ...notif, read: true } : notif
-          )
+            notif.id === n.id ? { ...notif, read: true } : notif,
+          ),
         );
       }
     } catch (error) {
@@ -761,14 +827,14 @@ const HomePage = () => {
               noLeadingZeros && noLeadingZeros !== rawId
                 ? noLeadingZeros
                 : null,
-            ].filter(Boolean)
-          )
+            ].filter(Boolean),
+          ),
         );
 
         // Helper to try fetch against a base prefix ("" for relative, or absolute base)
         const tryFetch = async (basePrefix, id) => {
           const path = `${basePrefix}/employees/by-emp-id/${encodeURIComponent(
-            id
+            id,
           )}`.replace(/([^:]\/)\/+/g, "$1/");
           return axiosInstance.get(path);
         };
@@ -821,23 +887,23 @@ const HomePage = () => {
     // Determine range: DTRRequest uses explicit start/end; PayslipRequest uses period month (YYYY-MM)
     let rangeStart = null;
     let rangeEnd = null;
-    if (n.type === 'DTRRequest') {
+    if (n.type === "DTRRequest") {
       // Use the request's Start Date / End Date as the definitive coverage range
       if (n.startDate && n.endDate) {
-        rangeStart = dayjs(n.startDate).tz('Asia/Manila').startOf('day');
-        rangeEnd = dayjs(n.endDate).tz('Asia/Manila').startOf('day');
+        rangeStart = dayjs(n.startDate).tz("Asia/Manila").startOf("day");
+        rangeEnd = dayjs(n.endDate).tz("Asia/Manila").startOf("day");
       } else if (n.startDate) {
         // Single date — treat as full-month request
-        const d = dayjs(n.startDate).tz('Asia/Manila');
-        rangeStart = d.startOf('month');
-        rangeEnd = d.endOf('month').startOf('day');
+        const d = dayjs(n.startDate).tz("Asia/Manila");
+        rangeStart = d.startOf("month");
+        rangeEnd = d.endOf("month").startOf("day");
       }
-    } else if ((n.type === 'PayslipRequest' || n.period) && n.period) {
+    } else if ((n.type === "PayslipRequest" || n.period) && n.period) {
       // Expect n.period like YYYY-MM; fallback skip if malformed
-      const parsed = dayjs.tz(n.period + '-01', 'Asia/Manila');
+      const parsed = dayjs.tz(n.period + "-01", "Asia/Manila");
       if (parsed.isValid()) {
-        rangeStart = parsed.startOf('month');
-        rangeEnd = parsed.endOf('month').startOf('day');
+        rangeStart = parsed.startOf("month");
+        rangeEnd = parsed.endOf("month").startOf("day");
       }
     }
     if (!rangeStart || !rangeEnd) {
@@ -852,10 +918,10 @@ const HomePage = () => {
         setDtrPreviewRows([]);
 
         // Fetch ALL logs for the employee within the date range (limit=500 to avoid default pagination of 20)
-        const { data } = await axiosInstance.get('/dtrlogs/merged', {
+        const { data } = await axiosInstance.get("/dtrlogs/merged", {
           params: {
-            startDate: rangeStart.format('YYYY-MM-DD'),
-            endDate: rangeEnd.format('YYYY-MM-DD'),
+            startDate: rangeStart.format("YYYY-MM-DD"),
+            endDate: rangeEnd.format("YYYY-MM-DD"),
             empIds: n.employeeId,
             limit: 500,
           },
@@ -864,87 +930,126 @@ const HomePage = () => {
         const logs = data?.data || [];
 
         // Fetch holidays, local holidays, and suspensions in parallel
-        const startStr = rangeStart.format('YYYY-MM-DD');
-        const endStr = rangeEnd.format('YYYY-MM-DD');
+        const startStr = rangeStart.format("YYYY-MM-DD");
+        const endStr = rangeEnd.format("YYYY-MM-DD");
         let allHolidays = [];
         try {
           const yearStart = rangeStart.year();
           const yearEnd = rangeEnd.year();
           const [phRes, lhRes, sRes] = await Promise.all([
             fetchPhilippineHolidays(yearStart).catch(() => []),
-            axiosInstance.get('/local-holidays/public', { params: { start: startStr, end: endStr } }).catch(() => ({ data: { data: [] } })),
-            axiosInstance.get('/suspensions/public', { params: { start: startStr, end: endStr } }).catch(() => ({ data: { data: [] } })),
+            axiosInstance
+              .get("/local-holidays/public", {
+                params: { start: startStr, end: endStr },
+              })
+              .catch(() => ({ data: { data: [] } })),
+            axiosInstance
+              .get("/suspensions/public", {
+                params: { start: startStr, end: endStr },
+              })
+              .catch(() => ({ data: { data: [] } })),
           ]);
           let phHolidays = phRes || [];
           if (yearEnd !== yearStart) {
             const ph2 = await fetchPhilippineHolidays(yearEnd).catch(() => []);
             phHolidays = [...phHolidays, ...(ph2 || [])];
           }
-          const localHolidays = (lhRes?.data?.data || []).map(h => ({
-            date: dayjs(h.date).format('YYYY-MM-DD'),
-            endDate: h.endDate ? dayjs(h.endDate).format('YYYY-MM-DD') : null,
+          const localHolidays = (lhRes?.data?.data || []).map((h) => ({
+            date: dayjs(h.date).format("YYYY-MM-DD"),
+            endDate: h.endDate ? dayjs(h.endDate).format("YYYY-MM-DD") : null,
             name: h.name,
-            type: 'Local Holiday',
+            type: "Local Holiday",
           }));
-          const suspensions = (sRes?.data?.data || []).map(s => ({
-            date: dayjs(s.date).format('YYYY-MM-DD'),
-            endDate: s.endDate ? dayjs(s.endDate).format('YYYY-MM-DD') : null,
+          const suspensions = (sRes?.data?.data || []).map((s) => ({
+            date: dayjs(s.date).format("YYYY-MM-DD"),
+            endDate: s.endDate ? dayjs(s.endDate).format("YYYY-MM-DD") : null,
             name: s.title || s.name,
-            type: 'Suspension',
+            type: "Suspension",
           }));
           allHolidays = [
-            ...phHolidays.map(h => ({ date: h.date, name: h.localName, type: h.type })),
+            ...phHolidays.map((h) => ({
+              date: h.date,
+              name: h.localName,
+              type: h.type,
+            })),
             ...localHolidays,
             ...suspensions,
           ];
         } catch (_) {}
 
         const getHolidayName = (dateKey) => {
-          const found = allHolidays.find(h => {
+          const found = allHolidays.find((h) => {
             const s = h.date || null;
             const e = h.endDate || null;
-            if (s && e) return dayjs(dateKey).isSameOrAfter(s, 'day') && dayjs(dateKey).isSameOrBefore(e, 'day');
+            if (s && e)
+              return (
+                dayjs(dateKey).isSameOrAfter(s, "day") &&
+                dayjs(dateKey).isSameOrBefore(e, "day")
+              );
             return s === dateKey;
           });
-          if (!found) return '';
-          return found.type === 'Suspension' ? `Suspension: ${found.name}` : found.name || 'Holiday';
+          if (!found) return "";
+          return found.type === "Suspension"
+            ? `Suspension: ${found.name}`
+            : found.name || "Holiday";
         };
 
         // Group logs by date using Asia/Manila timezone
         const byDate = logs.reduce((acc, log) => {
-          const dateKey = dayjs(log.time).tz('Asia/Manila').format('YYYY-MM-DD');
+          const dateKey = dayjs(log.time)
+            .tz("Asia/Manila")
+            .format("YYYY-MM-DD");
           if (!acc[dateKey]) acc[dateKey] = [];
           acc[dateKey].push(log);
           return acc;
         }, {});
-        const totalDays = rangeEnd.diff(rangeStart, 'day') + 1;
+        const totalDays = rangeEnd.diff(rangeStart, "day") + 1;
         const rows = Array.from({ length: totalDays }).map((_, idx) => {
-          const date = rangeStart.add(idx, 'day');
-          const key = date.format('YYYY-MM-DD');
-          const dayLogs = (byDate[key] || []);
+          const date = rangeStart.add(idx, "day");
+          const key = date.format("YYYY-MM-DD");
+          const dayLogs = byDate[key] || [];
 
           // Use shared chronological position-based detection
-          const resolved = resolveTimePunches(dayLogs, { format: 'h:mm', defaultBreak: true });
+          const resolved = resolveTimePunches(dayLogs, {
+            format: "h:mm",
+            defaultBreak: true,
+          });
           const { timeIn, breakOut, breakIn, timeOut } = resolved;
 
           const dayOfWeek = date.day();
-          let status = '';
+          let status = "";
           const holidayName = getHolidayName(key);
           if (holidayName) status = holidayName;
-          else if (dayOfWeek === 0) status = 'Sunday';
-          else if (dayOfWeek === 6) status = 'Saturday';
+          else if (dayOfWeek === 0) status = "Sunday";
+          else if (dayOfWeek === 6) status = "Saturday";
           const hasLogs = Boolean(timeIn || timeOut || breakOut || breakIn);
-          return { key, date: date.format('MM/DD/YYYY'), timeIn: timeIn || '---', breakOut: breakOut || '---', breakIn: breakIn || '---', timeOut: timeOut || '---', status, hasLogs };
+          return {
+            key,
+            date: date.format("MM/DD/YYYY"),
+            timeIn: timeIn || "---",
+            breakOut: breakOut || "---",
+            breakIn: breakIn || "---",
+            timeOut: timeOut || "---",
+            status,
+            hasLogs,
+          };
         });
         setDtrPreviewRows(rows);
       } catch (err) {
-        if (!cancelled) setDtrPreviewError(err?.response?.data?.message || err.message || 'Failed to load time logs');
+        if (!cancelled)
+          setDtrPreviewError(
+            err?.response?.data?.message ||
+              err.message ||
+              "Failed to load time logs",
+          );
       } finally {
         if (!cancelled) setDtrPreviewLoading(false);
       }
     };
     load();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [isNotificationModalOpen, selectedNotification]);
 
   // ---- Messages Modal Logic ----
@@ -960,7 +1065,7 @@ const HomePage = () => {
       setEmployeeDetails(null);
       try {
         const { data } = await axiosInstance.get(
-          `/employees/by-emp-id/${encodeURIComponent(m.employeeId)}`
+          `/employees/by-emp-id/${encodeURIComponent(m.employeeId)}`,
         );
         if (data?.success) {
           setEmployeeDetails(data.data);
@@ -999,7 +1104,7 @@ const HomePage = () => {
                     axiosInstance.put("/dtr-requests/read-all"),
                   ]);
                   setNotifications((prev) =>
-                    prev.map((n) => ({ ...n, read: true }))
+                    prev.map((n) => ({ ...n, read: true })),
                   );
                 } catch (error) {
                   swalError("Failed to mark all notifications as read");
@@ -1102,7 +1207,13 @@ const HomePage = () => {
           ));
         })()
       )}
-      <div style={{ textAlign: "center", padding: "8px 0", borderTop: "1px solid var(--app-border-color, #f0f0f0)" }}>
+      <div
+        style={{
+          textAlign: "center",
+          padding: "8px 0",
+          borderTop: "1px solid var(--app-border-color, #f0f0f0)",
+        }}
+      >
         <Button
           type="link"
           size="small"
@@ -1166,26 +1277,28 @@ const HomePage = () => {
                   // Call backend to send email
                   await axiosInstance.post(
                     `/payslip-requests/${encodeURIComponent(
-                      n._id || n.id
+                      n._id || n.id,
                     )}/send-email`,
                     {
                       pdfBase64,
                       filename: `payslip_${n.employeeId}_${(
                         n.period || ""
                       ).replace(/\//g, "-")}.pdf`,
-                    }
+                    },
                   );
                   swalSuccess("Payslip emailed successfully");
                   // Remove dispatched notification in real-time and close modal
                   setNotifications((prev) =>
-                    prev.filter((item) => (item._id || item.id) !== (n._id || n.id))
+                    prev.filter(
+                      (item) => (item._id || item.id) !== (n._id || n.id),
+                    ),
                   );
                   setIsNotificationModalOpen(false);
                   setSelectedNotification(null);
                 } catch (err) {
                   swalError(
                     err?.response?.data?.message ||
-                      "Failed to send payslip email"
+                      "Failed to send payslip email",
                   );
                 }
               }}
@@ -1194,56 +1307,60 @@ const HomePage = () => {
             </Button>
           ),
         // If this is a DTR request, provide a quick "Send DTR" action when HR already has a generated PDF
-        selectedNotification &&
-          selectedNotification.type === "DTRRequest" && (
-            <Button
-              key="sendDTR"
-              onClick={async () => {
-                try {
-                  const pdfBase64 = window.__LAST_GENERATED_DTR_BASE64__;
-                  if (!pdfBase64) {
-                    swalAlert({
-                      title: "Attach DTR PDF",
-                      text: 'Please generate or open the DTR first so it can be attached. After generating, click "Send DTR" again.',
-                      icon: "info",
-                    });
-                    return;
-                  }
-                  const n = selectedNotification;
-                  const startLabel = n.startDate ? new Date(n.startDate).toLocaleDateString() : "";
-                  const endLabel = n.endDate ? new Date(n.endDate).toLocaleDateString() : "";
-                  const result = await swalConfirm({
-                    title: "Send DTR to employee?",
-                    text: `Employee ${n.employeeId} • ${startLabel} – ${endLabel}\n\nThe DTR PDF will be sent to: ${n.email || "the email on file"}`,
-                    icon: "question",
-                    confirmText: "Send",
+        selectedNotification && selectedNotification.type === "DTRRequest" && (
+          <Button
+            key="sendDTR"
+            onClick={async () => {
+              try {
+                const pdfBase64 = window.__LAST_GENERATED_DTR_BASE64__;
+                if (!pdfBase64) {
+                  swalAlert({
+                    title: "Attach DTR PDF",
+                    text: 'Please generate or open the DTR first so it can be attached. After generating, click "Send DTR" again.',
+                    icon: "info",
                   });
-                  if (!result.isConfirmed) return;
-                  await axiosInstance.post(
-                    `/dtr-requests/${encodeURIComponent(n._id || n.id)}/send-email`,
-                    {
-                      pdfBase64,
-                      filename: `dtr_${n.employeeId}_${startLabel.replace(/\//g, "-")}.pdf`,
-                    }
-                  );
-                  swalSuccess("DTR emailed successfully");
-                  // Remove dispatched notification in real-time and close modal
-                  setNotifications((prev) =>
-                    prev.filter((item) => (item._id || item.id) !== (n._id || n.id))
-                  );
-                  setIsNotificationModalOpen(false);
-                  setSelectedNotification(null);
-                } catch (err) {
-                  swalError(
-                    err?.response?.data?.message ||
-                      "Failed to send DTR email"
-                  );
+                  return;
                 }
-              }}
-            >
-              Send DTR
-            </Button>
-          ),
+                const n = selectedNotification;
+                const startLabel = n.startDate
+                  ? new Date(n.startDate).toLocaleDateString()
+                  : "";
+                const endLabel = n.endDate
+                  ? new Date(n.endDate).toLocaleDateString()
+                  : "";
+                const result = await swalConfirm({
+                  title: "Send DTR to employee?",
+                  text: `Employee ${n.employeeId} • ${startLabel} – ${endLabel}\n\nThe DTR PDF will be sent to: ${n.email || "the email on file"}`,
+                  icon: "question",
+                  confirmText: "Send",
+                });
+                if (!result.isConfirmed) return;
+                await axiosInstance.post(
+                  `/dtr-requests/${encodeURIComponent(n._id || n.id)}/send-email`,
+                  {
+                    pdfBase64,
+                    filename: `dtr_${n.employeeId}_${startLabel.replace(/\//g, "-")}.pdf`,
+                  },
+                );
+                swalSuccess("DTR emailed successfully");
+                // Remove dispatched notification in real-time and close modal
+                setNotifications((prev) =>
+                  prev.filter(
+                    (item) => (item._id || item.id) !== (n._id || n.id),
+                  ),
+                );
+                setIsNotificationModalOpen(false);
+                setSelectedNotification(null);
+              } catch (err) {
+                swalError(
+                  err?.response?.data?.message || "Failed to send DTR email",
+                );
+              }
+            }}
+          >
+            Send DTR
+          </Button>
+        ),
         selectedNotification && (
           <Button
             key="process"
@@ -1364,14 +1481,14 @@ const HomePage = () => {
                 {selectedNotification.startDate && (
                   <Descriptions.Item label="Start Date">
                     {new Date(
-                      selectedNotification.startDate
+                      selectedNotification.startDate,
                     ).toLocaleDateString()}
                   </Descriptions.Item>
                 )}
                 {selectedNotification.endDate && (
                   <Descriptions.Item label="End Date">
                     {new Date(
-                      selectedNotification.endDate
+                      selectedNotification.endDate,
                     ).toLocaleDateString()}
                   </Descriptions.Item>
                 )}
@@ -1392,7 +1509,9 @@ const HomePage = () => {
                 {selectedNotification.read ? "Read" : "Unread"}
               </Tag>
               {selectedNotification.status === "sent" && (
-                <Tag color="green" style={{ marginLeft: 4 }}>Sent</Tag>
+                <Tag color="green" style={{ marginLeft: 4 }}>
+                  Sent
+                </Tag>
               )}
             </Descriptions.Item>
             {selectedNotification.email && (
@@ -1419,116 +1538,161 @@ const HomePage = () => {
             )}
           </Descriptions>
           {/* Collapsible Quick DTR Summary */}
-          {(selectedNotification?.type === 'DTRRequest' || selectedNotification?.type === 'PayslipRequest' || selectedNotification?.period) && (
+          {(selectedNotification?.type === "DTRRequest" ||
+            selectedNotification?.type === "PayslipRequest" ||
+            selectedNotification?.period) && (
             <Collapse
               size="small"
               style={{ marginTop: 12 }}
-              items={[{
-                key: 'dtr-summary',
-                label: `Quick DTR Summary${dtrPreviewRows.length ? ` (${dtrPreviewRows.filter(r => r.hasLogs).length} days with logs)` : ''}`,
-                children: (
-                  <>
-                    {dtrPreviewLoading && (
-                      <Skeleton active paragraph={{ rows: 4 }} />
-                    )}
-                    {dtrPreviewError && (
-                      <Alert type="error" showIcon message={dtrPreviewError} />
-                    )}
-                    {!dtrPreviewLoading && !dtrPreviewError && dtrPreviewRows.length > 0 && (
-                      <Table
-                        size="small"
-                        className="dtr-table-compact compact-table"
-                        dataSource={dtrPreviewRows}
-                        pagination={false}
-                        rowKey={(r) => r.key}
-                        bordered
-                        scroll={{ x: 420 }}
-                        columns={[
-                          {
-                            title: "Date",
-                            dataIndex: "date",
-                            key: "date",
-                            width: 85,
-                            onCell: () => ({ className: "date-cell", style: { fontSize: 11, padding: '4px 6px' } }),
-                          },
-                          {
-                            title: "In",
-                            dataIndex: "timeIn",
-                            key: "timeIn",
-                            width: 55,
-                            render: (value, record) =>
-                              !record.hasLogs && record.status
-                                ? record.status
-                                : value,
-                            onCell: (record) =>
-                              !record.hasLogs && record.status
-                                ? {
-                                    colSpan: 4,
-                                    style: {
-                                      background: "#f5f5f5",
-                                      textAlign: "center",
-                                      fontWeight: 500,
-                                      color: "#888",
-                                      fontSize: 11,
-                                      padding: '4px 6px',
-                                    },
-                                  }
-                                : { className: "time-cell", style: { fontSize: 11, padding: '4px 6px' } },
-                          },
-                          {
-                            title: "B-Out",
-                            dataIndex: "breakOut",
-                            key: "breakOut",
-                            width: 55,
-                            onCell: (record) =>
-                              !record.hasLogs && record.status
-                                ? { colSpan: 0 }
-                                : { className: "time-cell", style: { fontSize: 11, padding: '4px 6px' } },
-                          },
-                          {
-                            title: "B-In",
-                            dataIndex: "breakIn",
-                            key: "breakIn",
-                            width: 55,
-                            onCell: (record) =>
-                              !record.hasLogs && record.status
-                                ? { colSpan: 0 }
-                                : { className: "time-cell", style: { fontSize: 11, padding: '4px 6px' } },
-                          },
-                          {
-                            title: "Out",
-                            dataIndex: "timeOut",
-                            key: "timeOut",
-                            width: 55,
-                            onCell: (record) =>
-                              !record.hasLogs && record.status
-                                ? { colSpan: 0 }
-                                : { className: "time-cell", style: { fontSize: 11, padding: '4px 6px' } },
-                          },
-                        ]}
-                      />
-                    )}
-                    {!dtrPreviewLoading && !dtrPreviewError && dtrPreviewRows.length > 0 &&
-                      dtrPreviewRows.every(
-                        (r) => r.timeIn === "---" && r.breakOut === "---" && r.breakIn === "---" && r.timeOut === "---"
-                      ) && (
+              items={[
+                {
+                  key: "dtr-summary",
+                  label: `Quick DTR Summary${dtrPreviewRows.length ? ` (${dtrPreviewRows.filter((r) => r.hasLogs).length} days with logs)` : ""}`,
+                  children: (
+                    <>
+                      {dtrPreviewLoading && (
+                        <Skeleton active paragraph={{ rows: 4 }} />
+                      )}
+                      {dtrPreviewError && (
                         <Alert
-                          style={{ marginTop: 8 }}
-                          type="warning"
+                          type="error"
                           showIcon
-                          message="No biometrics encoded yet for the selected period."
+                          message={dtrPreviewError}
                         />
                       )}
-                    {!dtrPreviewLoading && !dtrPreviewError && dtrPreviewRows.length === 0 && (
-                      <Alert
-                        type="warning"
-                        showIcon
-                        message="No biometrics encoded yet for the selected period."
-                      />
-                    )}
-                  </>
-                ),
-              }]}
+                      {!dtrPreviewLoading &&
+                        !dtrPreviewError &&
+                        dtrPreviewRows.length > 0 && (
+                          <Table
+                            size="small"
+                            className="dtr-table-compact compact-table"
+                            dataSource={dtrPreviewRows}
+                            pagination={false}
+                            rowKey={(r) => r.key}
+                            bordered
+                            scroll={{ x: 420 }}
+                            columns={[
+                              {
+                                title: "Date",
+                                dataIndex: "date",
+                                key: "date",
+                                width: 85,
+                                onCell: () => ({
+                                  className: "date-cell",
+                                  style: { fontSize: 11, padding: "4px 6px" },
+                                }),
+                              },
+                              {
+                                title: "In",
+                                dataIndex: "timeIn",
+                                key: "timeIn",
+                                width: 55,
+                                render: (value, record) =>
+                                  !record.hasLogs && record.status
+                                    ? record.status
+                                    : value,
+                                onCell: (record) =>
+                                  !record.hasLogs && record.status
+                                    ? {
+                                        colSpan: 4,
+                                        style: {
+                                          background: "#f5f5f5",
+                                          textAlign: "center",
+                                          fontWeight: 500,
+                                          color: "#888",
+                                          fontSize: 11,
+                                          padding: "4px 6px",
+                                        },
+                                      }
+                                    : {
+                                        className: "time-cell",
+                                        style: {
+                                          fontSize: 11,
+                                          padding: "4px 6px",
+                                        },
+                                      },
+                              },
+                              {
+                                title: "B-Out",
+                                dataIndex: "breakOut",
+                                key: "breakOut",
+                                width: 55,
+                                onCell: (record) =>
+                                  !record.hasLogs && record.status
+                                    ? { colSpan: 0 }
+                                    : {
+                                        className: "time-cell",
+                                        style: {
+                                          fontSize: 11,
+                                          padding: "4px 6px",
+                                        },
+                                      },
+                              },
+                              {
+                                title: "B-In",
+                                dataIndex: "breakIn",
+                                key: "breakIn",
+                                width: 55,
+                                onCell: (record) =>
+                                  !record.hasLogs && record.status
+                                    ? { colSpan: 0 }
+                                    : {
+                                        className: "time-cell",
+                                        style: {
+                                          fontSize: 11,
+                                          padding: "4px 6px",
+                                        },
+                                      },
+                              },
+                              {
+                                title: "Out",
+                                dataIndex: "timeOut",
+                                key: "timeOut",
+                                width: 55,
+                                onCell: (record) =>
+                                  !record.hasLogs && record.status
+                                    ? { colSpan: 0 }
+                                    : {
+                                        className: "time-cell",
+                                        style: {
+                                          fontSize: 11,
+                                          padding: "4px 6px",
+                                        },
+                                      },
+                              },
+                            ]}
+                          />
+                        )}
+                      {!dtrPreviewLoading &&
+                        !dtrPreviewError &&
+                        dtrPreviewRows.length > 0 &&
+                        dtrPreviewRows.every(
+                          (r) =>
+                            r.timeIn === "---" &&
+                            r.breakOut === "---" &&
+                            r.breakIn === "---" &&
+                            r.timeOut === "---",
+                        ) && (
+                          <Alert
+                            style={{ marginTop: 8 }}
+                            type="warning"
+                            showIcon
+                            message="No biometrics encoded yet for the selected period."
+                          />
+                        )}
+                      {!dtrPreviewLoading &&
+                        !dtrPreviewError &&
+                        dtrPreviewRows.length === 0 && (
+                          <Alert
+                            type="warning"
+                            showIcon
+                            message="No biometrics encoded yet for the selected period."
+                          />
+                        )}
+                    </>
+                  ),
+                },
+              ]}
             />
           )}
         </>
@@ -1649,69 +1813,187 @@ const HomePage = () => {
   // ---- Messages Popover (recent conversations popup) ----
   const messageContent = hasAccess("canViewMessages") && (
     <div style={{ width: 360, maxHeight: 440, overflowY: "auto" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid #f0f0f0" }}>
-        <Text strong style={{ fontSize: 15 }}>Messages</Text>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          padding: "12px 16px",
+          borderBottom: "1px solid #f0f0f0",
+        }}
+      >
+        <Text strong style={{ fontSize: 15 }}>
+          Messages
+        </Text>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <Button size="small" icon={<PlusOutlined />} type="primary" style={{ borderRadius: 6 }}
-            onClick={() => { setMsgPopoverOpen(false); navigate("/messaging/inbox"); }}
-          >New</Button>
-          <Button type="link" size="small" onClick={() => { setMsgPopoverOpen(false); navigate("/messaging/inbox"); }}>
+          <Button
+            size="small"
+            icon={<PlusOutlined />}
+            type="primary"
+            style={{ borderRadius: 6 }}
+            onClick={() => {
+              setMsgPopoverOpen(false);
+              navigate("/messaging/inbox");
+            }}
+          >
+            New
+          </Button>
+          <Button
+            type="link"
+            size="small"
+            onClick={() => {
+              setMsgPopoverOpen(false);
+              navigate("/messaging/inbox");
+            }}
+          >
             View All
           </Button>
         </div>
       </div>
       {loadingRecentConvs ? (
-        <div style={{ textAlign: "center", padding: 30 }}><Skeleton active paragraph={{ rows: 3 }} /></div>
+        <div style={{ textAlign: "center", padding: 30 }}>
+          <Skeleton active paragraph={{ rows: 3 }} />
+        </div>
       ) : recentConversations.length === 0 ? (
         <div style={{ padding: "32px 16px", textAlign: "center" }}>
-          <div style={{ width: 56, height: 56, borderRadius: "50%", background: "linear-gradient(135deg, #e6f4ff, #f0f5ff)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px" }}>
+          <div
+            style={{
+              width: 56,
+              height: 56,
+              borderRadius: "50%",
+              background: "linear-gradient(135deg, #e6f4ff, #f0f5ff)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              margin: "0 auto 12px",
+            }}
+          >
             <MessageOutlined style={{ fontSize: 24, color: "#1677ff" }} />
           </div>
-          <Text type="secondary" style={{ fontSize: 13 }}>No conversations yet</Text>
+          <Text type="secondary" style={{ fontSize: 13 }}>
+            No conversations yet
+          </Text>
         </div>
       ) : (
         recentConversations.map((conv) => {
-          const other = (conv.participants || []).find((p) => String(p._id) !== String(user?._id));
-          const name = conv.isGroup ? (conv.groupName || "Group Chat") : (other?.name || "Unknown");
+          const other = (conv.participants || []).find(
+            (p) => String(p._id) !== String(user?._id),
+          );
+          const name = conv.isGroup
+            ? conv.groupName || "Group Chat"
+            : other?.name || "Unknown";
           const preview = conv.lastMessage
             ? conv.lastMessage.isDeleted
               ? "Message deleted"
               : conv.lastMessage.priority === "urgent"
-              ? `🔴 ${(conv.lastMessage.content || "").slice(0, 45)}`
-              : (conv.lastMessage.content || "").slice(0, 50)
+                ? `🔴 ${(conv.lastMessage.content || "").slice(0, 45)}`
+                : (conv.lastMessage.content || "").slice(0, 50)
             : "No messages yet";
           return (
             <div
               key={conv._id}
               style={{
-                display: "flex", alignItems: "center", gap: 10, padding: "10px 16px",
-                borderBottom: "1px solid #fafafa", cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                padding: "10px 16px",
+                borderBottom: "1px solid #fafafa",
+                cursor: "pointer",
                 background: conv.unreadCount > 0 ? "#f0f7ff" : "transparent",
                 transition: "background 0.15s",
               }}
-              onMouseEnter={(e) => { if (!conv.unreadCount) e.currentTarget.style.background = "#f9f9fb"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = conv.unreadCount > 0 ? "#f0f7ff" : "transparent"; }}
-              onClick={() => { setMsgPopoverOpen(false); navigate(`/messaging/inbox?cid=${conv._id}`); }}
+              onMouseEnter={(e) => {
+                if (!conv.unreadCount)
+                  e.currentTarget.style.background = "#f9f9fb";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background =
+                  conv.unreadCount > 0 ? "#f0f7ff" : "transparent";
+              }}
+              onClick={() => {
+                setMsgPopoverOpen(false);
+                navigate(`/messaging/inbox?cid=${conv._id}`);
+              }}
             >
               <div style={{ position: "relative", flexShrink: 0 }}>
                 {conv.isGroup ? (
-                  <Avatar style={{ background: "linear-gradient(135deg, #667eea, #764ba2)" }} icon={<TeamOutlined />} size={40} />
+                  <Avatar
+                    style={{
+                      background: "linear-gradient(135deg, #667eea, #764ba2)",
+                    }}
+                    icon={<TeamOutlined />}
+                    size={40}
+                  />
                 ) : other ? (
                   <UserAvatar user={other} size={40} />
                 ) : (
-                  <Avatar style={{ backgroundColor: "#1677ff" }} icon={<MessageOutlined />} size={40} />
+                  <Avatar
+                    style={{ backgroundColor: "#1677ff" }}
+                    icon={<MessageOutlined />}
+                    size={40}
+                  />
                 )}
                 {!conv.isGroup && other?.isOnline && (
-                  <span style={{ position: "absolute", bottom: 2, right: 2, width: 10, height: 10, background: "#52c41a", border: "2px solid #fff", borderRadius: "50%", zIndex: 1 }} />
+                  <span
+                    style={{
+                      position: "absolute",
+                      bottom: 2,
+                      right: 2,
+                      width: 10,
+                      height: 10,
+                      background: "#52c41a",
+                      border: "2px solid #fff",
+                      borderRadius: "50%",
+                      zIndex: 1,
+                    }}
+                  />
                 )}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: conv.unreadCount > 0 ? 600 : 500, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "flex", alignItems: "center", gap: 4 }}>
-                  {conv.isConfidential && <LockOutlined style={{ fontSize: 11, color: "#faad14" }} />}
+                <div
+                  style={{
+                    fontWeight: conv.unreadCount > 0 ? 600 : 500,
+                    fontSize: 13,
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                  }}
+                >
+                  {conv.isConfidential && (
+                    <LockOutlined style={{ fontSize: 11, color: "#faad14" }} />
+                  )}
                   {name}
-                  {conv.isGroup && <span style={{ fontSize: 10, color: "#8c8c8c", background: "#f0f0f0", borderRadius: 10, padding: "0 5px", height: 16, display: "inline-flex", alignItems: "center", marginLeft: 4 }}>{(conv.participants || []).length}</span>}
+                  {conv.isGroup && (
+                    <span
+                      style={{
+                        fontSize: 10,
+                        color: "#8c8c8c",
+                        background: "#f0f0f0",
+                        borderRadius: 10,
+                        padding: "0 5px",
+                        height: 16,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        marginLeft: 4,
+                      }}
+                    >
+                      {(conv.participants || []).length}
+                    </span>
+                  )}
                 </div>
-                <div style={{ fontSize: 12, color: "#8c8c8c", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: 1 }}>
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: "#8c8c8c",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    marginTop: 1,
+                  }}
+                >
                   {preview}
                 </div>
               </div>
@@ -1722,7 +2004,11 @@ const HomePage = () => {
                   </div>
                 )}
                 {conv.unreadCount > 0 && (
-                  <Badge count={conv.unreadCount} size="small" style={{ marginTop: 4 }} />
+                  <Badge
+                    count={conv.unreadCount}
+                    size="small"
+                    style={{ marginTop: 4 }}
+                  />
                 )}
               </div>
             </div>
@@ -1795,7 +2081,7 @@ const HomePage = () => {
           (!isDemoActive ||
             !isDemoUser ||
             (demoSettings?.allowedPermissions || []).includes(
-              "canManipulateBiometrics"
+              "canManipulateBiometrics",
             )) && (
             <div style={{ padding: "12px", textAlign: "center" }}>
               {collapsed ? (
@@ -1838,7 +2124,12 @@ const HomePage = () => {
         />
       )}
 
-      <Layout style={{ marginLeft: collapsed ? 80 : 220, transition: 'margin-left 0.2s' }}>
+      <Layout
+        style={{
+          marginLeft: collapsed ? 80 : 220,
+          transition: "margin-left 0.2s",
+        }}
+      >
         <Header
           className="header"
           style={{ background: "var(--app-header-bg, #ffffff)" }}
@@ -1964,12 +2255,11 @@ const HomePage = () => {
                 if (open) fetchRecentConversations();
               }}
             >
-              <Badge
-                count={unreadMsgCount}
-                size="small"
-                overflowCount={99}
-              >
-                <MessageOutlined className="icon-trigger" style={{ cursor: 'pointer' }} />
+              <Badge count={unreadMsgCount} size="small" overflowCount={99}>
+                <MessageOutlined
+                  className="icon-trigger"
+                  style={{ cursor: "pointer" }}
+                />
               </Badge>
             </Popover>
             <Popover
@@ -1989,92 +2279,93 @@ const HomePage = () => {
         </Header>
 
         <div className="homepage-content-scroll">
-        <Content style={{ margin: "16px", paddingBottom: 0 }}
-          className="main-content"
-        >
-          <div className="content-wrapper">
-            <Routes>
-              <Route
-                path="/"
-                element={
-                  <ProtectedRoute requiredPermissions={["canViewDashboard"]}>
-                    <Dashboard />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/employeeinfo"
-                element={
-                  <ProtectedRoute requiredPermissions={["canViewEmployees"]}>
-                    <GenInfo />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/dtr/logs"
-                element={
-                  <ProtectedRoute requiredPermissions={["canViewDTR"]}>
-                    <DTRLogs />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/dtr/process"
-                element={
-                  <ProtectedRoute requiredPermissions={["canProcessDTR"]}>
-                    <DTRProcess currentUser={user} />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/dtr/reports"
-                element={
-                  <ProtectedRoute requiredPermissions={["canViewDTR"]}>
-                    <DTRReports />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/dtr/holidays"
-                element={
-                  <ProtectedRoute requiredPermissions={["canViewDTR"]}>
-                    <Holidays />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/trainings"
-                element={
-                  <ProtectedRoute requiredPermissions={["canViewTrainings"]}>
-                    <Trainings />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/benefitsinfo"
-                element={
-                  <ProtectedRoute requiredPermissions={["canViewPayroll"]}>
-                    <BenefitsInfo />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/settings/account"
-                element={
-                  <ProtectedRoute requiredPermissions={["canAccessSettings"]}>
-                    <AccountSettings />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/settings/access"
-                element={
-                  <ProtectedRoute requiredPermissions={["canManageUsers"]}>
-                    <UserAccess />
-                  </ProtectedRoute>
-                }
-              />
-              {/* <Route
+          <Content
+            style={{ margin: "16px", paddingBottom: 0 }}
+            className="main-content"
+          >
+            <div className="content-wrapper">
+              <Routes>
+                <Route
+                  path="/"
+                  element={
+                    <ProtectedRoute requiredPermissions={["canViewDashboard"]}>
+                      <Dashboard />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/employeeinfo"
+                  element={
+                    <ProtectedRoute requiredPermissions={["canViewEmployees"]}>
+                      <GenInfo />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/dtr/logs"
+                  element={
+                    <ProtectedRoute requiredPermissions={["canViewDTR"]}>
+                      <DTRLogs />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/dtr/process"
+                  element={
+                    <ProtectedRoute requiredPermissions={["canProcessDTR"]}>
+                      <DTRProcess currentUser={user} />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/dtr/reports"
+                  element={
+                    <ProtectedRoute requiredPermissions={["canViewDTR"]}>
+                      <DTRReports />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/dtr/holidays"
+                  element={
+                    <ProtectedRoute requiredPermissions={["canViewDTR"]}>
+                      <Holidays />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/trainings"
+                  element={
+                    <ProtectedRoute requiredPermissions={["canViewTrainings"]}>
+                      <Trainings />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/benefitsinfo"
+                  element={
+                    <ProtectedRoute requiredPermissions={["canViewPayroll"]}>
+                      <BenefitsInfo />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/settings/account"
+                  element={
+                    <ProtectedRoute requiredPermissions={["canAccessSettings"]}>
+                      <AccountSettings />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/settings/access"
+                  element={
+                    <ProtectedRoute requiredPermissions={["canManageUsers"]}>
+                      <UserAccess />
+                    </ProtectedRoute>
+                  }
+                />
+                {/* <Route
                 path="/settings/record-config"
                 element={
                   <ProtectedRoute requiredPermissions={["canAccessSettings"]}>
@@ -2082,97 +2373,104 @@ const HomePage = () => {
                   </ProtectedRoute>
                 }
               /> */}
-              <Route
-                path="/settings/backup"
-                element={
-                  <ProtectedRoute requiredPermissions={["canPerformBackup"]}>
-                    <Backup />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/settings/deductions"
-                element={
-                  <ProtectedRoute requiredPermissions={["canChangeDeductions"]}>
-                    <DeductionSettings />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/settings/developer-settings"
-                element={
-                  <ProtectedRoute requiredPermissions={["canAccessDeveloper"]}>
-                    <DeveloperSettings />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/notifications"
-                element={
-                  <ProtectedRoute requiredPermissions={["canManageNotifications"]}>
-                    <Notifications />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/settings/announcements"
-                element={
-                  <ProtectedRoute requiredPermissions={["canManageNotifications"]}>
-                    <AnnouncementManager />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/messaging/inbox"
-                element={
-                  <ProtectedRoute requiredPermissions={["canViewMessages"]}>
-                    <Messaging currentUser={user} tab="inbox" />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/messaging/sent"
-                element={
-                  <ProtectedRoute requiredPermissions={["canViewMessages"]}>
-                    <Messaging currentUser={user} tab="sent" />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/messaging/drafts"
-                element={
-                  <ProtectedRoute requiredPermissions={["canViewMessages"]}>
-                    <Messaging currentUser={user} tab="drafts" />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/messaging/archived"
-                element={
-                  <ProtectedRoute requiredPermissions={["canViewMessages"]}>
-                    <Messaging currentUser={user} tab="archived" />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/messaging"
-                element={
-                  <ProtectedRoute requiredPermissions={["canViewMessages"]}>
-                    <Messaging currentUser={user} tab="inbox" />
-                  </ProtectedRoute>
-                }
-              />
-            </Routes>
-          </div>
-        </Content>
+                <Route
+                  path="/settings/backup"
+                  element={
+                    <ProtectedRoute requiredPermissions={["canPerformBackup"]}>
+                      <Backup />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/settings/deductions"
+                  element={
+                    <ProtectedRoute
+                      requiredPermissions={["canChangeDeductions"]}
+                    >
+                      <DeductionSettings />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/settings/developer-settings"
+                  element={
+                    <ProtectedRoute
+                      requiredPermissions={["canAccessDeveloper"]}
+                    >
+                      <DeveloperSettings />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/notifications"
+                  element={
+                    <ProtectedRoute
+                      requiredPermissions={["canManageNotifications"]}
+                    >
+                      <Notifications />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/settings/announcements"
+                  element={
+                    <ProtectedRoute
+                      requiredPermissions={["canManageNotifications"]}
+                    >
+                      <AnnouncementManager />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/messaging/inbox"
+                  element={
+                    <ProtectedRoute requiredPermissions={["canViewMessages"]}>
+                      <Messaging currentUser={user} tab="inbox" />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/messaging/sent"
+                  element={
+                    <ProtectedRoute requiredPermissions={["canViewMessages"]}>
+                      <Messaging currentUser={user} tab="sent" />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/messaging/drafts"
+                  element={
+                    <ProtectedRoute requiredPermissions={["canViewMessages"]}>
+                      <Messaging currentUser={user} tab="drafts" />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/messaging/archived"
+                  element={
+                    <ProtectedRoute requiredPermissions={["canViewMessages"]}>
+                      <Messaging currentUser={user} tab="archived" />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/messaging"
+                  element={
+                    <ProtectedRoute requiredPermissions={["canViewMessages"]}>
+                      <Messaging currentUser={user} tab="inbox" />
+                    </ProtectedRoute>
+                  }
+                />
+              </Routes>
+            </div>
+          </Content>
 
-        <Footer style={{ textAlign: "center" }}>
-          © {new Date().getFullYear()} EMBR3 Daily Time Record Management System
-        </Footer>
+          <Footer style={{ textAlign: "center" }}>
+            © {new Date().getFullYear()} EMBR3 Daily Time Record Management
+            System
+          </Footer>
         </div>
       </Layout>
-
-      
 
       {isDemoActive && (
         <>
@@ -2280,9 +2578,18 @@ const HomePage = () => {
         ) : (
           <>
             <div style={{ display: "flex", gap: 16, marginBottom: 16 }}>
-              <Tag color="blue" style={{ fontSize: 14, padding: "4px 12px" }}>Total: {bugListStats.total}</Tag>
-              <Tag color="volcano" style={{ fontSize: 14, padding: "4px 12px" }}>Open: {bugListStats.open}</Tag>
-              <Tag color="green" style={{ fontSize: 14, padding: "4px 12px" }}>Resolved: {bugListStats.resolved}</Tag>
+              <Tag color="blue" style={{ fontSize: 14, padding: "4px 12px" }}>
+                Total: {bugListStats.total}
+              </Tag>
+              <Tag
+                color="volcano"
+                style={{ fontSize: 14, padding: "4px 12px" }}
+              >
+                Open: {bugListStats.open}
+              </Tag>
+              <Tag color="green" style={{ fontSize: 14, padding: "4px 12px" }}>
+                Resolved: {bugListStats.resolved}
+              </Tag>
             </div>
             <Table
               size="small"
@@ -2290,16 +2597,51 @@ const HomePage = () => {
               rowKey={(r) => r._id}
               pagination={{ pageSize: 5, size: "small" }}
               columns={[
-                { title: "Title", dataIndex: "title", key: "title", render: (t) => t || "(no title)", ellipsis: true },
-                { title: "Status", dataIndex: "status", key: "status", width: 90, render: (s) => <Tag color={s === "resolved" ? "green" : "volcano"}>{s || "open"}</Tag> },
-                { title: "Reporter", key: "reporter", width: 140, render: (_, r) => r.reporterName || r.name || "-" },
-                { title: "Date", dataIndex: "createdAt", key: "createdAt", width: 130, render: (v) => v ? dayjs(v).format("MM/DD/YY HH:mm") : "-" },
+                {
+                  title: "Title",
+                  dataIndex: "title",
+                  key: "title",
+                  render: (t) => t || "(no title)",
+                  ellipsis: true,
+                },
+                {
+                  title: "Status",
+                  dataIndex: "status",
+                  key: "status",
+                  width: 90,
+                  render: (s) => (
+                    <Tag color={s === "resolved" ? "green" : "volcano"}>
+                      {s || "open"}
+                    </Tag>
+                  ),
+                },
+                {
+                  title: "Reporter",
+                  key: "reporter",
+                  width: 140,
+                  render: (_, r) => r.reporterName || r.name || "-",
+                },
+                {
+                  title: "Date",
+                  dataIndex: "createdAt",
+                  key: "createdAt",
+                  width: 130,
+                  render: (v) => (v ? dayjs(v).format("MM/DD/YY HH:mm") : "-"),
+                },
               ]}
               expandable={{
                 expandedRowRender: (r) => (
                   <div style={{ fontSize: 13 }}>
-                    {r.description && <p style={{ whiteSpace: "pre-wrap", margin: 0 }}>{r.description}</p>}
-                    {r.pageUrl && <Text type="secondary" style={{ fontSize: 12 }}>Page: {r.pageUrl}</Text>}
+                    {r.description && (
+                      <p style={{ whiteSpace: "pre-wrap", margin: 0 }}>
+                        {r.description}
+                      </p>
+                    )}
+                    {r.pageUrl && (
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        Page: {r.pageUrl}
+                      </Text>
+                    )}
                   </div>
                 ),
               }}

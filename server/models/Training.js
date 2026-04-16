@@ -17,6 +17,7 @@ const TrainingSchema = new Schema(
         position: { type: String },
         sectionOrUnit: { type: String },
         division: { type: String },
+        attendanceDates: { type: [Date], default: [] }, // specific dates attended within the range
       },
     ],
     iisTransaction: { type: String },

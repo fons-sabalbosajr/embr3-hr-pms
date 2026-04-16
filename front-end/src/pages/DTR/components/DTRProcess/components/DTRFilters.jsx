@@ -16,6 +16,7 @@ const DTRFilters = ({
   empTypeOptions,
   sectionOrUnitFilter,
   setSectionOrUnitFilter,
+  sectionOrUnitOptions,
   dtrLogsLoading,
   dateRangeFilter,
   setDateRangeFilter,
@@ -142,13 +143,15 @@ const DTRFilters = ({
       onChange={(value) => setEmpTypeFilter(value || "")}
       value={empTypeFilter}
     />
-    <Search
+    <Select
       placeholder="Filter by Section/Unit"
       allowClear
-      onSearch={setSectionOrUnitFilter}
-      onChange={(e) => setSectionOrUnitFilter(e.target.value)}
+      showSearch
+      options={sectionOrUnitOptions || []}
       style={{ width: isMobile ? '100%' : 200 }}
-      value={sectionOrUnitFilter}
+      onChange={(value) => setSectionOrUnitFilter(value || "")}
+      value={sectionOrUnitFilter || undefined}
+      filterOption={(input, opt) => (opt?.label || "").toLowerCase().includes(input.toLowerCase())}
     />
   </Space>
   );

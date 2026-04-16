@@ -1,6 +1,6 @@
 import React from "react";
 import { Popover, Tag, Spin } from "antd";
-import { CalendarFilled, BookFilled, LoadingOutlined, ThunderboltOutlined } from "@ant-design/icons";
+import { CalendarFilled, BookFilled, LoadingOutlined, ThunderboltOutlined, HomeOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import isSameOrBefore from "dayjs/plugin/isSameOrBefore";
 import isSameOrAfter from "dayjs/plugin/isSameOrAfter";
@@ -59,6 +59,7 @@ const DTRDayTiles = ({
   divisionAcronyms,
   trainingLoading,
   fillResolutions,
+  wfhDays,
 }) => {
   const loadingIndicator = (
     <LoadingOutlined style={{ fontSize: 10, color: "#8c8c8c" }} spin />
@@ -78,6 +79,11 @@ const DTRDayTiles = ({
         // Check if this date was filled via Fill Time Records
         const empFill = fillResolutions?.[emp.empId];
         const hasFillResolution = empFill?.[dateKey] != null;
+
+        // Check if WFH day
+        const isWfhDay = [emp.empId, ...(emp.alternateEmpIds || [])].some(
+          (id) => wfhDays?.[id]?.[dateKey]
+        );
 
         const dayOfWeek = dateObj.day();
         const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
@@ -122,6 +128,12 @@ const DTRDayTiles = ({
           backgroundColor: "rgba(24,144,255,0.12)",
         };
 
+        const wfhBg = "rgba(19,194,194,0.12)";
+        const wfhStyle = {
+          border: "2px solid #13c2c2",
+          backgroundColor: wfhBg,
+        };
+
         const tileStyle = {
           width: 45,
           minHeight: 48,
@@ -131,6 +143,8 @@ const DTRDayTiles = ({
             ? holidayBg
             : isWeekend
             ? weekendBg
+            : isWfhDay && hasLogs
+            ? wfhBg
             : hasLogs
             ? "var(--dtr-haslogs-bg, rgba(82,196,26,0.18))"
             : hasFillResolution
@@ -149,10 +163,11 @@ const DTRDayTiles = ({
           textAlign: "center",
           whiteSpace: "nowrap",
           fontWeight: (hasLogs || hasFillResolution) ? "600" : "normal",
-          cursor: (hasLogs || hasFillResolution) ? "pointer" : "default",
+          cursor: (hasLogs || hasFillResolution || isWfhDay) ? "pointer" : "default",
           ...(isWeekend && hasLogs ? workedWeekendStyle : {}),
           ...(holiday ? holidayStyle : {}),
           ...(isTrainingDay ? trainingStyle : {}),
+          ...(isWfhDay && hasLogs && !isWeekend && !holiday && !isTrainingDay ? wfhStyle : {}),
           ...(!hasLogs && hasFillResolution && !isWeekend && !holiday && !isTrainingDay ? filledStyle : {}),
         };
 
@@ -356,6 +371,20 @@ const DTRDayTiles = ({
                 </div>
               </div>
             )}
+            {isWfhDay && (
+              <div
+                style={{
+                  color: "#13c2c2",
+                  fontWeight: "bold",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                  marginBottom: 4,
+                }}
+              >
+                <HomeOutlined style={{ color: "#13c2c2" }} /> Work From Home
+              </div>
+            )}
             {dayLogs
               ? Object.entries(dayLogs)
                   .filter(
@@ -467,6 +496,11 @@ const DTRDayTiles = ({
                   >
                     OT
                   </Tag>
+                </div>
+              )}
+              {isWfhDay && !isTrainingDay && !holiday && (
+                <div style={{ display: "flex", justifyContent: "center" }}>
+                  <HomeOutlined style={{ color: "#13c2c2", fontSize: 12 }} />
                 </div>
               )}
               {!hasLogs && hasFillResolution && !isWeekend && !holiday && !isTrainingDay && (

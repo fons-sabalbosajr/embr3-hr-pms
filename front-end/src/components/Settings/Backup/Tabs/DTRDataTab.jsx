@@ -25,6 +25,7 @@ import {
   MergeCellsOutlined,
   FolderAddOutlined,
   SplitCellsOutlined,
+  CopyOutlined,
 } from "@ant-design/icons";
 import {
   swalSuccess,
@@ -86,6 +87,8 @@ const DTRDataTab = () => {
   const [containerPeriodType, setContainerPeriodType] = useState("quarter");
   const [containerYear, setContainerYear] = useState(dayjs().year());
   const [containerPeriodValue, setContainerPeriodValue] = useState(1);
+  const [containerCustomRange, setContainerCustomRange] = useState(null);
+  const [containerCustomName, setContainerCustomName] = useState("");
   const [containerPreview, setContainerPreview] = useState(null);
   const [containerPreviewLoading, setContainerPreviewLoading] = useState(false);
   const [containerSelectedIds, setContainerSelectedIds] = useState([]);
@@ -103,6 +106,20 @@ const DTRDataTab = () => {
   const [unmergeDateRange, setUnmergeDateRange] = useState(null);
   const [unmergeRecordName, setUnmergeRecordName] = useState("");
   const unmergePollRef = React.useRef(null);
+
+  // Dedup state
+  const [dedupModalOpen, setDedupModalOpen] = useState(false);
+  const [dedupRecord, setDedupRecord] = useState(null);
+  const [dedupCounting, setDedupCounting] = useState(false);
+  const [dedupCountResult, setDedupCountResult] = useState(null);
+  const [dedupProgress, setDedupProgress] = useState(null);
+  const dedupPollRef = React.useRef(null);
+  const [dedupPreview, setDedupPreview] = useState([]);
+  const [dedupPreviewLoading, setDedupPreviewLoading] = useState(false);
+  const [dedupPreviewPage, setDedupPreviewPage] = useState(1);
+  const [dedupPreviewPageSize, setDedupPreviewPageSize] = useState(50);
+  const [dedupPreviewTotal, setDedupPreviewTotal] = useState(0);
+  const [dedupPreviewFilter, setDedupPreviewFilter] = useState('all'); // 'all' | 'duplicates' | 'unique'
 
   const watchedRecordName = Form.useWatch("DTR_Record_Name", form);
   const watchedCutOff = Form.useWatch("DTR_Cut_Off", form);
@@ -602,6 +619,9 @@ const DTRDataTab = () => {
 
   // ── Container helpers ──────────────────────────────────────────
   const getContainerDateRange = (type, year, periodVal) => {
+    if (type === "custom" && containerCustomRange && containerCustomRange[0] && containerCustomRange[1]) {
+      return [containerCustomRange[0].startOf("day"), containerCustomRange[1].endOf("day")];
+    }
     if (type === "quarter") {
       const q = periodVal || 1;
       const startMonth = (q - 1) * 3;
@@ -631,6 +651,13 @@ const DTRDataTab = () => {
   };
 
   const getContainerLabel = (type, year, periodVal) => {
+    if (type === "custom") {
+      if (containerCustomName.trim()) return containerCustomName.trim();
+      if (containerCustomRange && containerCustomRange[0] && containerCustomRange[1]) {
+        return `${containerCustomRange[0].format("MMM D, YYYY")} – ${containerCustomRange[1].format("MMM D, YYYY")}`;
+      }
+      return "Custom Range";
+    }
     if (type === "quarter") return `Q${periodVal} ${year}`;
     if (type === "semester")
       return `${periodVal === 1 ? "1st" : "2nd"} Half ${year}`;
@@ -642,6 +669,8 @@ const DTRDataTab = () => {
     setContainerPeriodType("quarter");
     setContainerYear(dayjs().year());
     setContainerPeriodValue(1);
+    setContainerCustomRange(null);
+    setContainerCustomName("");
     setContainerPreview(null);
     setContainerSelectedIds([]);
     setContainerJobId(null);
@@ -659,6 +688,10 @@ const DTRDataTab = () => {
   };
 
   const handleContainerPreview = async () => {
+    if (containerPeriodType === "custom" && (!containerCustomRange || !containerCustomRange[0] || !containerCustomRange[1])) {
+      swalError("Please select a date range for the custom container");
+      return;
+    }
     const [start, end] = getContainerDateRange(
       containerPeriodType,
       containerYear,
@@ -828,6 +861,80 @@ const DTRDataTab = () => {
     }
   };
 
+  // ── Delete Duplicate Punches ──
+  const fetchDedupPreview = async (recordId, pg = 1, pgSize = 50, filter = 'all') => {
+    setDedupPreviewLoading(true);
+    try {
+      const res = await axiosInstance.get(`/dtrdatas/${recordId}/duplicate-preview`, {
+        params: { page: pg, limit: pgSize, filter },
+      });
+      setDedupPreview(res.data?.data || []);
+      setDedupPreviewTotal(res.data?.total || 0);
+      setDedupPreviewPage(pg);
+    } catch {
+      setDedupPreview([]);
+      setDedupPreviewTotal(0);
+    } finally {
+      setDedupPreviewLoading(false);
+    }
+  };
+
+  const openDedupModal = async (record) => {
+    setDedupRecord(record);
+    setDedupCountResult(null);
+    setDedupProgress(null);
+    setDedupModalOpen(true);
+    setDedupCounting(true);
+    setDedupPreview([]);
+    setDedupPreviewPage(1);
+    setDedupPreviewFilter('all');
+    try {
+      const res = await axiosInstance.get(`/dtrdatas/${record._id}/count-duplicates`);
+      setDedupCountResult(res.data?.data || null);
+      // Also load first page of preview
+      await fetchDedupPreview(record._id, 1, dedupPreviewPageSize, 'all');
+    } catch (err) {
+      swalError(err.response?.data?.message || "Failed to count duplicates");
+      setDedupModalOpen(false);
+    } finally {
+      setDedupCounting(false);
+    }
+  };
+
+  const handleDeleteDuplicates = async () => {
+    if (!dedupRecord) return;
+    try {
+      const res = await axiosInstance.post(`/dtrdatas/${dedupRecord._id}/delete-duplicates`);
+      const jobId = res.data?.jobId;
+      if (!jobId) { swalError("No job ID returned"); return; }
+      setDedupProgress({ status: 'running', deleted: 0, duplicates: dedupCountResult?.duplicateCount || 0 });
+      // Poll progress
+      if (dedupPollRef.current) clearInterval(dedupPollRef.current);
+      dedupPollRef.current = setInterval(async () => {
+        try {
+          const prog = await axiosInstance.get(`/dtrdatas/dedup-progress/${jobId}`);
+          const d = prog.data?.data;
+          setDedupProgress(d);
+          if (d?.status === 'done' || d?.status === 'error') {
+            clearInterval(dedupPollRef.current);
+            dedupPollRef.current = null;
+            if (d.status === 'done') {
+              swalSuccess(`Deleted ${d.deleted} duplicate time punches`);
+              fetchData(dateRange);
+            } else {
+              swalError(d.message || "Dedup job failed");
+            }
+          }
+        } catch {
+          clearInterval(dedupPollRef.current);
+          dedupPollRef.current = null;
+        }
+      }, 800);
+    } catch (err) {
+      swalError(err.response?.data?.message || "Failed to start dedup job");
+    }
+  };
+
   const columns = [
     { title: "Record Name", dataIndex: "DTR_Record_Name", key: "name" },
     {
@@ -874,6 +981,14 @@ const DTRDataTab = () => {
               icon={<DeleteOutlined />}
               size="small"
               onClick={() => handleDelete(record._id)}
+            />
+          </Tooltip>
+          <Tooltip title="Delete Duplicate Punches">
+            <Button
+              icon={<CopyOutlined />}
+              size="small"
+              style={{ color: '#fa8c16' }}
+              onClick={() => openDedupModal(record)}
             />
           </Tooltip>
         </Space>
@@ -1732,9 +1847,11 @@ const DTRDataTab = () => {
                   { value: "quarter", label: "Quarter" },
                   { value: "semester", label: "Semester (6 months)" },
                   { value: "year", label: "Full Year" },
+                  { value: "custom", label: "Custom Date Range" },
                 ]}
               />
             </div>
+            {containerPeriodType !== "custom" && (
             <div style={{ marginBottom: 16 }}>
               <label
                 style={{ fontWeight: 600, display: "block", marginBottom: 4 }}
@@ -1751,6 +1868,7 @@ const DTRDataTab = () => {
                 })}
               />
             </div>
+            )}
             {containerPeriodType === "quarter" && (
               <div style={{ marginBottom: 16 }}>
                 <label
@@ -1789,6 +1907,36 @@ const DTRDataTab = () => {
                 />
               </div>
             )}
+            {containerPeriodType === "custom" && (
+              <>
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ fontWeight: 600, display: "block", marginBottom: 4 }}>
+                    Date Range
+                  </label>
+                  <DatePicker.RangePicker
+                    value={containerCustomRange}
+                    onChange={(dates) => setContainerCustomRange(dates)}
+                    style={{ width: "100%" }}
+                    format="YYYY-MM-DD"
+                  />
+                </div>
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ fontWeight: 600, display: "block", marginBottom: 4 }}>
+                    Container Name <span style={{ fontWeight: 400, color: "#999" }}>(optional)</span>
+                  </label>
+                  <Input
+                    placeholder={
+                      containerCustomRange && containerCustomRange[0] && containerCustomRange[1]
+                        ? `${containerCustomRange[0].format("MMM D, YYYY")} – ${containerCustomRange[1].format("MMM D, YYYY")}`
+                        : "e.g. Jan 1-15 2026"
+                    }
+                    value={containerCustomName}
+                    onChange={(e) => setContainerCustomName(e.target.value)}
+                    maxLength={100}
+                  />
+                </div>
+              </>
+            )}
             <div
               style={{
                 padding: "8px 12px",
@@ -1805,6 +1953,9 @@ const DTRDataTab = () => {
               <br />
               <strong>Date Range: </strong>
               {(() => {
+                if (containerPeriodType === "custom" && (!containerCustomRange || !containerCustomRange[0] || !containerCustomRange[1])) {
+                  return <span style={{ color: "#999" }}>Select a date range above</span>;
+                }
                 const [s, e] = getContainerDateRange(
                   containerPeriodType,
                   containerYear,
@@ -2120,6 +2271,156 @@ const DTRDataTab = () => {
               description="The unmerge process was aborted. All records have been restored to the container."
               style={{ marginBottom: 12 }}
             />
+          </div>
+        )}
+      </Modal>
+
+      {/* ── Delete Duplicate Punches Modal ── */}
+      <Modal
+        title={`Delete Duplicate Punches — ${dedupRecord?.DTR_Record_Name || ''}`}
+        open={dedupModalOpen}
+        onCancel={() => {
+          if (dedupPollRef.current) { clearInterval(dedupPollRef.current); dedupPollRef.current = null; }
+          setDedupModalOpen(false);
+          setDedupRecord(null);
+          setDedupProgress(null);
+          setDedupCountResult(null);
+          setDedupPreview([]);
+        }}
+        footer={
+          dedupProgress?.status === 'running' ? null :
+          dedupProgress?.status === 'done' ? [
+            <Button key="close" onClick={() => { setDedupModalOpen(false); setDedupRecord(null); setDedupProgress(null); setDedupCountResult(null); setDedupPreview([]); }}>Close</Button>
+          ] : [
+            <Button key="cancel" onClick={() => { setDedupModalOpen(false); setDedupRecord(null); setDedupPreview([]); }}>Cancel</Button>,
+            <Button key="delete" type="primary" danger disabled={dedupCounting || !dedupCountResult || dedupCountResult.duplicateCount === 0} onClick={handleDeleteDuplicates}>
+              Delete {dedupCountResult?.duplicateCount || 0} Duplicates
+            </Button>,
+          ]
+        }
+        width={900}
+      >
+        {dedupCounting && (
+          <div style={{ textAlign: 'center', padding: 24 }}>
+            <Spin tip="Scanning for duplicate time punches..." />
+          </div>
+        )}
+        {!dedupCounting && dedupCountResult && !dedupProgress && (
+          <div>
+            <div style={{ display: 'flex', gap: 16, marginBottom: 12, flexWrap: 'wrap' }}>
+              <div><strong>Total records:</strong> {dedupCountResult.totalLogs?.toLocaleString()}</div>
+              <div><strong>Duplicates:</strong> <span style={{ color: dedupCountResult.duplicateCount > 0 ? '#cf1322' : '#52c41a', fontWeight: 600 }}>{dedupCountResult.duplicateCount?.toLocaleString()}</span></div>
+              <div><strong>Unique:</strong> {dedupCountResult.uniqueLogs?.toLocaleString()}</div>
+              <div><strong>Groups:</strong> {dedupCountResult.groups?.toLocaleString()}</div>
+            </div>
+            {dedupCountResult.duplicateCount > 0 && (
+              <Alert type="warning" showIcon message="Rows highlighted in red are duplicates that will be deleted. For each duplicate group (same AC-No + exact timestamp), the oldest record is kept." style={{ marginBottom: 12 }} />
+            )}
+            {dedupCountResult.duplicateCount === 0 && (
+              <Alert type="success" showIcon message="No duplicate time punches found in this record." style={{ marginBottom: 12 }} />
+            )}
+            {dedupCountResult.duplicateCount > 0 && (
+              <>
+                <div style={{ marginBottom: 8 }}>
+                  <Select
+                    value={dedupPreviewFilter}
+                    onChange={(v) => {
+                      setDedupPreviewFilter(v);
+                      fetchDedupPreview(dedupRecord._id, 1, dedupPreviewPageSize, v);
+                    }}
+                    style={{ width: 200 }}
+                    options={[
+                      { label: 'Show All Records', value: 'all' },
+                      { label: 'Duplicates Only', value: 'duplicates' },
+                      { label: 'Unique Only', value: 'unique' },
+                    ]}
+                  />
+                </div>
+                <Table
+                  dataSource={dedupPreview}
+                  rowKey={(r) => r._id}
+                  size="small"
+                  loading={dedupPreviewLoading}
+                  pagination={{
+                    current: dedupPreviewPage,
+                    pageSize: dedupPreviewPageSize,
+                    total: dedupPreviewTotal,
+                    showSizeChanger: true,
+                    pageSizeOptions: ['20', '50', '100'],
+                    showTotal: (t, range) => `${range[0]}-${range[1]} of ${t}`,
+                    onChange: (pg, pgSize) => {
+                      setDedupPreviewPageSize(pgSize);
+                      fetchDedupPreview(dedupRecord._id, pg, pgSize, dedupPreviewFilter);
+                    },
+                  }}
+                  scroll={{ y: 340 }}
+                  rowClassName={(record) =>
+                    record.isDuplicate ? 'dedup-row-duplicate' : record.isKept ? 'dedup-row-kept' : ''
+                  }
+                  columns={[
+                    {
+                      title: 'AC-No',
+                      dataIndex: 'acNo',
+                      key: 'acNo',
+                      width: 100,
+                    },
+                    {
+                      title: 'Name',
+                      dataIndex: 'name',
+                      key: 'name',
+                      width: 180,
+                      ellipsis: true,
+                    },
+                    {
+                      title: 'Date & Time',
+                      key: 'time',
+                      width: 170,
+                      render: (_, r) => r.time ? dayjs(r.time).format('YYYY-MM-DD hh:mm A') : '-',
+                    },
+                    {
+                      title: 'State',
+                      dataIndex: 'state',
+                      key: 'state',
+                      width: 90,
+                    },
+                    {
+                      title: 'Status',
+                      key: 'status',
+                      width: 120,
+                      render: (_, r) =>
+                        r.isDuplicate
+                          ? <Tag color="red">Duplicate</Tag>
+                          : r.isKept
+                            ? <Tag color="blue">Kept (Original)</Tag>
+                            : <Tag color="green">Unique</Tag>,
+                    },
+                  ]}
+                />
+                <style>{`
+                  .dedup-row-duplicate { background-color: #fff1f0 !important; }
+                  .dedup-row-duplicate:hover > td { background-color: #ffccc7 !important; }
+                  .dedup-row-kept { background-color: #e6f7ff !important; }
+                  .dedup-row-kept:hover > td { background-color: #bae7ff !important; }
+                `}</style>
+              </>
+            )}
+          </div>
+        )}
+        {dedupProgress && (
+          <div>
+            <p><strong>Status:</strong> {dedupProgress.status === 'done' ? 'Completed' : dedupProgress.status === 'error' ? 'Error' : 'Deleting duplicates...'}</p>
+            {dedupProgress.status === 'running' && <Spin style={{ marginRight: 8 }} />}
+            <Progress
+              percent={dedupProgress.duplicates > 0 ? Math.round((dedupProgress.deleted / dedupProgress.duplicates) * 100) : 0}
+              status={dedupProgress.status === 'done' ? 'success' : dedupProgress.status === 'error' ? 'exception' : 'active'}
+            />
+            <p>Deleted {dedupProgress.deleted?.toLocaleString()} of {dedupProgress.duplicates?.toLocaleString()} duplicate punches</p>
+            {dedupProgress.status === 'done' && (
+              <Alert type="success" showIcon message={`Successfully deleted ${dedupProgress.deleted?.toLocaleString()} duplicate time punches.`} style={{ marginTop: 12 }} />
+            )}
+            {dedupProgress.status === 'error' && (
+              <Alert type="error" showIcon message={dedupProgress.message || 'Dedup job failed'} style={{ marginTop: 12 }} />
+            )}
           </div>
         )}
       </Modal>

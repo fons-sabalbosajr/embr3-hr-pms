@@ -1,5 +1,6 @@
 import EmployeeSalary from "../models/EmployeeSalary.js";
 import Employee from "../models/Employee.js"; // To check if employee exists
+import { recordAudit } from '../utils/auditHelper.js';
 
 // Get all employee salary records, optionally populate employee details
 export const getAllEmployeeSalaries = async (req, res) => {
@@ -44,6 +45,7 @@ export const createEmployeeSalary = async (req, res) => {
   const newEmployeeSalary = new EmployeeSalary(req.body);
   try {
     const savedEmployeeSalary = await newEmployeeSalary.save();
+    recordAudit('salary:created', req, { id: String(savedEmployeeSalary._id), employeeId });
     res.status(201).json(savedEmployeeSalary);
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -62,6 +64,7 @@ export const updateEmployeeSalary = async (req, res) => {
     if (!updatedEmployeeSalary) {
       return res.status(404).json({ message: "Employee salary record not found" });
     }
+    recordAudit('salary:updated', req, { id, employeeId: updatedEmployeeSalary.employeeId?._id || updatedEmployeeSalary.employeeId });
     res.status(200).json(updatedEmployeeSalary);
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -76,6 +79,7 @@ export const deleteEmployeeSalary = async (req, res) => {
     if (!deletedEmployeeSalary) {
       return res.status(404).json({ message: "Employee salary record not found" });
     }
+    recordAudit('salary:deleted', req, { id });
     res.status(200).json({ message: "Employee salary record deleted successfully" });
   } catch (error) {
     res.status(500).json({ message: error.message });

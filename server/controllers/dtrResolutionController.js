@@ -121,6 +121,7 @@ export const getResolutions = async (req, res) => {
         breakOut: r.breakOut || "",
         breakIn: r.breakIn || "",
         timeOut: r.timeOut || "",
+        workStatus: r.workStatus || "",
         source: r.source,
       };
     }
@@ -139,7 +140,7 @@ export const getResolutions = async (req, res) => {
  */
 export const saveResolution = async (req, res) => {
   try {
-    const { empId, recordId, dateKey, timeIn, breakOut, breakIn, timeOut, source } = req.body;
+    const { empId, recordId, dateKey, timeIn, breakOut, breakIn, timeOut, workStatus, source } = req.body;
     if (!empId || !recordId || !dateKey) {
       return res.status(400).json({ success: false, message: "empId, recordId, and dateKey are required" });
     }
@@ -153,6 +154,7 @@ export const saveResolution = async (req, res) => {
         breakOut: breakOut || "",
         breakIn: breakIn || "",
         timeOut: timeOut || "",
+        workStatus: workStatus || "",
         source: source || "manual",
         createdBy: callerId,
       },

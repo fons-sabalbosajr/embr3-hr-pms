@@ -6,6 +6,7 @@ import utc from "dayjs/plugin/utc.js";
 import timezone from "dayjs/plugin/timezone.js";
 import mongoose from "mongoose";
 import User from "../models/User.js";
+import { recordAudit } from '../utils/auditHelper.js';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -43,6 +44,8 @@ export const deleteDTRDataJob = async (req, res) => {
 
     const jobId = `${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
     deleteJobs.set(jobId, { status: 'queued', total: 0, deleted: 0, recordId: id });
+
+    recordAudit('dtrdata:delete-started', req, { recordId: id, recordName: record.DTR_Record_Name, jobId });
 
     // Start background task (do not await)
     (async () => {
@@ -291,6 +294,7 @@ export const updateDTRData = async (req, res) => {
     }
 
     await record.save();
+    recordAudit('dtrdata:updated', req, { recordId: id, changes: { DTR_Record_Name, DTR_Cut_Off, hiddenFromDropdown: req.body.hiddenFromDropdown } });
     res.json({ success: true, data: record });
   } catch (err) {
     console.error("updateDTRData error", err);
@@ -756,11 +760,14 @@ export const previewContainer = async (req, res) => {
       "DTR_Cut_Off.end": { $gte: start.toDate() },
     }).sort({ "DTR_Cut_Off.start": 1 }).lean();
 
-    // For each record, count its logs
+    // For each record, count only logs within the requested date range
     const recordPreviews = [];
     let totalLogs = 0;
     for (const rec of records) {
-      const count = await DTRLog.countDocuments({ DTR_ID: rec._id });
+      const count = await DTRLog.countDocuments({
+        DTR_ID: rec._id,
+        Time: { $gte: start.toDate(), $lte: end.toDate() },
+      });
       totalLogs += count;
       recordPreviews.push({
         _id: rec._id,
@@ -770,9 +777,10 @@ export const previewContainer = async (req, res) => {
       });
     }
 
-    // Fetch a sample of logs across these records
+    // Fetch a sample of logs within the date range across these records
     const sampleLogs = await DTRLog.find({
       DTR_ID: { $in: records.map((r) => r._id) },
+      Time: { $gte: start.toDate(), $lte: end.toDate() },
     })
       .populate("DTR_ID", "DTR_Record_Name")
       .sort({ Time: 1 })
@@ -868,11 +876,15 @@ export const createContainer = async (req, res) => {
 
         const containerObjectId = container._id;
 
-        // Count total logs to move
-        const total = await DTRLog.countDocuments({ DTR_ID: { $in: sourceObjectIds } });
+        // Count total logs to move (only within the requested date range)
+        const timeFilter = { $gte: start.toDate(), $lte: end.toDate() };
+        const total = await DTRLog.countDocuments({
+          DTR_ID: { $in: sourceObjectIds },
+          Time: timeFilter,
+        });
         containerJobs.set(jobId, { status: "running", total, moved: 0, phase: "moving" });
 
-        // Move logs in batches
+        // Move logs in batches (only logs within the date range)
         const batchSize = 1000;
         let moved = 0;
 
@@ -883,7 +895,10 @@ export const createContainer = async (req, res) => {
             break;
           }
 
-          const batch = await DTRLog.find({ DTR_ID: { $in: sourceObjectIds } })
+          const batch = await DTRLog.find({
+            DTR_ID: { $in: sourceObjectIds },
+            Time: timeFilter,
+          })
             .select("_id")
             .limit(batchSize)
             .lean();
@@ -1138,5 +1153,267 @@ export const getUnmergeProgress = async (req, res) => {
     return res.json({ success: true, data: job });
   } catch (err) {
     res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// ── In-memory dedup job store ──
+const dedupJobs = new Map();
+
+/**
+ * POST /dtrdatas/:id/delete-duplicates
+ * Detects and deletes duplicate time punches within a DTR record.
+ * Duplicates are identified by same normalizedAcNo (or AC-No) + same Time.
+ * For each group of duplicates, the first (oldest _id) is kept and the rest are deleted.
+ */
+export const deleteDuplicatePunches = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Permission check
+    const callerId = req.user?.id || req.user?._id;
+    const caller = callerId ? await User.findById(callerId) : null;
+    if (!caller) {
+      return res.status(403).json({ success: false, message: 'Forbidden: user context missing' });
+    }
+    if (!(caller.userType === 'developer' || caller.canManipulateBiometrics)) {
+      return res.status(403).json({ success: false, message: 'Forbidden: insufficient permissions' });
+    }
+
+    const record = await DTRData.findById(id).lean();
+    if (!record) return res.status(404).json({ success: false, message: 'DTR record not found' });
+
+    const jobId = `dedup-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    dedupJobs.set(jobId, { status: 'running', total: 0, duplicates: 0, deleted: 0, recordId: id });
+
+    recordAudit('dtrdata:dedup-started', req, { recordId: id, recordName: record.DTR_Record_Name, jobId });
+
+    // Start background dedup task
+    (async () => {
+      try {
+        const objectId = new mongoose.Types.ObjectId(id);
+
+        // Build filter for logs in this record + cut-off range
+        const logFilter = { DTR_ID: objectId };
+        if (record.DTR_Cut_Off?.start && record.DTR_Cut_Off?.end) {
+          const start = parseInLocalTz(record.DTR_Cut_Off.start).startOf("day").toDate();
+          const end = parseInLocalTz(record.DTR_Cut_Off.end).endOf("day").toDate();
+          logFilter.Time = { $gte: start, $lte: end };
+        }
+
+        const totalLogs = await DTRLog.countDocuments(logFilter);
+        dedupJobs.set(jobId, { status: 'running', total: totalLogs, duplicates: 0, deleted: 0, recordId: id });
+
+        // Use aggregation to find duplicate groups
+        const duplicateGroups = await DTRLog.aggregate([
+          { $match: logFilter },
+          {
+            $group: {
+              _id: {
+                acNo: { $ifNull: ["$normalizedAcNo", "$AC-No"] },
+                time: "$Time",
+              },
+              count: { $sum: 1 },
+              ids: { $push: "$_id" },
+            },
+          },
+          { $match: { count: { $gt: 1 } } },
+        ]);
+
+        const totalDuplicateGroups = duplicateGroups.length;
+        let totalDuplicateCount = 0;
+        duplicateGroups.forEach(g => { totalDuplicateCount += g.count - 1; });
+
+        dedupJobs.set(jobId, { status: 'running', total: totalLogs, duplicates: totalDuplicateCount, deleted: 0, recordId: id });
+
+        // Delete duplicates in batches
+        let deleted = 0;
+        const batchSize = 500;
+
+        for (const group of duplicateGroups) {
+          // Keep the first (oldest by _id), delete the rest
+          const idsToDelete = group.ids.slice(1);
+
+          for (let i = 0; i < idsToDelete.length; i += batchSize) {
+            const batch = idsToDelete.slice(i, i + batchSize);
+            const del = await DTRLog.deleteMany({ _id: { $in: batch } });
+            deleted += del.deletedCount || batch.length;
+            dedupJobs.set(jobId, { status: 'running', total: totalLogs, duplicates: totalDuplicateCount, deleted, recordId: id });
+          }
+        }
+
+        dedupJobs.set(jobId, { status: 'done', total: totalLogs, duplicates: totalDuplicateCount, deleted, recordId: id });
+        setTimeout(() => dedupJobs.delete(jobId), 1000 * 60 * 5);
+      } catch (e) {
+        dedupJobs.set(jobId, { status: 'error', message: String(e), recordId: id });
+        setTimeout(() => dedupJobs.delete(jobId), 1000 * 60 * 5);
+      }
+    })();
+
+    return res.json({ success: true, jobId });
+  } catch (err) {
+    console.error('deleteDuplicatePunches error', err);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+/**
+ * GET /dtrdatas/dedup-progress/:jobId
+ */
+export const getDedupProgress = async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    if (!jobId) return res.status(400).json({ success: false, message: 'jobId required' });
+    const p = dedupJobs.get(jobId);
+    if (!p) return res.status(404).json({ success: false, message: 'Job not found' });
+    return res.json({ success: true, data: p });
+  } catch (err) {
+    console.error('getDedupProgress error', err);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+/**
+ * GET /dtrdatas/:id/count-duplicates
+ * Returns the count of duplicate punches within a DTR record (preview before deletion).
+ */
+export const countDuplicatePunches = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const record = await DTRData.findById(id).lean();
+    if (!record) return res.status(404).json({ success: false, message: 'DTR record not found' });
+
+    const objectId = new mongoose.Types.ObjectId(id);
+    const logFilter = { DTR_ID: objectId };
+    if (record.DTR_Cut_Off?.start && record.DTR_Cut_Off?.end) {
+      const start = parseInLocalTz(record.DTR_Cut_Off.start).startOf("day").toDate();
+      const end = parseInLocalTz(record.DTR_Cut_Off.end).endOf("day").toDate();
+      logFilter.Time = { $gte: start, $lte: end };
+    }
+
+    const totalLogs = await DTRLog.countDocuments(logFilter);
+
+    const duplicateGroups = await DTRLog.aggregate([
+      { $match: logFilter },
+      {
+        $group: {
+          _id: {
+            acNo: { $ifNull: ["$normalizedAcNo", "$AC-No"] },
+            time: "$Time",
+          },
+          count: { $sum: 1 },
+        },
+      },
+      { $match: { count: { $gt: 1 } } },
+    ]);
+
+    let duplicateCount = 0;
+    duplicateGroups.forEach(g => { duplicateCount += g.count - 1; });
+
+    res.json({
+      success: true,
+      data: {
+        totalLogs,
+        duplicateCount,
+        uniqueLogs: totalLogs - duplicateCount,
+        groups: duplicateGroups.length,
+      },
+    });
+  } catch (err) {
+    console.error('countDuplicatePunches error', err);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+/**
+ * GET /dtrdatas/:id/duplicate-preview
+ * Returns paginated logs for a DTR record with each log flagged as duplicate or not.
+ * Query: page (default 1), limit (default 50), filter ('all' | 'duplicates' | 'unique')
+ */
+export const getDuplicatePreview = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 50));
+    const filter = req.query.filter || 'all'; // 'all', 'duplicates', 'unique'
+
+    const record = await DTRData.findById(id).lean();
+    if (!record) return res.status(404).json({ success: false, message: 'DTR record not found' });
+
+    const objectId = new mongoose.Types.ObjectId(id);
+    const logFilter = { DTR_ID: objectId };
+    if (record.DTR_Cut_Off?.start && record.DTR_Cut_Off?.end) {
+      const start = parseInLocalTz(record.DTR_Cut_Off.start).startOf("day").toDate();
+      const end = parseInLocalTz(record.DTR_Cut_Off.end).endOf("day").toDate();
+      logFilter.Time = { $gte: start, $lte: end };
+    }
+
+    // Find all duplicate groups (same acNo + time with count > 1)
+    const duplicateGroups = await DTRLog.aggregate([
+      { $match: logFilter },
+      {
+        $group: {
+          _id: {
+            acNo: { $ifNull: ["$normalizedAcNo", "$AC-No"] },
+            time: "$Time",
+          },
+          count: { $sum: 1 },
+          ids: { $push: "$_id" },
+        },
+      },
+      { $match: { count: { $gt: 1 } } },
+    ]);
+
+    // Build sets: duplicateIds (will be deleted) and keptIds (first of each group, kept)
+    const duplicateIdSet = new Set();
+    const keptIdSet = new Set();
+    for (const group of duplicateGroups) {
+      keptIdSet.add(group.ids[0].toString());
+      for (let i = 1; i < group.ids.length; i++) {
+        duplicateIdSet.add(group.ids[i].toString());
+      }
+    }
+
+    let totalDuplicateCount = 0;
+    duplicateGroups.forEach(g => { totalDuplicateCount += g.count - 1; });
+
+    // Apply sub-filter
+    let queryFilter = { ...logFilter };
+    const allDuplicateAndKeptIds = [...duplicateIdSet, ...keptIdSet].map(id => new mongoose.Types.ObjectId(id));
+    if (filter === 'duplicates') {
+      queryFilter._id = { $in: allDuplicateAndKeptIds };
+    } else if (filter === 'unique') {
+      queryFilter._id = { $nin: [...duplicateIdSet].map(id => new mongoose.Types.ObjectId(id)) };
+    }
+
+    const total = await DTRLog.countDocuments(queryFilter);
+
+    const logs = await DTRLog.find(queryFilter)
+      .sort({ Time: 1, _id: 1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .lean();
+
+    const data = logs.map((log) => ({
+      _id: log._id,
+      acNo: log["AC-No"] || log.normalizedAcNo || "",
+      name: log.Name || "",
+      time: log.Time,
+      state: log.State || "",
+      isDuplicate: duplicateIdSet.has(log._id.toString()),
+      isKept: keptIdSet.has(log._id.toString()),
+    }));
+
+    res.json({
+      success: true,
+      data,
+      total,
+      page,
+      limit,
+      duplicateCount: totalDuplicateCount,
+      groups: duplicateGroups.length,
+    });
+  } catch (err) {
+    console.error('getDuplicatePreview error', err);
+    res.status(500).json({ success: false, message: 'Server error' });
   }
 };

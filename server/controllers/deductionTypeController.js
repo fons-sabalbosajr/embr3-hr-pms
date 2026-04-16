@@ -1,4 +1,5 @@
 import DeductionType from "../models/DeductionType.js";
+import { recordAudit } from '../utils/auditHelper.js';
 
 // @desc    Get all deduction types
 // @route   GET /api/deduction-types
@@ -31,6 +32,7 @@ export const createDeductionType = async (req, res) => {
     });
 
     await deductionType.save();
+    recordAudit('deduction:created', req, { id: String(deductionType._id), name });
     res.status(201).json(deductionType);
   } catch (error) {
     res.status(500).json({ message: "Server Error" });
@@ -59,6 +61,7 @@ export const updateDeductionType = async (req, res) => {
   if (applicableTo) deductionType.applicableTo = applicableTo;
 
     await deductionType.save();
+    recordAudit('deduction:updated', req, { id: req.params.id, name });
     res.status(200).json(deductionType);
   } catch (error) {
     res.status(500).json({ message: "Server Error" });
@@ -74,6 +77,7 @@ export const deleteDeductionType = async (req, res) => {
     if (!deductionType) {
       return res.status(404).json({ message: "Deduction type not found" });
     }
+    recordAudit('deduction:deleted', req, { id: req.params.id, name: deductionType.name });
     res.json({ message: "Deduction type deleted successfully" });
   } catch (error) {
     res.status(500).json({ message: error.message });

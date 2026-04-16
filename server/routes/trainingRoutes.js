@@ -1,4 +1,5 @@
 import express from "express";
+import multer from "multer";
 import verifyToken from "../middleware/authMiddleware.js";
 import { requirePermissions } from "../middleware/permissionMiddleware.js";
 import {
@@ -9,7 +10,26 @@ import {
   deleteTraining,
   getTrainingsByEmployee,
   getTrainingsByEmployeePublic,
+  scanAttendance,
+  rematchNames,
 } from "../controllers/trainingController.js";
+
+const scanUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowed = [
+      "application/pdf",
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+    ];
+    if (!allowed.includes(file.mimetype)) {
+      return cb(new Error("Only PDF, JPEG, PNG, or WebP files are allowed"));
+    }
+    cb(null, true);
+  },
+});
 
 const router = express.Router();
 
@@ -20,6 +40,17 @@ router.get("/public/by-employee/:empId", getTrainingsByEmployeePublic);
 router.use(verifyToken);
 
 router.get("/", requirePermissions(["canViewTrainings"]), getAllTrainings);
+router.post(
+  "/scan-attendance",
+  requirePermissions(["canEditTrainings"]),
+  scanUpload.single("file"),
+  scanAttendance
+);
+router.post(
+  "/rematch-names",
+  requirePermissions(["canEditTrainings"]),
+  rematchNames
+);
 router.get("/:id", requirePermissions(["canViewTrainings"]), getTrainingById);
 router.post("/", requirePermissions(["canEditTrainings"]), createTraining);
 router.put("/:id", requirePermissions(["canEditTrainings"]), updateTraining);

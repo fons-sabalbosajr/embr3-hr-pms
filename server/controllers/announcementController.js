@@ -1,6 +1,7 @@
 import Announcement from "../models/Announcement.js";
 import Employee from "../models/Employee.js";
 import { sendAnnouncementEmail, sendAppUpdateEmail } from "../utils/email.js";
+import { recordAudit } from '../utils/auditHelper.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const now = () => new Date();
@@ -82,6 +83,7 @@ export const createAnnouncement = async (req, res) => {
       expiresAt: expiresAt || null,
       createdBy: req.user?.name || req.user?.email || "Admin",
     });
+    recordAudit('announcement:created', req, { id: String(doc._id), title });
     res.status(201).json({ success: true, data: doc });
   } catch (err) {
     console.error("[Announcements] create error:", err);
@@ -110,6 +112,7 @@ export const updateAnnouncement = async (req, res) => {
       { new: true }
     );
     if (!doc) return res.status(404).json({ success: false, message: "Not found" });
+    recordAudit('announcement:updated', req, { id: req.params.id, changes: { title, body, type, priority, active } });
     res.json({ success: true, data: doc });
   } catch (err) {
     console.error("[Announcements] update error:", err);
@@ -122,6 +125,7 @@ export const deleteAnnouncement = async (req, res) => {
   try {
     const doc = await Announcement.findByIdAndDelete(req.params.id);
     if (!doc) return res.status(404).json({ success: false, message: "Not found" });
+    recordAudit('announcement:deleted', req, { id: req.params.id, title: doc.title });
     res.json({ success: true, message: "Deleted" });
   } catch (err) {
     console.error("[Announcements] delete error:", err);

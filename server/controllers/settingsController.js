@@ -115,6 +115,19 @@ export const updateSettings = async (req, res) => {
       });
     }
 
+    // Audit general settings update
+    const settingKeys = Object.keys(body).filter(k => k !== 'maintenance');
+    if (settingKeys.length > 0) {
+      try {
+        await AuditLog.create({
+          action: 'settings:updated',
+          performedBy: req.user?.id || req.user?._id || null,
+          performedByName: req.user?.name || req.user?.username || null,
+          details: { updatedKeys: settingKeys },
+        });
+      } catch (_) {}
+    }
+
     res.status(200).json(settings);
   } catch (error) {
     res.status(500).json({ message: "Error updating settings", error });

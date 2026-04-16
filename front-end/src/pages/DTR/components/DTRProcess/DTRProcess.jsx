@@ -11,8 +11,6 @@ import {
   Spin,
   Space,
   Button,
-  Dropdown,
-  Menu,
   Tag,
   Badge,
   Tooltip,
@@ -53,7 +51,6 @@ import isSameOrAfter from "dayjs/plugin/isSameOrAfter";
 import utc from "dayjs/plugin/utc";
 import timezone from "dayjs/plugin/timezone";
 import axiosInstance from "../../../../api/axiosInstance";
-import axios from "axios";
 import useLoading from "../../../../hooks/useLoading";
 import {
   swalSuccess,
@@ -61,6 +58,11 @@ import {
   swalWarning,
   swalInfo,
 } from "../../../../utils/swalHelper";
+import {
+  secureSessionStore,
+  secureSessionGet,
+  secureSessionRemove,
+} from "../../../../../utils/secureStorage";
 
 const { Title } = Typography;
 
@@ -213,8 +215,13 @@ const computePositionAcronym = (position) => {
   return rank ? `${letters} ${rank}` : letters;
 };
 
+const CACHE_KEY_SELECTION = "dtr_process_selection";
+const CACHE_KEY_LOGS = "dtr_process_logs";
+const CACHE_KEY_RESOLUTIONS = "dtr_process_resolutions";
+
 const DTRProcess = ({ currentUser }) => {
   const { withLoading } = useLoading();
+  const restoredFromCache = useRef(false);
   const [employees, setEmployees] = useState([]);
   const [filteredEmployees, setFilteredEmployees] = useState([]);
   const [employeesLoading, setEmployeesLoading] = useState(false);
@@ -223,9 +230,20 @@ const DTRProcess = ({ currentUser }) => {
   const [searchText, setSearchText] = useState("");
   const [empTypeFilter, setEmpTypeFilter] = useState("");
   const [sectionOrUnitFilter, setSectionOrUnitFilter] = useState("");
-  const [dtrLogs, setDtrLogs] = useState({});
+  const [dtrLogs, setDtrLogs] = useState(() => {
+    try { return secureSessionGet(CACHE_KEY_LOGS) || {}; } catch { return {}; }
+  });
   const [dtrRecords, setDtrRecords] = useState([]);
-  const [selectedDtrRecord, setSelectedDtrRecord] = useState([]);
+  const [selectedDtrRecord, setSelectedDtrRecord] = useState(() => {
+    try {
+      const cached = secureSessionGet(CACHE_KEY_SELECTION);
+      if (Array.isArray(cached) && cached.length > 0) {
+        restoredFromCache.current = true;
+        return cached;
+      }
+      return [];
+    } catch { return []; }
+  });
   const [drawerVisible, setDrawerVisible] = useState(false);
   const containerRef = useRef(null);
   const [viewDTRVisible, setViewDTRVisible] = useState(false);
@@ -251,11 +269,66 @@ const DTRProcess = ({ currentUser }) => {
   const [fillEmpTypeFilter, setFillEmpTypeFilter] = useState(null);
   const [fillSearchText, setFillSearchText] = useState("");
   const [fillOnlyMissing, setFillOnlyMissing] = useState(true);
-  const [fillResolutions, setFillResolutions] = useState({}); // { empId: { dateKey: { timeIn, ... } } }
+  const [fillResolutions, setFillResolutions] = useState(() => {
+    try { return secureSessionGet(CACHE_KEY_RESOLUTIONS) || {}; } catch { return {}; }
+  }); // { empId: { dateKey: { timeIn, ... } } }
+
+  // WFH day tracking: { [empId]: { [dateKey]: true } }
+  const [wfhDays, setWfhDays] = useState({});
+
+  // Auto-fill state
+  const [autoFillPending, setAutoFillPending] = useState(false);
+  const [autoFillModalVisible, setAutoFillModalVisible] = useState(false);
+  const [autoFillEmpType, setAutoFillEmpType] = useState(null); // null = all, "Regular", "Contract of Service"
+  const [autoFillRunning, setAutoFillRunning] = useState(false);
+  const [autoFillProgress, setAutoFillProgress] = useState({ current: 0, total: 0, currentName: "", filled: 0, skipped: 0 });
+  const autoFillCancelRef = useRef(false);
+
+  // ── Cache persistence: save DTR state to encrypted sessionStorage ──
+  const cacheTimerRef = useRef(null);
+  useEffect(() => {
+    // Debounce saving logs (can be large) — save 500ms after last change
+    if (cacheTimerRef.current) clearTimeout(cacheTimerRef.current);
+    cacheTimerRef.current = setTimeout(() => {
+      try {
+        if (Object.keys(dtrLogs).length > 0) {
+          secureSessionStore(CACHE_KEY_LOGS, dtrLogs);
+        } else {
+          secureSessionRemove(CACHE_KEY_LOGS);
+        }
+      } catch { /* storage full — ignore */ }
+    }, 500);
+    return () => { if (cacheTimerRef.current) clearTimeout(cacheTimerRef.current); };
+  }, [dtrLogs]);
+
+  useEffect(() => {
+    try {
+      if (selectedDtrRecord.length > 0) {
+        secureSessionStore(CACHE_KEY_SELECTION, selectedDtrRecord);
+      } else {
+        secureSessionRemove(CACHE_KEY_SELECTION);
+        secureSessionRemove(CACHE_KEY_LOGS);
+        secureSessionRemove(CACHE_KEY_RESOLUTIONS);
+      }
+    } catch { /* ignore */ }
+  }, [selectedDtrRecord]);
+
+  useEffect(() => {
+    try {
+      if (Object.keys(fillResolutions).length > 0) {
+        secureSessionStore(CACHE_KEY_RESOLUTIONS, fillResolutions);
+      } else {
+        secureSessionRemove(CACHE_KEY_RESOLUTIONS);
+      }
+    } catch { /* ignore */ }
+  }, [fillResolutions]);
 
   // Reset date range filter when DTR record selection changes
   useEffect(() => {
     setDateRangeFilter(null);
+    setAutoFillPending(false);
+    setAutoFillModalVisible(false);
+    setAutoFillRunning(false);
   }, [selectedDtrRecord]);
 
   const location = useLocation();
@@ -365,6 +438,12 @@ const DTRProcess = ({ currentUser }) => {
       });
 
       // ── Merge WFH prescribed times for current month ──
+      const wfhDaysMap = {};
+      const isValidWfhTime = (v) => {
+        if (!v || typeof v !== "string") return false;
+        const s = v.trim();
+        return s && s !== "-" && s !== "\u2014" && s !== "\u2013" && s.toLowerCase() !== "n/a";
+      };
       try {
         const wfhRes = await axiosInstance.get("/work-from-home/public", {
           params: { start: startOfMonth, end: endOfMonth },
@@ -388,13 +467,16 @@ const DTRProcess = ({ currentUser }) => {
                 };
               }
               const entry = logsByEmpDay[empKey][dateKey];
-              if (!entry["Time In"] && w.timeIn) entry["Time In"] = w.timeIn;
-              if (!entry["Break Out"] && w.breakOut)
+              if (!entry["Time In"] && isValidWfhTime(w.timeIn)) entry["Time In"] = w.timeIn;
+              if (!entry["Break Out"] && isValidWfhTime(w.breakOut))
                 entry["Break Out"] = w.breakOut;
-              if (!entry["Break In"] && w.breakIn)
+              if (!entry["Break In"] && isValidWfhTime(w.breakIn))
                 entry["Break In"] = w.breakIn;
-              if (!entry["Time Out"] && w.timeOut)
+              if (!entry["Time Out"] && isValidWfhTime(w.timeOut))
                 entry["Time Out"] = w.timeOut;
+              // Track WFH day
+              if (!wfhDaysMap[empKey]) wfhDaysMap[empKey] = {};
+              wfhDaysMap[empKey][dateKey] = true;
             });
             d = d.add(1, "day");
           }
@@ -403,6 +485,7 @@ const DTRProcess = ({ currentUser }) => {
         /* WFH merge optional */
       }
 
+      setWfhDays(wfhDaysMap);
       setDtrLogs(logsByEmpDay);
     } catch (error) {
       console.error("Failed to fetch DTR logs:", error);
@@ -888,6 +971,12 @@ const DTRProcess = ({ currentUser }) => {
       });
 
       // ── Merge WFH prescribed times for dates without biometric data ──
+      const wfhDaysMap = {};
+      const isValidWfhTime = (v) => {
+        if (!v || typeof v !== "string") return false;
+        const s = v.trim();
+        return s && s !== "-" && s !== "\u2014" && s !== "\u2013" && s.toLowerCase() !== "n/a";
+      };
       try {
         const wfhRes = await axiosInstance.get("/work-from-home/public", {
           params: { start: cutStartParam, end: cutEndParam },
@@ -915,29 +1004,68 @@ const DTRProcess = ({ currentUser }) => {
                 };
               }
               const entry = logsByEmpDay[empKey][dateKey];
-              if ((!entry["Time In"] || !entry["Time In"].length) && w.timeIn)
+              if ((!entry["Time In"] || !entry["Time In"].length) && isValidWfhTime(w.timeIn))
                 entry["Time In"] = [w.timeIn];
               if (
                 (!entry["Break Out"] || !entry["Break Out"].length) &&
-                w.breakOut
+                isValidWfhTime(w.breakOut)
               )
                 entry["Break Out"] = [w.breakOut];
               if (
                 (!entry["Break In"] || !entry["Break In"].length) &&
-                w.breakIn
+                isValidWfhTime(w.breakIn)
               )
                 entry["Break In"] = [w.breakIn];
               if (
                 (!entry["Time Out"] || !entry["Time Out"].length) &&
-                w.timeOut
+                isValidWfhTime(w.timeOut)
               )
                 entry["Time Out"] = [w.timeOut];
+              // Track WFH day
+              if (!wfhDaysMap[empKey]) wfhDaysMap[empKey] = {};
+              wfhDaysMap[empKey][dateKey] = true;
             });
             d = d.add(1, "day");
           }
         });
       } catch (_) {
         /* WFH merge is optional */
+      }
+
+      setWfhDays(wfhDaysMap);
+
+      // ── Merge saved dtr-resolutions (manual entries from Find Time Record) ──
+      try {
+        const empIds = [...new Set(employees.map((e) => e?.empId).filter(Boolean))];
+        const resPromises = empIds.map((eid) =>
+          axiosInstance.get("/dtr-resolutions", {
+            params: { empId: eid, recordId: selectedRecord._id },
+          }).then((r) => ({ empId: eid, data: r.data?.data || {} })).catch(() => ({ empId: eid, data: {} }))
+        );
+        const resResults = await Promise.all(resPromises);
+        for (const { empId: eid, data } of resResults) {
+          if (!data || !Object.keys(data).length) continue;
+          if (!logsByEmpDay[eid]) logsByEmpDay[eid] = {};
+          for (const [dateKey, r] of Object.entries(data)) {
+            if (!logsByEmpDay[eid][dateKey]) {
+              logsByEmpDay[eid][dateKey] = {
+                "Time In": [], "Break Out": [], "Break In": [],
+                "Time Out": [], "OT In": [], "OT Out": [],
+              };
+            }
+            const entry = logsByEmpDay[eid][dateKey];
+            if (r.timeIn && (!entry["Time In"] || !entry["Time In"].length))
+              entry["Time In"] = [r.timeIn];
+            if (r.breakOut && (!entry["Break Out"] || !entry["Break Out"].length))
+              entry["Break Out"] = [r.breakOut];
+            if (r.breakIn && (!entry["Break In"] || !entry["Break In"].length))
+              entry["Break In"] = [r.breakIn];
+            if (r.timeOut && (!entry["Time Out"] || !entry["Time Out"].length))
+              entry["Time Out"] = [r.timeOut];
+          }
+        }
+      } catch (_) {
+        /* dtr-resolution merge is optional */
       }
 
       setDtrLogs(logsByEmpDay);
@@ -1021,11 +1149,7 @@ const DTRProcess = ({ currentUser }) => {
     }
 
     if (sectionOrUnitFilter) {
-      data = data.filter((emp) =>
-        emp.sectionOrUnit
-          ?.toLowerCase()
-          .includes(sectionOrUnitFilter.toLowerCase()),
-      );
+      data = data.filter((emp) => emp.sectionOrUnit === sectionOrUnitFilter);
     }
 
     setFilteredEmployees(sortEmployees(data));
@@ -1614,11 +1738,22 @@ const DTRProcess = ({ currentUser }) => {
 
   useEffect(() => {
     if (selectedRecords.length > 0 && employees.length) {
-      if (selectedRecords.length === 1) {
-        fetchDtrLogsByRecord(selectedRecords[0], employees);
-      } else {
-        fetchAndMergeMultipleRecords(selectedRecords, employees);
+      // If restored from cache and we already have logs, skip re-fetching
+      if (restoredFromCache.current && Object.keys(dtrLogs).length > 0) {
+        restoredFromCache.current = false;
+        return;
       }
+      restoredFromCache.current = false;
+      const loadAndFill = async () => {
+        if (selectedRecords.length === 1) {
+          await fetchDtrLogsByRecord(selectedRecords[0], employees);
+        } else {
+          await fetchAndMergeMultipleRecords(selectedRecords, employees);
+        }
+        // Show auto-fill chooser modal instead of auto-triggering
+        setAutoFillPending(true);
+      };
+      loadAndFill();
     } else {
       setDtrLogs({});
     }
@@ -1878,8 +2013,7 @@ const DTRProcess = ({ currentUser }) => {
 
       const res = await axiosInstance.post("/employee-docs", payload);
 
-      if (res.data?.success) {
-      } else {
+      if (!res.data?.success) {
         console.error("Failed to log DTR record:", res.data);
       }
     } catch (err) {
@@ -1888,10 +2022,6 @@ const DTRProcess = ({ currentUser }) => {
         err.response?.data || err.message,
       );
     }
-  };
-
-  const handleViewDTRPdf = (item) => {
-    generateDTRPdf(item);
   };
 
   const handleDownloadDTR = async (item) => {
@@ -2133,6 +2263,146 @@ const DTRProcess = ({ currentUser }) => {
     setFillOnlyMissing(true);
     setFillSetupVisible(true);
   };
+
+  // ── Auto-fill missing time records after log loading ──
+  // Compute auto-fill counts per employee type
+  const autoFillCounts = useMemo(() => {
+    if (!fillWorkDates.length || !employees.length) return { regular: 0, cos: 0, total: 0 };
+    let regular = 0;
+    let cos = 0;
+    for (const emp of employees) {
+      if (getEmployeeMissingCount(emp, fillWorkDates) > 0) {
+        if (emp.empType === "Regular") regular++;
+        else if (emp.empType === "Contract of Service") cos++;
+        else regular++; // count unknown as regular
+      }
+    }
+    return { regular, cos, total: regular + cos };
+  }, [employees, fillWorkDates, getEmployeeMissingCount]);
+
+  const runAutoFill = async (empTypeFilter) => {
+    if (!selectedRecord || autoFillRunning) return;
+    const cutStart = parseInLocalTz(selectedRecord.DTR_Cut_Off.start);
+    const cutEnd = parseInLocalTz(selectedRecord.DTR_Cut_Off.end);
+    if (!cutStart.isValid() || !cutEnd.isValid()) return;
+
+    const s = cutStart.format("YYYY-MM-DD");
+    const e = cutEnd.format("YYYY-MM-DD");
+
+    // Target employees filtered by chosen type
+    let targetEmployees = employees.filter((emp) => getEmployeeMissingCount(emp, fillWorkDates) > 0);
+    if (empTypeFilter) {
+      targetEmployees = targetEmployees.filter((emp) => emp.empType === empTypeFilter);
+    }
+    if (!targetEmployees.length) {
+      setAutoFillRunning(false);
+      setAutoFillPending(false);
+      return;
+    }
+
+    const total = targetEmployees.length;
+    autoFillCancelRef.current = false;
+    setAutoFillProgress({ current: 0, total, currentName: "", filled: 0, skipped: 0 });
+    setAutoFillRunning(true);
+
+    let totalFilled = 0;
+    let totalSkipped = 0;
+    const newResolutions = {};
+
+    // Process in concurrent batches of 5
+    const BATCH_SIZE = 5;
+    for (let batchStart = 0; batchStart < total; batchStart += BATCH_SIZE) {
+      if (autoFillCancelRef.current) break;
+      const batch = targetEmployees.slice(batchStart, batchStart + BATCH_SIZE);
+
+      const results = await Promise.allSettled(
+        batch.map(async (emp, idx) => {
+          const globalIdx = batchStart + idx;
+          const empLabel = emp.name || emp.empId;
+          setAutoFillProgress((prev) => ({ ...prev, current: globalIdx + 1, currentName: empLabel }));
+
+          const ids = [emp.empId, ...(emp.alternateEmpIds || [])].filter(Boolean).map(String);
+          const missingDates = fillWorkDates.filter((dateKey) => {
+            for (const id of ids) {
+              const dayLogs = dtrLogs?.[id]?.[dateKey];
+              if (dayLogs) {
+                const hasTI = isNonEmptyTimeString(Array.isArray(dayLogs["Time In"]) ? dayLogs["Time In"][0] : dayLogs["Time In"]);
+                const hasTO = isNonEmptyTimeString(Array.isArray(dayLogs["Time Out"]) ? dayLogs["Time Out"][0] : dayLogs["Time Out"]);
+                if (hasTI && hasTO) return false;
+              }
+            }
+            return true;
+          });
+
+          if (!missingDates.length) return { empId: emp.empId, status: "skipped" };
+
+          const bioRes = await axiosInstance.get("/dtr-resolutions/search-biometric", {
+            params: { empId: emp.empId, startDate: s, endDate: e },
+          });
+          const bioData = bioRes.data?.success ? (bioRes.data.data || {}) : {};
+
+          const entries = [];
+          for (const dateKey of missingDates) {
+            const punches = bioData[dateKey];
+            if (!punches || !punches.length) continue;
+            const resolved = resolveBioPunches(punches);
+            if (resolved) entries.push({ dateKey, ...resolved, source: "biometric" });
+          }
+
+          if (!entries.length) return { empId: emp.empId, status: "skipped" };
+
+          await axiosInstance.post("/dtr-resolutions/bulk", {
+            empId: emp.empId,
+            recordId: selectedRecord._id,
+            entries,
+          });
+
+          return { empId: emp.empId, status: "filled", entries };
+        })
+      );
+
+      for (const result of results) {
+        if (result.status === "fulfilled" && result.value) {
+          if (result.value.status === "filled") {
+            totalFilled++;
+            const empResMap = {};
+            result.value.entries.forEach((ent) => { empResMap[ent.dateKey] = ent; });
+            newResolutions[result.value.empId] = empResMap;
+          } else {
+            totalSkipped++;
+          }
+        } else {
+          totalSkipped++;
+        }
+      }
+
+      setAutoFillProgress((prev) => ({
+        ...prev,
+        current: Math.min(batchStart + BATCH_SIZE, total),
+        filled: totalFilled,
+        skipped: totalSkipped,
+      }));
+    }
+
+    setFillResolutions((prev) => {
+      const merged = { ...prev };
+      for (const [empId, dateMap] of Object.entries(newResolutions)) {
+        merged[empId] = { ...(merged[empId] || {}), ...dateMap };
+      }
+      return merged;
+    });
+
+    setAutoFillRunning(false);
+    setAutoFillPending(false);
+    setAutoFillModalVisible(false);
+  };
+
+  // Show auto-fill chooser modal when logs are loaded and fillWorkDates are available
+  useEffect(() => {
+    if (autoFillPending && !dtrLogsLoading && !autoFillRunning && fillWorkDates.length > 0 && employees.length > 0) {
+      setAutoFillModalVisible(true);
+    }
+  }, [autoFillPending, dtrLogsLoading, autoFillRunning, fillWorkDates, employees]);
 
   const startFill = async () => {
     if (!selectedRecord) return;
@@ -2376,6 +2646,7 @@ const DTRProcess = ({ currentUser }) => {
               holidaysPH={allHolidays}
               trainingLoading={trainingLoading}
               fillResolutions={fillResolutions}
+              wfhDays={wfhDays}
               getEmployeeDayLogs={(emp, dateKey) => {
                 const ids = [emp.empId, ...(emp.alternateEmpIds || [])].filter(
                   Boolean,
@@ -2389,6 +2660,16 @@ const DTRProcess = ({ currentUser }) => {
                 const trainings = employeeTrainings[emp.empId] || [];
                 return trainings.find((t) => {
                   const d = dayjs(dateKey);
+                  // Check per-participant attendanceDates first
+                  const participant = (t.participants || []).find(
+                    (p) => p.empId === emp.empId,
+                  );
+                  if (participant?.attendanceDates?.length) {
+                    return participant.attendanceDates.some((ad) =>
+                      dayjs(ad).isSame(d, "day"),
+                    );
+                  }
+                  // Fallback to full training date range
                   const start = dayjs(t.trainingDate?.[0]);
                   const end = dayjs(t.trainingDate?.[1]);
                   if (!start.isValid() || !end.isValid()) return false;
@@ -2413,6 +2694,7 @@ const DTRProcess = ({ currentUser }) => {
       employeeTrainings,
       trainingLoading,
       fillResolutions,
+      wfhDays,
     ],
   );
 
@@ -2474,11 +2756,19 @@ const DTRProcess = ({ currentUser }) => {
     [employees],
   );
 
-  const handlePreviewForm48 = (employee, record) => {
+  const sectionOrUnitOptions = useMemo(
+    () =>
+      [...new Set(employees.map((emp) => emp.sectionOrUnit).filter(Boolean))]
+        .sort((a, b) => a.localeCompare(b))
+        .map((s) => ({ label: s, value: s })),
+    [employees],
+  );
+
+  const handlePreviewForm48 = (employee, record, trayItem) => {
     generateDTRPdf({
       employee,
-      dtrDays,
-      dtrLogs,
+      dtrDays: trayItem?.dtrDays || dtrDays,
+      dtrLogs: trayItem?.dtrLogs || dtrLogs,
       selectedRecord: record,
     });
   };
@@ -2519,6 +2809,7 @@ const DTRProcess = ({ currentUser }) => {
           empTypeOptions={empTypeOptions}
           sectionOrUnitFilter={sectionOrUnitFilter}
           setSectionOrUnitFilter={setSectionOrUnitFilter}
+          sectionOrUnitOptions={sectionOrUnitOptions}
           dtrLogsLoading={dtrLogsLoading}
           dateRangeFilter={dateRangeFilter}
           setDateRangeFilter={setDateRangeFilter}
@@ -2647,6 +2938,116 @@ const DTRProcess = ({ currentUser }) => {
           onPreviewForm48={handlePrintSelected}
         />
       )}
+
+      {/* Auto-Fill Missing Time Records — Chooser Modal */}
+      <Modal
+        title={
+          <Space size={8}>
+            <ThunderboltOutlined style={{ color: "#faad14" }} />
+            <span style={{ fontWeight: 600 }}>Auto-Fill Missing Time Records</span>
+          </Space>
+        }
+        open={autoFillModalVisible}
+        onCancel={() => {
+          if (autoFillRunning) {
+            autoFillCancelRef.current = true;
+          } else {
+            setAutoFillModalVisible(false);
+            setAutoFillPending(false);
+          }
+        }}
+        footer={autoFillRunning ? (
+          <Button
+            danger
+            onClick={() => { autoFillCancelRef.current = true; }}
+          >
+            Cancel
+          </Button>
+        ) : (
+          <Space>
+            <Button onClick={() => { setAutoFillModalVisible(false); setAutoFillPending(false); }}>
+              Skip
+            </Button>
+            <Button
+              type="primary"
+              icon={<ThunderboltOutlined />}
+              disabled={autoFillCounts.total === 0}
+              onClick={() => runAutoFill(autoFillEmpType)}
+            >
+              Start Auto-Fill
+            </Button>
+          </Space>
+        )}
+        width={480}
+        maskClosable={!autoFillRunning}
+        closable={!autoFillRunning}
+        destroyOnClose
+      >
+        {!autoFillRunning ? (
+          <div>
+            <p style={{ marginBottom: 12, color: "#555" }}>
+              Choose which employee type to auto-fill first, or fill all at once.
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <Button
+                block
+                type={autoFillEmpType === null ? "primary" : "default"}
+                ghost={autoFillEmpType === null}
+                onClick={() => setAutoFillEmpType(null)}
+                style={{ textAlign: "left", height: "auto", padding: "10px 16px" }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span><TeamOutlined /> All Employees</span>
+                  <Tag>{autoFillCounts.total} with missing records</Tag>
+                </div>
+              </Button>
+              <Button
+                block
+                type={autoFillEmpType === "Regular" ? "primary" : "default"}
+                ghost={autoFillEmpType === "Regular"}
+                onClick={() => setAutoFillEmpType("Regular")}
+                style={{ textAlign: "left", height: "auto", padding: "10px 16px" }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ color: "#389e0d" }}>● Regular</span>
+                  <Tag color="green">{autoFillCounts.regular} with missing records</Tag>
+                </div>
+              </Button>
+              <Button
+                block
+                type={autoFillEmpType === "Contract of Service" ? "primary" : "default"}
+                ghost={autoFillEmpType === "Contract of Service"}
+                onClick={() => setAutoFillEmpType("Contract of Service")}
+                style={{ textAlign: "left", height: "auto", padding: "10px 16px" }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ color: "#fa8c16" }}>● Contract of Service</span>
+                  <Tag color="orange">{autoFillCounts.cos} with missing records</Tag>
+                </div>
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <Spin size="small" />
+              <span style={{ fontSize: 13, color: "#555" }}>
+                Auto-filling{autoFillEmpType ? ` ${autoFillEmpType}` : ""} employees... {autoFillProgress.current} / {autoFillProgress.total}
+                {autoFillProgress.currentName ? ` — ${autoFillProgress.currentName}` : ""}
+              </span>
+            </div>
+            <Progress
+              percent={autoFillProgress.total > 0 ? Math.round((autoFillProgress.current / autoFillProgress.total) * 100) : 0}
+              size="small"
+              status="active"
+            />
+            <div style={{ display: "flex", gap: 16, marginTop: 8, fontSize: 12, color: "#888" }}>
+              <span><CheckCircleOutlined style={{ color: "#52c41a" }} /> Filled: {autoFillProgress.filled}</span>
+              <span><CloseCircleOutlined style={{ color: "#ff4d4f" }} /> Skipped: {autoFillProgress.skipped}</span>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       {/* Fill Time Records — Setup/Preview Modal */}
       <Modal

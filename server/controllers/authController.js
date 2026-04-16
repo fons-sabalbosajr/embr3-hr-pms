@@ -16,6 +16,7 @@ import { validatePassword } from "../utils/validatePassword.js";
 import Settings from "../models/Settings.js";
 import fs from 'fs';
 import path from 'path';
+import { recordAudit } from '../utils/auditHelper.js';
 // Optional image processor; dynamically imported when needed
 // If unavailable, code falls back to saving original image bytes.
 
@@ -87,6 +88,8 @@ export const signup = async (req, res) => {
     } catch (notifyErr) {
       console.warn("[Signup Notify] Could not send admin notifications:", notifyErr.message);
     }
+
+    recordAudit('auth:signup', { user: { _id: user._id, name, username, email } }, { name, username, email });
 
     return res.status(201).json({
       message: "Signup successful. A verification email has been sent. Your account is pending approval by an administrator.",
@@ -467,6 +470,9 @@ export const login = async (req, res) => {
       io.emit("user-status-changed", { userId: user._id, status: "online" });
     }
 
+    // Audit: successful login
+    recordAudit('auth:login', { user: userObject }, { username: userObject.username || userObject.email });
+
     res.json({
       token,
       user: userObject,
@@ -783,6 +789,8 @@ export const changePassword = async (req, res) => {
       { $set: { password: newHashed } },
       { runValidators: false }
     );
+
+    recordAudit('auth:password-changed', req, { userId: String(user._id) });
 
     res.json({ message: "Password changed successfully" });
   } catch (error) {
@@ -1220,6 +1228,9 @@ export const updateUserAccess = async (req, res) => {
       });
     } catch (_) {}
 
+    // Audit: access update
+    recordAudit('user:access-updated', req, { targetUserId: String(userId), targetUserName: userObject.name || userObject.username, changes: updates });
+
     res.json({ success: true, data: userObject });
   } catch (error) {
     console.error("Error updating user access:", error);
@@ -1250,6 +1261,7 @@ export const logout = async (req, res) => {
       // For demo users, skip DB update altogether to avoid ObjectId casts
       // Optionally we could emit a status event, but since no real user exists, skip to reduce noise.
     }
+    recordAudit('auth:logout', req, { userId });
     res.status(200).json({ message: "Logout successful." });
   } catch (error) {
     console.error("[Logout Error]", error);
@@ -1343,6 +1355,7 @@ export const approveSignup = async (req, res) => {
     } catch (_) {}
 
     const updated = await User.findById(userId).select("-password").lean();
+    recordAudit('user:signup-approved', req, { targetUserId: userId, targetUserName: user.name || user.username });
     res.json({ success: true, data: updated, message: "User approved successfully" });
   } catch (error) {
     console.error("[approveSignup Error]", error);
@@ -1382,6 +1395,7 @@ export const rejectSignup = async (req, res) => {
     } catch (_) {}
 
     const updated = await User.findById(userId).select("-password").lean();
+    recordAudit('user:signup-rejected', req, { targetUserId: userId, targetUserName: user.name || user.username, reason });
     res.json({ success: true, data: updated, message: "User rejected" });
   } catch (error) {
     console.error("[rejectSignup Error]", error);
@@ -1397,6 +1411,8 @@ export const deleteUser = async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found" });
     }
     await User.deleteOne({ _id: userId });
+
+    recordAudit('user:deleted', req, { targetUserId: userId, targetUserName: user.name || user.username });
 
     try {
       const io = getSocketInstance();

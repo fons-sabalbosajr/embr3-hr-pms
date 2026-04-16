@@ -13,6 +13,7 @@ import {
   Tag,
   TimePicker,
   Select,
+  Input,
 } from "antd";
 import { swalSuccess, swalError, swalWarning, swalInfo, swalConfirm } from "../../../../utils/swalHelper";
 import dayjs from "dayjs";
@@ -30,17 +31,13 @@ import {
   UserOutlined,
   SearchOutlined,
   ToolOutlined,
-  ClockCircleOutlined,
   DeleteOutlined,
   PlusOutlined,
   ThunderboltOutlined,
 } from "@ant-design/icons";
 import "./viewdtr.css";
-import axios from "axios";
 import axiosInstance from "../../../../api/axiosInstance";
 import { generateDTRPdf } from "../../../../../utils/generateDTRpdf";
-
-const { Text } = Typography;
 
 dayjs.extend(customParseFormat);
 dayjs.extend(utc);
@@ -93,6 +90,7 @@ const ViewDTR = ({
   const [findBreakOut, setFindBreakOut] = React.useState(null);
   const [findBreakIn, setFindBreakIn] = React.useState(null);
   const [findTimeOut, setFindTimeOut] = React.useState(null);
+  const [findWorkStatus, setFindWorkStatus] = React.useState("");
 
   // Biometric search state
   const [biometricResults, setBiometricResults] = React.useState({}); // grouped by date from API
@@ -116,6 +114,7 @@ const ViewDTR = ({
               breakOut: r.breakOut || "",
               breakIn: r.breakIn || "",
               timeOut: r.timeOut || "",
+              workStatus: r.workStatus || "",
               source: r.source || "manual",
               _id: r._id,
             };
@@ -457,6 +456,7 @@ const ViewDTR = ({
         if (manual.breakOut) { breakOut = manual.breakOut; isManualEntry = true; }
         if (manual.breakIn) { breakIn = manual.breakIn; isManualEntry = true; }
         if (manual.timeOut) { timeOut = manual.timeOut; isManualEntry = true; }
+        if (manual.workStatus) { rowStatus = manual.workStatus; isManualEntry = true; }
       }
 
       rows.push({
@@ -859,6 +859,7 @@ const ViewDTR = ({
       setFindBreakOut(existing.breakOut ? dayjs(existing.breakOut, "h:mm A") : null);
       setFindBreakIn(existing.breakIn ? dayjs(existing.breakIn, "h:mm A") : null);
       setFindTimeOut(existing.timeOut ? dayjs(existing.timeOut, "h:mm A") : null);
+      setFindWorkStatus(existing.workStatus || "");
       return;
     }
 
@@ -906,6 +907,7 @@ const ViewDTR = ({
       } else {
         setFindBreakIn(null);
       }
+      setFindWorkStatus("");
     } else {
       // Pre-populate from existing table data
       const row = (tableData || []).find((r) => r.key === dateKey);
@@ -913,6 +915,7 @@ const ViewDTR = ({
       setFindBreakOut(row?.breakOut ? dayjs(row.breakOut, "h:mm A") : null);
       setFindBreakIn(row?.breakIn ? dayjs(row.breakIn, "h:mm A") : null);
       setFindTimeOut(row?.timeOut ? dayjs(row.timeOut, "h:mm A") : null);
+      setFindWorkStatus("");
     }
   };
 
@@ -923,8 +926,9 @@ const ViewDTR = ({
     if (findBreakOut?.isValid()) entry.breakOut = findBreakOut.format("h:mm A");
     if (findBreakIn?.isValid()) entry.breakIn = findBreakIn.format("h:mm A");
     if (findTimeOut?.isValid()) entry.timeOut = findTimeOut.format("h:mm A");
-    if (Object.keys(entry).length === 0) {
-      swalWarning("Please enter at least one time value.");
+    const workStatusVal = findWorkStatus?.trim() || "";
+    if (Object.keys(entry).length === 0 && !workStatusVal) {
+      swalWarning("Please enter at least one time value or work status.");
       return;
     }
 
@@ -939,9 +943,10 @@ const ViewDTR = ({
         recordId: selectedRecord._id,
         dateKey: findSelectedDate,
         ...entry,
+        workStatus: workStatusVal,
         source,
       });
-      setManualEntries((prev) => ({ ...prev, [findSelectedDate]: { ...entry, source } }));
+      setManualEntries((prev) => ({ ...prev, [findSelectedDate]: { ...entry, workStatus: workStatusVal, source } }));
       swalSuccess(`Time record saved for ${dayjs(findSelectedDate).format("MM/DD/YYYY")}`);
       setFindTimeModalOpen(false);
     } catch {
@@ -1377,6 +1382,16 @@ const ViewDTR = ({
                   placeholder="e.g. 5:00 PM"
                 />
               </div>
+              <div className="find-time-field" style={{ gridColumn: "1 / -1" }}>
+                <label>Work Status</label>
+                <Input
+                  value={findWorkStatus}
+                  onChange={(e) => setFindWorkStatus(e.target.value)}
+                  placeholder="e.g. WFH (see attch.), OT, Leave, Official Business"
+                  allowClear
+                  style={{ width: "100%" }}
+                />
+              </div>
             </div>
           )}
         </Spin>
@@ -1403,6 +1418,7 @@ const ViewDTR = ({
                 { title: "Break Out", dataIndex: "breakOut", key: "breakOut", width: 75 },
                 { title: "Break In", dataIndex: "breakIn", key: "breakIn", width: 75 },
                 { title: "Time Out", dataIndex: "timeOut", key: "timeOut", width: 75 },
+                { title: "Status", dataIndex: "workStatus", key: "workStatus", width: 80, ellipsis: true },
                 {
                   title: "Src",
                   dataIndex: "source",

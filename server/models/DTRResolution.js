@@ -9,6 +9,7 @@ const dtrResolutionSchema = new mongoose.Schema(
     breakOut: { type: String, default: "" },
     breakIn: { type: String, default: "" },
     timeOut: { type: String, default: "" },
+    workStatus: { type: String, default: "" },
     source: { type: String, enum: ["biometric", "manual"], default: "manual" },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
   },

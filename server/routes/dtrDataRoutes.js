@@ -19,6 +19,10 @@ import {
   unmergeChildPeriod,
   getUnmergeProgress,
   cancelUnmerge,
+  deleteDuplicatePunches,
+  getDedupProgress,
+  countDuplicatePunches,
+  getDuplicatePreview,
 } from "../controllers/dtrDataController.js";
 
 const router = express.Router();
@@ -46,9 +50,13 @@ router.post("/container-create", requirePermissions(["canProcessDTR"]), createCo
 router.get("/container-progress/:jobId", requirePermissions(["canProcessDTR"]), getContainerProgress);
 router.get("/unmerge-progress/:jobId", requirePermissions(["canProcessDTR"]), getUnmergeProgress);
 router.post("/unmerge-cancel/:jobId", requirePermissions(["canProcessDTR"]), cancelUnmerge);
+router.get("/dedup-progress/:jobId", requirePermissions(["canProcessDTR"]), getDedupProgress);
 
 router.delete("/:id", requirePermissions(["canProcessDTR"]), deleteDTRDataJob);
 router.put("/:id", requirePermissions(["canProcessDTR"]), updateDTRData);
+router.get("/:id/count-duplicates", requirePermissions(["canProcessDTR"]), countDuplicatePunches);
+router.get("/:id/duplicate-preview", requirePermissions(["canProcessDTR"]), getDuplicatePreview);
+router.post("/:id/delete-duplicates", requirePermissions(["canProcessDTR"]), deleteDuplicatePunches);
 router.post("/:targetId/merge", requirePermissions(["canProcessDTR"]), mergeDTRData);
 router.post("/:targetId/merge-preview", requirePermissions(["canProcessDTR"]), previewMergeDTRData);
 router.post("/:targetId/merge-start", requirePermissions(["canProcessDTR"]), startMergeDTRData);

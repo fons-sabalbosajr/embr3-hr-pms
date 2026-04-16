@@ -255,7 +255,7 @@ const Dashboard = () => {
 
           while (all.length < total) {
             const res = await axiosInstance.get('/dtrlogs/merged', {
-              params: { ...buildParamsForDay(d), page, limit },
+              params: { ...buildParamsForDay(d), page, limit, deduplicate: true },
             });
             const batch = res.data?.data || [];
             total = Number(res.data?.total ?? all.length + batch.length);
@@ -506,11 +506,27 @@ const Dashboard = () => {
       // Prefer to request logs by the DTR record cut-off range to avoid mismatches
       const startDate = selectedDtrRecord?.DTR_Cut_Off?.start;
       const endDate = selectedDtrRecord?.DTR_Cut_Off?.end;
-      const baseParams = { recordName: selectedDtrRecord.DTR_Record_Name, startDate, endDate };
+      const baseParams = { recordName: selectedDtrRecord.DTR_Record_Name, startDate, endDate, deduplicate: true, limit: 500 };
+
+      // Fetch all deduplicated logs for the employee across pages
+      const fetchAllDedupLogs = async (extraParams) => {
+        let allLogs = [];
+        let pg = 1;
+        let totalCount = Infinity;
+        while (allLogs.length < totalCount) {
+          const res = await axiosInstance.get(`/dtrlogs/merged`, { params: { ...baseParams, ...extraParams, page: pg } });
+          const batch = res.data?.data || [];
+          totalCount = Number(res.data?.total ?? allLogs.length + batch.length);
+          allLogs.push(...batch);
+          if (!batch.length) break;
+          pg += 1;
+          if (pg > 200) break; // safety cap
+        }
+        return allLogs;
+      };
 
       // First try by employee name (more tolerant for AC-No formatting differences)
-      let mergedRes = await axiosInstance.get(`/dtrlogs/merged`, { params: { ...baseParams, names: selectedEmployee.name } });
-      let dtrLogs = mergedRes.data.data || [];
+      let dtrLogs = await fetchAllDedupLogs({ names: selectedEmployee.name });
 
       // Fallback: try several AC-No variants (original empId, normalized digits, last 4 digits)
       if (!dtrLogs.length) {
@@ -518,8 +534,7 @@ const Dashboard = () => {
         const normalized = rawEmpId.replace(/\D/g, '');
         const last4 = normalized.slice(-4);
         const acCandidates = [rawEmpId, normalized, last4].filter(Boolean).join(',');
-        mergedRes = await axiosInstance.get(`/dtrlogs/merged`, { params: { ...baseParams, acNo: acCandidates } });
-        dtrLogs = mergedRes.data.data || [];
+        dtrLogs = await fetchAllDedupLogs({ acNo: acCandidates });
       }
 
       if (!dtrLogs.length) {

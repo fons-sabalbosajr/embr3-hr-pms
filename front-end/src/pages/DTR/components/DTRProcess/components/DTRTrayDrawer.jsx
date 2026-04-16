@@ -94,7 +94,7 @@ const PrinterTrayDrawer = ({
                     disabled={anyBusy && !isViewing}
                     onClick={() =>
                       runWithKey(setViewLoadingKey, key, () =>
-                        handlePreviewForm48(item.employee, item.selectedRecord)
+                        handlePreviewForm48(item.employee, item.selectedRecord, item)
                       )
                     }
                   >

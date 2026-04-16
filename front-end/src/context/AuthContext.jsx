@@ -72,9 +72,28 @@ export const AuthProvider = ({ children }) => {
           const updated = payload?.user;
           if (!targetId || !updated) return;
           if (String(targetId) !== String(user._id)) return;
+
+          // Detect which permissions were revoked
+          const dangerZoneKeys = ['isAdmin', 'canManageUsers', 'canAccessDeveloper', 'canSeeDev'];
+          const allPermKeys = [
+            ...dangerZoneKeys,
+            'canViewDashboard', 'canViewEmployees', 'canEditEmployees',
+            'canViewDTR', 'canProcessDTR', 'canViewPayroll', 'canProcessPayroll',
+            'canViewTrainings', 'canEditTrainings', 'canAccessSettings',
+            'canChangeDeductions', 'canPerformBackup', 'canManipulateBiometrics',
+            'canViewMessages', 'canManageMessages', 'canAccessConfigSettings',
+            'showSalaryAmounts',
+          ];
+          const revokedKeys = allPermKeys.filter(k => user[k] && !updated[k]);
+
           // Update current user in-session so route guards/menus refresh immediately
           setUser(updated);
           secureSessionStore("user", updated);
+
+          // If any permission was revoked, dispatch a custom event so the app can react
+          if (revokedKeys.length > 0) {
+            window.dispatchEvent(new CustomEvent('permissions-revoked', { detail: { revokedKeys, user: updated } }));
+          }
         } catch (_) {}
       };
       socket.on("connect", onConnect);

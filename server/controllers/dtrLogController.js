@@ -6,6 +6,7 @@ import utc from "dayjs/plugin/utc.js";
 import timezone from "dayjs/plugin/timezone.js";
 import mongoose from "mongoose";
 import User from "../models/User.js";
+import { recordAudit } from '../utils/auditHelper.js';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -23,6 +24,7 @@ const parseInLocalTz = (value) => {
 export const getMergedDTRLogs = async (req, res) => {
   try {
     const { recordName, acNo, startDate, endDate, names, empIds, q } = req.query;
+    const deduplicate = req.query.deduplicate === 'true';
     const page = Math.max(parseInt(req.query.page || '1', 10), 1);
     const limit = Math.min(Math.max(parseInt(req.query.limit || '20', 10), 1), 500);
 
@@ -167,15 +169,63 @@ export const getMergedDTRLogs = async (req, res) => {
     }
 
     // Count total BEFORE pagination
-    const total = await DTRLog.countDocuments(filter);
+    let total;
+    let logs;
 
-    // Query DTRLogs, sort ascending by time with pagination
-    const logs = await DTRLog.find(filter)
-      .populate("DTR_ID", "DTR_Record_Name")
-      .sort({ Time: 1 })
-      .skip((page - 1) * limit)
-      .limit(limit)
-      .lean();
+    if (deduplicate) {
+      // Server-side deduplication: group by normalizedAcNo + Time and keep only the first document per group.
+      // This eliminates duplicate punches (same AC-No and exact same timestamp).
+      const matchStage = { $match: filter };
+      const sortStage = { $sort: { Time: 1 } };
+      const groupStage = {
+        $group: {
+          _id: {
+            acNo: { $ifNull: ["$normalizedAcNo", "$AC-No"] },
+            time: "$Time",
+          },
+          doc: { $first: "$$ROOT" },
+        },
+      };
+      const replaceRootStage = { $replaceRoot: { newRoot: "$doc" } };
+      const reSortStage = { $sort: { Time: 1 } };
+
+      // Count deduplicated total
+      const countPipeline = [matchStage, groupStage, { $count: "cnt" }];
+      const countResult = await DTRLog.aggregate(countPipeline);
+      total = countResult[0]?.cnt || 0;
+
+      // Fetch deduplicated logs with pagination
+      const pipeline = [
+        matchStage,
+        sortStage,
+        groupStage,
+        replaceRootStage,
+        reSortStage,
+        { $skip: (page - 1) * limit },
+        { $limit: limit },
+      ];
+      logs = await DTRLog.aggregate(pipeline);
+
+      // Populate DTR_ID manually for aggregation results
+      if (logs.length) {
+        const dtrIds = [...new Set(logs.filter(l => l.DTR_ID).map(l => String(l.DTR_ID)))];
+        const dtrRecords = dtrIds.length ? await DTRData.find({ _id: { $in: dtrIds } }).select("DTR_Record_Name").lean() : [];
+        const dtrMap = Object.fromEntries(dtrRecords.map(r => [String(r._id), r]));
+        logs.forEach(l => {
+          if (l.DTR_ID) l.DTR_ID = dtrMap[String(l.DTR_ID)] || null;
+        });
+      }
+    } else {
+      total = await DTRLog.countDocuments(filter);
+
+      // Query DTRLogs, sort ascending by time with pagination
+      logs = await DTRLog.find(filter)
+        .populate("DTR_ID", "DTR_Record_Name")
+        .sort({ Time: 1 })
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .lean();
+    }
 
     // Map logs → include matched employee via robust rules
     const mergedData = logs.map((log, index) => {
@@ -355,6 +405,7 @@ export const deleteDTRLog = async (req, res) => {
     const { id } = req.params;
     const deleted = await DTRLog.findByIdAndDelete(id);
     if (!deleted) return res.status(404).json({ success: false, message: 'Not found' });
+    recordAudit('dtrlog:deleted', req, { logId: id, acNo: deleted['AC-No'], name: deleted.Name, time: deleted.Time });
     res.json({ success: true, data: deleted });
   } catch (err) {
     console.error(err);
@@ -391,6 +442,7 @@ export const updateDTRLog = async (req, res) => {
     }
     const updated = await DTRLog.findByIdAndUpdate(id, { $set: changes }, { new: true });
     if (!updated) return res.status(404).json({ success: false, message: 'Not found' });
+    recordAudit('dtrlog:updated', req, { logId: id, changes });
     res.json({ success: true, data: updated });
   } catch (err) {
     console.error(err);
@@ -419,6 +471,8 @@ export const createDTRLogEntry = async (req, res) => {
       State: State,
       'New State': newState || '',
     });
+
+    recordAudit('dtrlog:created', req, { logId: String(log._id), acNo, name: Name, time: Time, state: State });
 
     res.status(201).json({ success: true, data: log });
   } catch (err) {

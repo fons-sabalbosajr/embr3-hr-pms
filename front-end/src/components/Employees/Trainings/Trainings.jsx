@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import useDemoMode from "../../../hooks/useDemoMode";
 import useAuth from "../../../hooks/useAuth";
 import { swalSuccess, swalError, swalWarning, swalConfirm } from "../../../utils/swalHelper";
@@ -18,16 +18,24 @@ import {
   Tag,
   Transfer,
   Checkbox,
-  Popover,
   Dropdown,
-  Menu,
   Grid,
+  Upload,
+  Progress,
+  Spin,
+  Alert,
+  Tooltip,
 } from "antd";
-import { PlusOutlined, EditOutlined, DeleteOutlined } from "@ant-design/icons";
+import { PlusOutlined, EditOutlined, DeleteOutlined, UploadOutlined, CalendarOutlined } from "@ant-design/icons";
 import axiosInstance from "../../../api/axiosInstance";
 import dayjs from "dayjs";
+import isSameOrBefore from "dayjs/plugin/isSameOrBefore";
+import isSameOrAfter from "dayjs/plugin/isSameOrAfter";
 import tinycolor from "tinycolor2";
 import "./trainings.css";
+
+dayjs.extend(isSameOrBefore);
+dayjs.extend(isSameOrAfter);
 
 const { Option } = Select;
 const { RangePicker } = DatePicker;
@@ -48,6 +56,19 @@ const Trainings = () => {
   });
   const [selectedParticipants, setSelectedParticipants] = useState([]);
   const [useDateRange, setUseDateRange] = useState(false);
+
+  // Per-participant attendance dates: { empId: ['2026-04-13', '2026-04-14', ...] }
+  const [participantDates, setParticipantDates] = useState({});
+
+  // Document scan state
+  const [scanUploading, setScanUploading] = useState(false);
+  const [scanResults, setScanResults] = useState(null);
+  const [scanModalVisible, setScanModalVisible] = useState(false);
+  const [scanFileList, setScanFileList] = useState([]); // processed files list
+  const [scanProgress, setScanProgress] = useState({ current: 0, total: 0 });
+  const [editableUnmatched, setEditableUnmatched] = useState([]); // [{key, name}]
+  const [rematching, setRematching] = useState(false);
+  const [scanRawText, setScanRawText] = useState(""); // raw OCR text from all files
 
   const [form] = Form.useForm();
   const { readOnly, isDemoActive, isDemoUser } = useDemoMode();
@@ -128,12 +149,22 @@ const Trainings = () => {
   const openModal = (training = null) => {
     setEditingTraining(training);
     setIsModalOpen(true);
+    setScanResults(null);
 
     if (training) {
       setSelectedParticipants(training.participants?.map((p) => p.empId) || []);
 
       const isRange = training.trainingDate?.length > 1;
       setUseDateRange(isRange);
+
+      // Load per-participant attendance dates
+      const dates = {};
+      (training.participants || []).forEach((p) => {
+        if (p.attendanceDates?.length) {
+          dates[p.empId] = p.attendanceDates.map((d) => dayjs(d).format("YYYY-MM-DD"));
+        }
+      });
+      setParticipantDates(dates);
 
       // Convert ISO strings to dayjs objects for AntD pickers
       const trainingDateValue = training.trainingDate?.map((d) => dayjs(d));
@@ -149,6 +180,7 @@ const Trainings = () => {
       });
     } else {
       setSelectedParticipants([]);
+      setParticipantDates({});
       form.resetFields();
       setUseDateRange(false); // default single picker
       form.setFieldsValue({
@@ -160,6 +192,11 @@ const Trainings = () => {
   const closeModal = () => {
     setIsModalOpen(false);
     setEditingTraining(null);
+    setParticipantDates({});
+    setScanResults(null);
+    setScanModalVisible(false);
+    setScanFileList([]);
+    setScanUploading(false);
     form.resetFields();
   };
 
@@ -196,9 +233,17 @@ const Trainings = () => {
       }
 
       // Participants payload
-      const participantsPayload = selectedParticipants.map((empId) =>
-        employees.find((emp) => emp.empId === empId),
-      );
+      const participantsPayload = selectedParticipants.map((empId) => {
+        const emp = employees.find((e) => e.empId === empId);
+        const empData = emp ? { ...emp } : { empId };
+        // Attach attendance dates if any
+        if (participantDates[empId]?.length) {
+          empData.attendanceDates = participantDates[empId].map((d) => dayjs(d).toISOString());
+        } else {
+          empData.attendanceDates = [];
+        }
+        return empData;
+      });
 
       const payload = {
         ...values,
@@ -244,6 +289,130 @@ const Trainings = () => {
     } catch (err) {
       console.error("Failed to delete training", err);
     }
+  };
+
+  // ── Document Scan: Upload PDF/Image(s) to extract attendee names ──
+  const openScanModal = () => {
+    setScanResults(null);
+    setScanFileList([]);
+    setScanProgress({ current: 0, total: 0 });
+    setScanUploading(false);
+    setScanModalVisible(true);
+    setEditableUnmatched([]);
+    setRematching(false);
+    setScanRawText("");
+  };
+
+  const handleScanFiles = async (files) => {
+    const allowed = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    const validFiles = [];
+    for (const file of files) {
+      if (!allowed.includes(file.type)) {
+        swalError(`"${file.name}" is not a supported file type. Use PDF, JPEG, PNG, or WebP.`);
+        continue;
+      }
+      if (file.size > 10 * 1024 * 1024) {
+        swalError(`"${file.name}" is too large (max 10MB).`);
+        continue;
+      }
+      validFiles.push(file);
+    }
+    if (!validFiles.length) return;
+
+    setScanUploading(true);
+    setScanProgress({ current: 0, total: validFiles.length });
+
+    // Accumulate results from all files
+    let allMatched = [];
+    let allExtracted = [];
+    let allUnmatched = [];
+    let allRawText = [];
+    const processedFiles = [];
+
+    for (let i = 0; i < validFiles.length; i++) {
+      const file = validFiles[i];
+      setScanProgress({ current: i + 1, total: validFiles.length });
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        const res = await axiosInstance.post("/trainings/scan-attendance", formData, {
+          headers: { "Content-Type": "multipart/form-data" },
+          timeout: 120000,
+        });
+        const { matchedEmployees = [], extractedNames = [], unmatchedNames = [], rawText = "" } = res.data;
+        allMatched = [...allMatched, ...matchedEmployees];
+        allExtracted = [...allExtracted, ...extractedNames];
+        allUnmatched = [...allUnmatched, ...unmatchedNames];
+        if (rawText) allRawText.push(rawText);
+        processedFiles.push({ name: file.name, status: "done", matched: matchedEmployees.length, unmatched: unmatchedNames.length });
+      } catch (err) {
+        console.error(`Scan failed for ${file.name}:`, err);
+        processedFiles.push({ name: file.name, status: "error", error: err.response?.data?.message || "Failed" });
+      }
+    }
+
+    // Deduplicate matched employees by empId
+    const seenIds = new Set();
+    const dedupMatched = [];
+    for (const m of allMatched) {
+      if (!seenIds.has(m.empId)) {
+        seenIds.add(m.empId);
+        dedupMatched.push(m);
+      }
+    }
+
+    const uniqueUnmatched = [...new Set(allUnmatched)];
+    setScanResults({ matchedEmployees: dedupMatched, extractedNames: allExtracted, unmatchedNames: uniqueUnmatched });
+    setEditableUnmatched(uniqueUnmatched.map((name, i) => ({ key: i, name })));
+    setScanRawText(allRawText.join("\n\n---\n\n"));
+    setScanFileList(processedFiles);
+    setScanUploading(false);
+  };
+
+  const applyScanResults = () => {
+    if (scanResults?.matchedEmployees?.length) {
+      const newIds = scanResults.matchedEmployees.map((m) => m.empId);
+      setSelectedParticipants((prev) => {
+        const combined = new Set([...prev, ...newIds]);
+        return Array.from(combined);
+      });
+      swalSuccess(`Added ${scanResults.matchedEmployees.length} employee(s) from scanned documents`);
+    }
+    setScanModalVisible(false);
+  };
+
+  const handleRematchNames = async () => {
+    const names = editableUnmatched.map((r) => r.name.trim()).filter(Boolean);
+    if (!names.length) {
+      swalWarning("No names to re-match");
+      return;
+    }
+    setRematching(true);
+    try {
+      const res = await axiosInstance.post("/trainings/rematch-names", { names }, { timeout: 30000 });
+      const { matchedEmployees = [], unmatchedNames = [] } = res.data;
+      if (matchedEmployees.length) {
+        // Merge newly matched into existing results (dedup by empId)
+        setScanResults((prev) => {
+          const existingIds = new Set((prev?.matchedEmployees || []).map((m) => m.empId));
+          const newMatches = matchedEmployees.filter((m) => !existingIds.has(m.empId));
+          return {
+            ...prev,
+            matchedEmployees: [...(prev?.matchedEmployees || []), ...newMatches],
+            unmatchedNames: unmatchedNames,
+          };
+        });
+        swalSuccess(`Re-matched ${matchedEmployees.length} employee(s)`);
+      } else {
+        swalWarning("No new matches found. Try editing the names further.");
+      }
+      // Update editable list with remaining unmatched
+      setEditableUnmatched(unmatchedNames.map((name, i) => ({ key: i, name })));
+    } catch (err) {
+      console.error("Rematch failed:", err);
+      swalError(err.response?.data?.message || "Failed to re-match names");
+    }
+    setRematching(false);
   };
 
   // Filter the table data
@@ -541,7 +710,7 @@ const Trainings = () => {
           footer={null}
           destroyOnHidden
           className="trainings-modal"
-          width={600}
+          width={700}
         >
           <Form form={form} layout="vertical" onFinish={handleSubmit}>
             <Form.Item
@@ -630,6 +799,21 @@ const Trainings = () => {
                 </Checkbox>
               </Space>
             </Form.Item>
+
+            {/* Scan Document to Auto-populate Participants */}
+            <div style={{ marginBottom: 12 }}>
+              <Tooltip title="Upload training attendance sheets (PDF or images) to automatically detect and add participants">
+                <Button
+                  icon={<UploadOutlined />}
+                  size="small"
+                  type="dashed"
+                  onClick={openScanModal}
+                  disabled={readOnly && isDemoActive && isDemoUser}
+                >
+                  Scan Attendance Sheet
+                </Button>
+              </Tooltip>
+            </div>
 
             {/* Participants Transfer */}
             <Form.Item
@@ -793,6 +977,108 @@ const Trainings = () => {
               />
             </Form.Item>
 
+            {/* ── Per-Participant Attendance Dates ── */}
+            {useDateRange && selectedParticipants.length > 0 && (() => {
+              const dateVal = form.getFieldValue("trainingDate");
+              if (!dateVal || !Array.isArray(dateVal) || dateVal.length < 2) return null;
+              const start = dayjs(dateVal[0]);
+              const end = dayjs(dateVal[1]);
+              if (!start.isValid() || !end.isValid()) return null;
+              const days = [];
+              let d = start.clone();
+              while (d.isSameOrBefore(end, "day")) {
+                days.push(d.format("YYYY-MM-DD"));
+                d = d.add(1, "day");
+              }
+              if (days.length < 2) return null;
+
+              const toggleDate = (empId, dateStr) => {
+                setParticipantDates((prev) => {
+                  const current = prev[empId] || [...days]; // default: all days
+                  const has = current.includes(dateStr);
+                  return { ...prev, [empId]: has ? current.filter((d) => d !== dateStr) : [...current, dateStr].sort() };
+                });
+              };
+
+              const toggleAll = (empId, checked) => {
+                setParticipantDates((prev) => ({ ...prev, [empId]: checked ? [...days] : [] }));
+              };
+
+              const bulkSetDates = (dateStr, checked) => {
+                setParticipantDates((prev) => {
+                  const next = { ...prev };
+                  selectedParticipants.forEach((empId) => {
+                    const current = next[empId] || [...days];
+                    if (checked && !current.includes(dateStr)) {
+                      next[empId] = [...current, dateStr].sort();
+                    } else if (!checked) {
+                      next[empId] = current.filter((d) => d !== dateStr);
+                    }
+                  });
+                  return next;
+                });
+              };
+
+              return (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                    <CalendarOutlined style={{ color: "#1890ff" }} />
+                    <span style={{ fontWeight: 600, fontSize: 13 }}>Attendance Dates per Participant</span>
+                    <span style={{ fontSize: 11, color: "#999" }}>(Uncheck dates if participant did not attend all days)</span>
+                  </div>
+                  <div style={{ maxHeight: 250, overflowY: "auto", border: "1px solid #f0f0f0", borderRadius: 6, padding: 8 }}>
+                    {/* Column header row */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 6, paddingBottom: 6, borderBottom: "1px solid #f0f0f0" }}>
+                      <div style={{ flex: 1, minWidth: 140, fontSize: 11, fontWeight: 600, color: "#888" }}>Employee</div>
+                      {days.map((day) => (
+                        <Tooltip key={day} title={`Toggle ${dayjs(day).format("MMM D")} for all`}>
+                          <div style={{ width: 54, textAlign: "center", cursor: "pointer" }} onClick={() => {
+                            const allHave = selectedParticipants.every((empId) => (participantDates[empId] || days).includes(day));
+                            bulkSetDates(day, !allHave);
+                          }}>
+                            <div style={{ fontSize: 10, fontWeight: 600, color: "#555" }}>{dayjs(day).format("MMM D")}</div>
+                            <div style={{ fontSize: 9, color: "#aaa" }}>{dayjs(day).format("ddd")}</div>
+                          </div>
+                        </Tooltip>
+                      ))}
+                      <div style={{ width: 40, textAlign: "center", fontSize: 10, fontWeight: 600, color: "#888" }}>All</div>
+                    </div>
+                    {/* Participant rows */}
+                    {selectedParticipants.map((empId) => {
+                      const emp = employees.find((e) => e.empId === empId);
+                      const empDates = participantDates[empId] || days; // default: all days
+                      const allChecked = days.every((d) => empDates.includes(d));
+                      return (
+                        <div key={empId} style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 4, paddingBottom: 4, borderBottom: "1px solid #fafafa" }}>
+                          <div style={{ flex: 1, minWidth: 140, fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            <Tooltip title={emp?.name || empId}>
+                              {emp?.name || empId}
+                            </Tooltip>
+                          </div>
+                          {days.map((day) => (
+                            <div key={day} style={{ width: 54, textAlign: "center" }}>
+                              <Checkbox
+                                checked={empDates.includes(day)}
+                                onChange={() => toggleDate(empId, day)}
+                                disabled={readOnly && isDemoActive && isDemoUser}
+                              />
+                            </div>
+                          ))}
+                          <div style={{ width: 40, textAlign: "center" }}>
+                            <Checkbox
+                              checked={allChecked}
+                              onChange={(e) => toggleAll(empId, e.target.checked)}
+                              disabled={readOnly && isDemoActive && isDemoUser}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* --- IIS Transaction Field simplified --- */}
             <Form.Item
               label="Special Order No. / IIS Transaction No."
@@ -826,6 +1112,224 @@ const Trainings = () => {
           </Form>
         </Modal>
       )}
+
+      {/* Scan Attendance Sheet — Preview Modal */}
+      <Modal
+        title={
+          <Space size={8}>
+            <UploadOutlined />
+            <span style={{ fontWeight: 600 }}>Scan Attendance Sheet</span>
+          </Space>
+        }
+        open={scanModalVisible}
+        onCancel={() => { if (!scanUploading) setScanModalVisible(false); }}
+        maskClosable={!scanUploading}
+        closable={!scanUploading}
+        width={640}
+        footer={
+          scanResults ? (
+            <Space>
+              <Button onClick={() => setScanModalVisible(false)}>Cancel</Button>
+              <Button
+                type="primary"
+                disabled={!scanResults.matchedEmployees?.length}
+                onClick={applyScanResults}
+              >
+                Add {scanResults.matchedEmployees?.length || 0} Matched Employee(s)
+              </Button>
+            </Space>
+          ) : (
+            <Button onClick={() => setScanModalVisible(false)}>Close</Button>
+          )
+        }
+        destroyOnClose
+      >
+        {/* Upload area */}
+        {!scanResults && (
+          <div style={{ marginBottom: 16 }}>
+            <p style={{ marginBottom: 8, color: "#555" }}>
+              Upload one or more attendance sheets (PDF or images). Each file will be scanned for names and matched against the employee database.
+            </p>
+            <Upload.Dragger
+              accept=".pdf,.jpg,.jpeg,.png,.webp"
+              multiple
+              showUploadList={false}
+              beforeUpload={(file, fileList) => {
+                // Only process once for the full batch
+                if (file === fileList[0]) {
+                  handleScanFiles(fileList);
+                }
+                return false;
+              }}
+              disabled={scanUploading}
+              style={{ padding: "16px 0" }}
+            >
+              <p className="ant-upload-drag-icon" style={{ marginBottom: 4 }}>
+                <UploadOutlined style={{ fontSize: 32, color: "#1890ff" }} />
+              </p>
+              <p className="ant-upload-text" style={{ fontSize: 13 }}>
+                Click or drag files here to upload
+              </p>
+              <p className="ant-upload-hint" style={{ fontSize: 11, color: "#999" }}>
+                Supports PDF, JPEG, PNG, WebP — Max 10MB per file
+              </p>
+            </Upload.Dragger>
+          </div>
+        )}
+
+        {/* Scanning progress */}
+        {scanUploading && (
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+              <Spin size="small" />
+              <span style={{ fontSize: 13 }}>Scanning file {scanProgress.current} of {scanProgress.total}...</span>
+            </div>
+            <Progress
+              percent={scanProgress.total > 0 ? Math.round((scanProgress.current / scanProgress.total) * 100) : 0}
+              size="small"
+              status="active"
+            />
+          </div>
+        )}
+
+        {/* File processing summary */}
+        {scanFileList.length > 0 && !scanUploading && (
+          <div style={{ marginBottom: 12 }}>
+            <span style={{ fontWeight: 500, fontSize: 13, marginBottom: 4, display: "block" }}>Files Processed:</span>
+            {scanFileList.map((f, idx) => (
+              <Tag
+                key={idx}
+                color={f.status === "done" ? "green" : "red"}
+                style={{ marginBottom: 4 }}
+              >
+                {f.name} {f.status === "done" ? `(${f.matched} matched, ${f.unmatched} unmatched)` : `(${f.error})`}
+              </Tag>
+            ))}
+          </div>
+        )}
+
+        {/* Results preview tables */}
+        {scanResults && !scanUploading && (
+          <div>
+            {/* Matched Employees Table */}
+            {scanResults.matchedEmployees?.length > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <Alert
+                  type="success"
+                  showIcon
+                  style={{ marginBottom: 8 }}
+                  message={`${scanResults.matchedEmployees.length} employee(s) matched`}
+                />
+                <Table
+                  size="small"
+                  pagination={false}
+                  scroll={{ y: 200 }}
+                  dataSource={scanResults.matchedEmployees.map((m, i) => ({ ...m, key: i }))}
+                  columns={[
+                    { title: "Employee Name", dataIndex: "name", key: "name", width: 180 },
+                    { title: "Division", dataIndex: "division", key: "division", width: 120, ellipsis: true },
+                    { title: "Matched From", dataIndex: "matchedFrom", key: "matchedFrom", width: 160, render: (v) => <span style={{ color: "#888", fontSize: 11 }}>{v}</span> },
+                    { title: "Confidence", dataIndex: "confidence", key: "confidence", width: 80, render: (v) => <Tag color={v >= 80 ? "green" : v >= 60 ? "orange" : "red"}>{v}%</Tag> },
+                  ]}
+                />
+              </div>
+            )}
+
+            {/* Unmatched Names — Editable Table */}
+            {editableUnmatched.length > 0 && (
+              <div>
+                <Alert
+                  type="warning"
+                  showIcon
+                  style={{ marginBottom: 8 }}
+                  message={`${editableUnmatched.length} name(s) could not be matched — edit names below then re-match`}
+                />
+                <Table
+                  size="small"
+                  pagination={false}
+                  scroll={{ y: 160 }}
+                  dataSource={editableUnmatched}
+                  rowKey="key"
+                  columns={[
+                    {
+                      title: "#",
+                      width: 40,
+                      render: (_, __, idx) => <span style={{ color: "#999", fontSize: 11 }}>{idx + 1}</span>,
+                    },
+                    {
+                      title: "Extracted Name",
+                      dataIndex: "name",
+                      key: "name",
+                      render: (val, record) => (
+                        <Input
+                          size="small"
+                          value={val}
+                          onChange={(e) => {
+                            setEditableUnmatched((prev) =>
+                              prev.map((r) => (r.key === record.key ? { ...r, name: e.target.value } : r))
+                            );
+                          }}
+                          style={{ fontSize: 12 }}
+                        />
+                      ),
+                    },
+                    {
+                      title: "",
+                      width: 40,
+                      render: (_, record) => (
+                        <Button
+                          type="text"
+                          size="small"
+                          danger
+                          icon={<DeleteOutlined />}
+                          onClick={() => setEditableUnmatched((prev) => prev.filter((r) => r.key !== record.key))}
+                        />
+                      ),
+                    },
+                  ]}
+                />
+                <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center" }}>
+                  <Button
+                    size="small"
+                    onClick={() => {
+                      const nextKey = editableUnmatched.length ? Math.max(...editableUnmatched.map((r) => r.key)) + 1 : 0;
+                      setEditableUnmatched((prev) => [...prev, { key: nextKey, name: "" }]);
+                    }}
+                  >
+                    + Add Row
+                  </Button>
+                  <Button
+                    type="primary"
+                    size="small"
+                    loading={rematching}
+                    onClick={handleRematchNames}
+                  >
+                    Re-match Names
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Raw OCR Text (collapsible) */}
+            {scanRawText && (
+              <details style={{ marginTop: 12 }}>
+                <summary style={{ fontSize: 12, color: "#888", cursor: "pointer" }}>Show Raw OCR Text</summary>
+                <Input.TextArea
+                  value={scanRawText}
+                  readOnly
+                  autoSize={{ minRows: 3, maxRows: 8 }}
+                  style={{ marginTop: 4, fontSize: 11, fontFamily: "monospace", background: "#fafafa" }}
+                />
+              </details>
+            )}
+
+            {/* No matches at all */}
+            {!scanResults.matchedEmployees?.length && !editableUnmatched.length && (
+              <Alert type="info" showIcon message="No text could be extracted from the uploaded files." />
+            )}
+          </div>
+        )}
+      </Modal>
     </div>
   );
 };
